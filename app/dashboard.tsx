@@ -223,20 +223,6 @@ export default function Dashboard() {
             ))}
           </View>
         </View>
-
-        <View
-          style={{
-            marginTop: 24,
-            alignItems: "center",
-            borderTopWidth: 1,
-            borderColor: "rgba(55,65,81,0.6)",
-            paddingTop: 12,
-          }}
-        >
-          <Text style={{ color: "#9ca3af" }}>
-            Powered by Nirvana
-          </Text>
-        </View>
       </ScrollView>
     </View>
   );

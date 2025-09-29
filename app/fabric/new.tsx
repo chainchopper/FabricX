@@ -93,21 +93,6 @@ export default function NewFabricLayer() {
             </Text>
           </Pressable>
         </View>
-
-        <View style={{ flex: 1 }} />
-
-        <View
-          style={{
-            paddingVertical: 14,
-            alignItems: "center",
-            borderTopWidth: 1,
-            borderColor: "rgba(55,65,81,0.6)",
-          }}
-        >
-          <Text style={{ color: "#9ca3af" }}>
-            Powered by Nirvana
-          </Text>
-        </View>
       </View>
     </View>
   );

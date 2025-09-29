@@ -1,5 +1,6 @@
+import React, { Suspense, useEffect, useState } from "react";
+import { Platform, View, Text, Pressable, Vibration } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { View, Text, Pressable, Vibration } from "react-native";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
@@ -7,6 +8,8 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import FabricCanvas from "../components/FabricCanvas";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+
+type Web3DComp = React.ComponentType;
 
 export default function FabricRoom() {
   const { layerId } = useLocalSearchParams<{ layerId?: string }>();
@@ -17,6 +20,14 @@ export default function FabricRoom() {
   const toast = useToast();
   const haptics = useHaptics();
   const insets = useSafeAreaInsets();
+
+  const [Web3D, setWeb3D] = useState<Web3DComp | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      import("../../src/components/FabricWeb3D").then((m) => setWeb3D(() => m.default));
+    }
+  }, []);
 
   const handleCanvasTouch = () => {
     // Potential hook for realtime propagation later; keep simple now
@@ -46,9 +57,15 @@ export default function FabricRoom() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      {/* Full-screen Fabric Canvas */}
+      {/* Full-screen Fabric Canvas (web: 3D, native/web fallback: 2D ripples) */}
       <View style={{ flex: 1 }}>
-        <FabricCanvas fullScreen onTouch={handleCanvasTouch} />
+        {Platform.OS === "web" && Web3D ? (
+          <Suspense fallback={null}>
+            <Web3D />
+          </Suspense>
+        ) : (
+          <FabricCanvas fullScreen onTouch={handleCanvasTouch} />
+        )}
       </View>
 
       {/* Minimal Overlays */}
