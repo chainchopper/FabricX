@@ -10,7 +10,7 @@ import * as Linking from "expo-linking";
 export default function FabricRoom() {
   const { layerId } = useLocalSearchParams<{ layerId?: string }>();
   const id = String(layerId || "");
-  const { layers } = useLayers();
+  const { layers, addLayer } = useLayers();
   const layer = layers.find((l) => l.id === id);
 
   const toast = useToast();
@@ -27,6 +27,13 @@ export default function FabricRoom() {
     await Clipboard.setStringAsync(url);
     haptics.notifySuccess();
     toast.show("Invite link copied");
+  };
+
+  const handleSaveToRecent = () => {
+    const name = `Layer ${id}`;
+    addLayer({ id, name });
+    haptics.notifySuccess();
+    toast.show("Saved to recent");
   };
 
   return (
@@ -47,7 +54,37 @@ export default function FabricRoom() {
           <Text style={{ color: "#a5b4fc" }}>ID: {id}</Text>
           {layer?.name ? (
             <Text style={{ color: "#93c5fd" }}>Name: {layer.name}</Text>
-          ) : null}
+          ) : (
+            <View
+              style={{
+                marginTop: 8,
+                backgroundColor: "rgba(2,132,199,0.15)",
+                borderColor: "rgba(34,211,238,0.35)",
+                borderWidth: 1,
+                borderRadius: 10,
+                padding: 10,
+                gap: 8,
+              }}
+            >
+              <Text style={{ color: "#bae6fd" }}>
+                This layer isn’t in your recent list yet.
+              </Text>
+              <Pressable
+                onPress={handleSaveToRecent}
+                style={{
+                  alignSelf: "flex-start",
+                  backgroundColor: "#0891b2",
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: "white", fontWeight: "700" }}>
+                  Save to Recent
+                </Text>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         <View
