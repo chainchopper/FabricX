@@ -5,6 +5,7 @@ import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
+import FabricCanvas from "../components/FabricCanvas";
 
 export default function FabricRoom() {
   const { layerId } = useLocalSearchParams<{ layerId?: string }>();
@@ -14,6 +15,12 @@ export default function FabricRoom() {
 
   const toast = useToast();
   const haptics = useHaptics();
+
+  const handleCanvasTouch = () => {
+    // Potential hook for realtime propagation later; keep simple now
+    Vibration.vibrate([30]);
+    haptics.impactLight();
+  };
 
   const handleTouchPulse = () => {
     Vibration.vibrate([80, 40, 80]);
@@ -85,6 +92,9 @@ export default function FabricRoom() {
           )}
         </View>
 
+        {/* Interactive Fabric Canvas */}
+        <FabricCanvas height={280} onTouch={handleCanvasTouch} />
+
         <View
           style={{
             backgroundColor: "#0f172a",
@@ -96,8 +106,7 @@ export default function FabricRoom() {
           }}
         >
           <Text style={{ color: "#cbd5e1" }}>
-            This is a placeholder for the 3D fabric canvas. Use the actions below
-            to interact or share your layer.
+            Touch the Fabric above to send ripples. Use actions to interact or share.
           </Text>
 
           <View style={{ flexDirection: "row", gap: 10 }}>
