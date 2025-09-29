@@ -1,19 +1,9 @@
-import React, { Suspense, useEffect, useRef, useState } from "react";
-import { Platform, View, Text, Pressable, Animated, Easing } from "react-native";
-import FabricCanvas from "./components/FabricCanvas";
-
-type Web3DComp = React.ComponentType;
+import React, { useRef, useState } from "react";
+import { View, Text, Pressable, Animated, Easing } from "react-native";
 
 export default function HomeScreen() {
-  const [Web3D, setWeb3D] = useState<Web3DComp | null>(null);
   const [overlayActive, setOverlayActive] = useState(true);
   const opacity = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      import("../src/components/FabricWeb3D").then((m) => setWeb3D(() => m.default));
-    }
-  }, []);
 
   const fadeOutOverlay = () => {
     if (!overlayActive) return;
@@ -26,17 +16,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020", position: "relative" }}>
-      <View style={{ flex: 1, position: "relative" }}>
-        {Platform.OS === "web" && Web3D ? (
-          <Suspense fallback={null}>
-            <Web3D />
-          </Suspense>
-        ) : (
-          <FabricCanvas fullScreen />
-        )}
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: "transparent" }}>
       {overlayActive ? (
         <Animated.View
           style={{

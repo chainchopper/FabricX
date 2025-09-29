@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useState } from "react";
+import React from "react";
 import { Platform, View, Text, Pressable, Vibration } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useToast } from "../components/Toast";
@@ -6,11 +6,8 @@ import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
-import FabricCanvas from "../components/FabricCanvas";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAR } from "../context/ARContext";
-
-type Web3DComp = React.ComponentType;
 
 export default function FabricRoom() {
   const { layerId } = useLocalSearchParams<{ layerId?: string }>();
@@ -22,19 +19,7 @@ export default function FabricRoom() {
   const haptics = useHaptics();
   const insets = useSafeAreaInsets();
 
-  const [Web3D, setWeb3D] = useState<Web3DComp | null>(null);
   const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
-
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      import("../../src/components/FabricWeb3D").then((m) => setWeb3D(() => m.default));
-    }
-  }, []);
-
-  const handleCanvasTouch = () => {
-    Vibration.vibrate([30]);
-    haptics.impactLight();
-  };
 
   const handleTouchPulse = () => {
     Vibration.vibrate([80, 40, 80]);
@@ -72,17 +57,7 @@ export default function FabricRoom() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      <View style={{ flex: 1, position: "relative" }}>
-        {Platform.OS === "web" && Web3D ? (
-          <Suspense fallback={null}>
-            <Web3D />
-          </Suspense>
-        ) : (
-          <FabricCanvas fullScreen onTouch={handleCanvasTouch} />
-        )}
-      </View>
-
+    <View style={{ flex: 1, backgroundColor: "transparent" }}>
       <SafeAreaView
         pointerEvents="box-none"
         style={{
