@@ -79,13 +79,13 @@ export function Locker() {
   const toast = useToast();
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
-  const backdropOpacity = slide.interpolate({
+
+  const PANEL_WIDTH = 300;
+  const TAB_SIZE = 58;
+
+  const translateX = slide.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 0.5],
-  });
-  const panelTranslate = slide.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-320, 0],
+    outputRange: [-PANEL_WIDTH, 0], // leave just the tab visible when closed
   });
 
   useEffect(() => {
@@ -97,6 +97,7 @@ export function Locker() {
     }).start();
   }, [open, slide]);
 
+  // Close on route change
   useEffect(() => {
     if (open) closeLocker();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,41 +143,14 @@ export function Locker() {
     updateActivity();
   };
 
+  // Backdrop opacity follows slide progress
+  const backdropOpacity = slide.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.5],
+  });
+
   return (
     <>
-      {/* Corner Tab Trigger with Logo from project root */}
-      <Pressable
-        onPress={toggleLocker}
-        style={{
-          position: "absolute",
-          top: 16,
-          left: 10,
-          zIndex: 60,
-          width: 58,
-          height: 58,
-          borderRadius: 14,
-          backgroundColor: "rgba(2,8,23,0.65)",
-          borderColor: "rgba(34,211,238,0.45)",
-          borderWidth: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.55,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: 6 },
-        }}
-      >
-        <Image
-          source={require("../../logo.png")}
-          style={{
-            width: 44,
-            height: 44,
-            resizeMode: "contain",
-            opacity: 0.95,
-          }}
-        />
-      </Pressable>
-
       {/* Backdrop */}
       {open ? (
         <Animated.View
@@ -202,7 +176,7 @@ export function Locker() {
         </Animated.View>
       ) : null}
 
-      {/* Drawer Panel */}
+      {/* Drawer + Attached Tab (both slide together) */}
       <Animated.View
         onStartShouldSetResponder={() => true}
         onResponderGrant={updateActivity}
@@ -211,70 +185,117 @@ export function Locker() {
           top: 0,
           bottom: 0,
           left: 0,
-          width: 300,
-          transform: [{ translateX: panelTranslate }],
+          width: PANEL_WIDTH + TAB_SIZE,
+          transform: [{ translateX }],
           zIndex: 56,
-          paddingTop: 18,
-          paddingHorizontal: 14,
-          backgroundColor: "rgba(15,23,42,0.82)",
-          borderRightColor: "rgba(34,211,238,0.35)",
-          borderRightWidth: 1,
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.3,
-          shadowRadius: 14,
-          shadowOffset: { width: 6, height: 0 },
         }}
       >
-        {/* Header with inline logo */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <Image
-            source={require("../../logo.png")}
-            style={{ width: 28, height: 28, borderRadius: 6 }}
-          />
-          <View>
-            <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
-            <Text style={{ color: "#93c5fd", fontSize: 12 }}>Powered by Nirvana</Text>
+        {/* Drawer Panel */}
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: PANEL_WIDTH,
+            paddingTop: 18,
+            paddingHorizontal: 14,
+            backgroundColor: "rgba(15,23,42,0.82)",
+            borderRightColor: "rgba(34,211,238,0.35)",
+            borderRightWidth: 1,
+            shadowColor: "#22d3ee",
+            shadowOpacity: 0.3,
+            shadowRadius: 14,
+            shadowOffset: { width: 6, height: 0 },
+          }}
+        >
+          {/* Header with inline logo */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <Image
+              source={require("../../logo.png")}
+              style={{ width: 28, height: 28, borderRadius: 6 }}
+            />
+            <View>
+              <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
+              <Text style={{ color: "#93c5fd", fontSize: 12 }}>Powered by Nirvana</Text>
+            </View>
+          </View>
+
+          <Divider />
+
+          {/* Primary Navigation */}
+          <NavItem href="/" label="Home" hint="Return to the hero" />
+          <NavItem href="/dashboard" label="Dashboard" hint="Recent layers and actions" />
+          <NavItem href="/fabric/new" label="New Layer" hint="Start weaving a new space" />
+          <NavItem href="/plugins" label="Plugins" hint="Discover and manage Looms" />
+          <NavItem href="/profile" label="Profile" hint="Identity and preferences" />
+
+          <Divider />
+
+          {/* Quick Actions */}
+          <Pressable
+            onPress={handleCopyInvite}
+            style={{
+              backgroundColor: "rgba(2,132,199,0.1)",
+              borderColor: "rgba(34,211,238,0.35)",
+              borderWidth: 1,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              marginTop: 6,
+            }}
+          >
+            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite to Current Layer</Text>
+            <Text style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
+              Open a layer, then use the room’s Invite for copy link
+            </Text>
+          </Pressable>
+
+          <View style={{ flex: 1 }} />
+
+          {/* Footer */}
+          <View style={{ paddingVertical: 10, alignItems: "center" }}>
+            <Text style={{ color: "#9ca3af", fontSize: 12 }}>
+              © 2024 Fanalogy • Powered by Nirvana
+            </Text>
           </View>
         </View>
 
-        <Divider />
-
-        {/* Primary Navigation */}
-        <NavItem href="/" label="Home" hint="Return to the hero" />
-        <NavItem href="/dashboard" label="Dashboard" hint="Recent layers and actions" />
-        <NavItem href="/fabric/new" label="New Layer" hint="Start weaving a new space" />
-        <NavItem href="/plugins" label="Plugins" hint="Discover and manage Looms" />
-        <NavItem href="/profile" label="Profile" hint="Identity and preferences" />
-
-        <Divider />
-
-        {/* Quick Actions */}
+        {/* Attached Corner Tab (logo) */}
         <Pressable
-          onPress={handleCopyInvite}
+          onPress={toggleLocker}
           style={{
-            backgroundColor: "rgba(2,132,199,0.1)",
-            borderColor: "rgba(34,211,238,0.35)",
-            borderWidth: 1,
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            borderRadius: 10,
-            marginTop: 6,
+            position: "absolute",
+            top: 16,
+            left: PANEL_WIDTH,
+            width: TAB_SIZE,
+            height: TAB_SIZE,
+            borderTopRightRadius: 14,
+            borderBottomRightRadius: 14,
+            backgroundColor: "rgba(2,8,23,0.65)",
+            borderColor: "rgba(34,211,238,0.45)",
+            borderLeftWidth: 0,
+            borderRightWidth: 1,
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            shadowColor: "#22d3ee",
+            shadowOpacity: 0.55,
+            shadowRadius: 14,
+            shadowOffset: { width: 0, height: 6 },
           }}
         >
-          <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite to Current Layer</Text>
-          <Text style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
-            Open a layer, then use the room’s Invite for copy link
-          </Text>
+          <Image
+            source={require("../../logo.png")}
+            style={{
+              width: 44,
+              height: 44,
+              resizeMode: "contain",
+              opacity: 0.95,
+            }}
+          />
         </Pressable>
-
-        <View style={{ flex: 1 }} />
-
-        {/* Footer */}
-        <View style={{ paddingVertical: 10, alignItems: "center" }}>
-          <Text style={{ color: "#9ca3af", fontSize: 12 }}>
-            © 2024 Fanalogy • Powered by Nirvana
-          </Text>
-        </View>
       </Animated.View>
     </>
   );
