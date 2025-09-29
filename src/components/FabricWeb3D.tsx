@@ -149,7 +149,7 @@ export default function FabricWeb3D() {
 
   return (
     <div style={{ width: "100%", height: "100%", background: "#0b1020" }}>
-      <Canvas dpr={dpr} gl={{ antialias: true }}>
+      <Canvas dpr={dpr} gl={{ antialias: true }} style={{ width: "100%", height: "100%" }}>
         {isARCameraActive && videoTexture ? <CameraBackground texture={videoTexture} /> : <color attach="background" args={["#0b1020"]} />}
         <ambientLight intensity={0.3} />
         <directionalLight intensity={0.6} position={[2, 3, 2]} />
