@@ -26,6 +26,7 @@ interface FabricCanvasProps {
  * FabricCanvas
  * - Game-like interactive area
  * - Tapping spawns ripples with glow; triggers haptic + soft audio cue (web only)
+ * - Long-press sends a stronger "Pulse" (double ripple) with heavier feedback
  * - No extra deps, fully native Animated
  */
 export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProps) {
@@ -72,6 +73,16 @@ export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProp
     onTouch?.({ x: locationX, y: locationY, timestamp: Date.now() });
   };
 
+  const handleLongPress = (evt: any) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    // Double ripple pulse
+    spawnRipple(locationX, locationY);
+    setTimeout(() => spawnRipple(locationX, locationY), 90);
+    haptics.impactHeavy();
+    audio.pulse();
+    onTouch?.({ x: locationX, y: locationY, timestamp: Date.now() });
+  };
+
   // Calculate a max radius so ripples always feel big enough across sizes
   const maxRadius = Math.max(layout.width, layout.height) * 0.55;
 
@@ -80,7 +91,12 @@ export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProp
       style={[styles.wrap, { height }]}
       onLayout={onLayout}
     >
-      <Pressable onPressIn={handlePressIn} style={styles.pressable}>
+      <Pressable
+        onPressIn={handlePressIn}
+        onLongPress={handleLongPress}
+        delayLongPress={320}
+        style={styles.pressable}
+      >
         {/* Subtle energy backdrop */}
         <View style={styles.energyGlow} />
         {/* Border and inner surface */}
