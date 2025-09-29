@@ -26,9 +26,8 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      {/* Full-screen Fabric */}
-      <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: "#0b1020", position: "relative" }}>
+      <View style={{ flex: 1, position: "relative" }}>
         {Platform.OS === "web" && Web3D ? (
           <Suspense fallback={null}>
             <Web3D />
@@ -38,7 +37,6 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Branding overlay: fades away on first interaction */}
       {overlayActive ? (
         <Animated.View
           style={{
@@ -52,7 +50,6 @@ export default function HomeScreen() {
             opacity,
           }}
         >
-          {/* Capture the first interaction, then disappear */}
           <Pressable
             onPress={fadeOutOverlay}
             style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}

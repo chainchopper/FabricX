@@ -73,7 +73,7 @@ export default function FabricRoom() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, position: "relative" }}>
         {Platform.OS === "web" && Web3D ? (
           <Suspense fallback={null}>
             <Web3D />
@@ -96,7 +96,6 @@ export default function FabricRoom() {
           paddingHorizontal: 10,
         }}
       >
-        {/* Top-left: Layer info */}
         <View
           pointerEvents="none"
           style={{
@@ -119,7 +118,6 @@ export default function FabricRoom() {
           </Text>
         </View>
 
-        {/* Top-right: Invite + AR */}
         <Pressable
           onPress={handleInvite}
           style={{
@@ -158,7 +156,6 @@ export default function FabricRoom() {
           </Pressable>
         ) : null}
 
-        {/* Bottom-right: Pulse */}
         <Pressable
           onPress={handleTouchPulse}
           style={{
@@ -178,7 +175,6 @@ export default function FabricRoom() {
           <Text style={{ color: "#fff", fontWeight: "800" }}>Pulse</Text>
         </Pressable>
 
-        {/* Bottom-left: Save (only if not in recent) */}
         {!layer ? (
           <Pressable
             onPress={handleSaveToRecent}
