@@ -7,6 +7,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { usePreferences } from "../context/PreferencesContext";
 import { useLayers } from "../context/LayersContext";
+import QuickCreateLayer from "./QuickCreateLayer";
 
 type LockerContextValue = {
   open: boolean;
@@ -258,6 +259,9 @@ export function Locker() {
           <NavItem href="/fabric/new" label="New Layer" hint="Start weaving a new space" />
           <NavItem href="/plugins" label="Plugins" hint="Discover and manage Looms" />
           <NavItem href="/profile" label="Profile" hint="Identity and preferences" />
+
+          {/* Quick Create inside Locker */}
+          <QuickCreateLayer />
 
           {/* Recent Layers */}
           {recent.length > 0 ? (
