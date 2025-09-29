@@ -5,6 +5,7 @@ import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
+import { usePreferences } from "../context/PreferencesContext";
 
 type LockerContextValue = {
   open: boolean;
@@ -79,6 +80,7 @@ export function Locker() {
   const pathname = usePathname();
   const haptics = useHaptics();
   const toast = useToast();
+  const { hapticsEnabled, toggleHaptics } = usePreferences();
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
 
@@ -263,6 +265,28 @@ export function Locker() {
             <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite to Current Layer</Text>
             <Text style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
               Copies a deep link if you’re inside a layer
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              toggleHaptics();
+              haptics.impactLight();
+              toast.show(`Haptics ${hapticsEnabled ? "off" : "on"}`);
+              updateActivity();
+            }}
+            style={{
+              marginTop: 10,
+              backgroundColor: hapticsEnabled ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+              borderColor: hapticsEnabled ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)",
+              borderWidth: 1,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+            }}
+          >
+            <Text style={{ color: hapticsEnabled ? "#34d399" : "#ef4444", fontWeight: "700" }}>
+              Haptics {hapticsEnabled ? "On" : "Off"}
             </Text>
           </Pressable>
 
