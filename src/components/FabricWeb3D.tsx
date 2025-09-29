@@ -67,7 +67,6 @@ const fragmentShader = `
 `;
 
 function CameraBackground({ texture }: { texture: THREE.VideoTexture }) {
-  // Use a plane behind the liquid surface
   return (
     <mesh position={[0, 0, -0.6]} frustumCulled={false}>
       <planeGeometry args={[2, 2, 1, 1]} />
@@ -152,8 +151,16 @@ export default function FabricWeb3D() {
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "transparent" }}>
       <Canvas
         dpr={dpr}
-        gl={{ antialias: true }}
-        style={{ position: "fixed", inset: 0 }}
+        frameloop="always"
+        gl={{
+          antialias: true,
+          alpha: true,
+          stencil: false,
+          depth: true,
+          preserveDrawingBuffer: false,
+          powerPreference: "high-performance",
+        }}
+        style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
       >
         {isARCameraActive && videoTexture ? <CameraBackground texture={videoTexture} /> : <color attach="background" args={["#0b1020"]} />}
         <ambientLight intensity={0.3} />

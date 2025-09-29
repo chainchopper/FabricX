@@ -27,6 +27,23 @@
     <meta name="twitter:title" content="Fabric — Multi‑Sensory Interactive Platform" />
     <meta name="twitter:description" content="Weave reality together. Game‑like canvas, synchronized cues, minimal chrome. Powered by Nirvana." />
     <meta name="twitter:image" content="/logo.png" />
+
+    <!-- Full-viewport sizing and transparent background so Fabric stays visible -->
+    <style>
+      html, body, #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overscroll-behavior: none;
+      }
+      /* Make sure nothing adds unexpected scrollbars over the canvas */
+      body { overflow: hidden; }
+
+      /* WebGL canvas interaction friendliness */
+      canvas { touch-action: none; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
