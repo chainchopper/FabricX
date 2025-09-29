@@ -7,7 +7,8 @@ type Web3DComp = React.ComponentType;
 
 export default function GlobalFabricBackground() {
   const pathname = usePathname();
-  const hideOnFabricRoutes = /^\/fabric(\/|$)/.test(pathname || "");
+  // Hide the background on dedicated Fabric scene and on Home (Home renders its own)
+  const hideOnRoutes = pathname === "/" || /^\/fabric(\/|$)/.test(pathname || "");
   const [Web3D, setWeb3D] = useState<Web3DComp | null>(null);
 
   useEffect(() => {
@@ -16,7 +17,7 @@ export default function GlobalFabricBackground() {
     }
   }, []);
 
-  if (hideOnFabricRoutes) return null;
+  if (hideOnRoutes) return null;
 
   return (
     <View
