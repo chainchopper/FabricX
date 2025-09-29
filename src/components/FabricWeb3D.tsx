@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import type { ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { eventBus, InputEvent } from "../../shared/utils/eventBus";
 import { decayTowards } from "../../shared/utils/easing";
@@ -121,25 +122,24 @@ function LiquidSurface() {
     <mesh
       ref={meshRef}
       rotation={[-Math.PI * 0.0, 0, 0]}
-      onPointerMove={(e) => {
+      onPointerMove={(e: ThreeEvent<PointerEvent>) => {
         // Update pointer via UV and emit drag to bus for global consumers
         if (!materialRef.current || !e.uv) return;
         const uv = e.uv;
         (materialRef.current.uniforms.uPointer.value as THREE.Vector2).set(uv.x, uv.y);
         eventBus.emitDrag(uv.x, uv.y);
       }}
-      onPointerDown={(e) => {
+      onPointerDown={(e: ThreeEvent<PointerEvent>) => {
         if (!materialRef.current || !e.uv) return;
         const uv = e.uv;
         eventBus.emitTap(uv.x, uv.y);
       }}
-      onContextMenu={(e) => {
+      onContextMenu={(e: ThreeEvent<MouseEvent>) => {
         // Simulate long-press via right-click on web
         e.preventDefault();
-        const target = materialRef.current;
-        if (!target) return;
-        const uv = (e as unknown as { uv?: THREE.Vector2 }).uv;
-        if (uv) eventBus.emitLongPress(uv.x, uv.y);
+        if (!materialRef.current || !e.uv) return;
+        const uv = e.uv;
+        eventBus.emitLongPress(uv.x, uv.y);
       }}
     >
       <planeGeometry args={[2, 2, 128, 128]} />
