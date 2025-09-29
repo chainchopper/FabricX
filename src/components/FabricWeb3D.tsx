@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { eventBus, InputEvent } from "../../shared/utils/eventBus";
 import { decayTowards } from "../../shared/utils/easing";
 import { useAR } from "../contexts/ARContext";
-
-type Vec2 = [number, number];
+import TouchParticles from "./TouchParticles";
 
 const vertexShader = `
   varying vec2 vUv;
@@ -127,8 +126,7 @@ function LiquidSurface() {
         eventBus.emitTap(e.uv.x, e.uv.y);
       }}
       onContextMenu={(e: ThreeEvent<MouseEvent>) => {
-        // Use underlying native event
-        (e.nativeEvent as MouseEvent).preventDefault();
+        e.nativeEvent.preventDefault();
         if (!materialRef.current || !e.uv) return;
         eventBus.emitLongPress(e.uv.x, e.uv.y);
       }}
@@ -156,6 +154,7 @@ export default function FabricWeb3D() {
         <ambientLight intensity={0.3} />
         <directionalLight intensity={0.6} position={[2, 3, 2]} />
         <LiquidSurface />
+        <TouchParticles />
         <perspectiveCamera position={[0, 0, 1.8]} fov={50} />
       </Canvas>
     </div>
