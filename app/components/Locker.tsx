@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Pressable, View, Text } from "react-native";
+import { Animated, Easing, Pressable, View, Text, Image } from "react-native";
 import { Link, usePathname } from "expo-router";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
@@ -32,7 +32,6 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
 
   const updateActivity = useCallback(() => {
     clearTimer();
-    // Auto-hide after 6s of inactivity
     inactivityRef.current = setTimeout(() => {
       setOpen(false);
       haptics.impactLight();
@@ -98,11 +97,8 @@ export function Locker() {
     }).start();
   }, [open, slide]);
 
-  // Close locker when route changes
   useEffect(() => {
-    if (open) {
-      closeLocker();
-    }
+    if (open) closeLocker();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
@@ -141,7 +137,6 @@ export function Locker() {
   );
 
   const handleCopyInvite = () => {
-    // Haptic feedback and toast; the actual copy UI is in room/dashboard, but Locker reinforces intent
     haptics.impactLight();
     toast.show("Open a layer to generate an invite");
     updateActivity();
@@ -149,31 +144,37 @@ export function Locker() {
 
   return (
     <>
-      {/* Floating Toggle Button */}
+      {/* Corner Tab Trigger with Logo */}
       <Pressable
         onPress={toggleLocker}
         style={{
           position: "absolute",
-          bottom: 24,
-          left: 16,
+          top: 16,
+          left: 10,
           zIndex: 60,
-          width: 56,
-          height: 56,
-          borderRadius: 28,
+          width: 58,
+          height: 58,
+          borderRadius: 14,
           backgroundColor: "rgba(2,8,23,0.65)",
           borderColor: "rgba(34,211,238,0.45)",
           borderWidth: 1,
           alignItems: "center",
           justifyContent: "center",
           shadowColor: "#22d3ee",
-          shadowOpacity: 0.5,
-          shadowRadius: 12,
+          shadowOpacity: 0.55,
+          shadowRadius: 14,
           shadowOffset: { width: 0, height: 6 },
         }}
       >
-        <Text style={{ color: "#22d3ee", fontSize: 12, fontWeight: "800" }}>
-          Locker
-        </Text>
+        <Image
+          source={require("../../assets/IconLogo.png")}
+          style={{
+            width: 44,
+            height: 44,
+            resizeMode: "contain",
+            opacity: 0.95,
+          }}
+        />
       </Pressable>
 
       {/* Backdrop */}
@@ -224,16 +225,11 @@ export function Locker() {
           shadowOffset: { width: 6, height: 0 },
         }}
       >
-        {/* Header */}
+        {/* Header with inline logo */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <View
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 8,
-              backgroundColor: "#22d3ee",
-              opacity: 0.9,
-            }}
+          <Image
+            source={require("../../assets/IconLogo.png")}
+            style={{ width: 28, height: 28, borderRadius: 6 }}
           />
           <View>
             <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
