@@ -1,90 +1,102 @@
-# AI Rules for Dyad
+# AI Development Rules for Project Fabric
 
-## Tech stack
+Project Identity
+- Company: Fanalogy
+- AI Stack: “Powered by Nirvana” (must appear in footer/credits)
+- Project: Fabric — Multi‑sensory interactive platform (game‑like feel, minimal chrome)
 
-- React Native via **Expo** (SDK 53, managed)
-- **expo-router** v5 for file‑based navigation
-- Web preview via **react-native-web** (0.20.x)
-- **React 19**, **React Native 0.79.x**, TypeScript
-- Core peers: `react-native-screens`, `react-native-safe-area-context`, `react-native-gesture-handler`, `react-native-reanimated`
-- Linking: `expo-linking` for external URLs
+Canonical Technical Stack (Web)
+- TypeScript strictly
+- React Router with routes in src/App.tsx
+- shadcn/ui (with Radix UI) for accessible primitives
+- Tailwind CSS for styling
+- Three.js with React Three Fiber (R3F) for 3D/WebGL
+- WebRTC (data channels) for real‑time
+- Web Audio API for sound
+- Vibration API for haptic feedback
 
-> **Version policy:** Keep versions as in `package.json`. Do **not** upgrade or add heavy deps unless asked.
+Current App Stack (Expo Variant) — Mapping
+- Routing: expo-router (app/ directory) maps to React Router routes
+- UI components: React Native primitives; no shadcn/ui/Tailwind (unless approved); style with inline or StyleSheet only
+- 3D: Postpone R3F on native; plan for web canvas parity first
+- Haptics: expo-haptics; Vibration API fallback
+- Realtime: WebRTC planning only; no heavy deps without approval
+- Do not add heavy dependencies or change package versions unless explicitly requested
 
----
+Project Structure (Web Target)
+src/
+  components/          # Reusable UI components
+  pages/               # Route pages
+  hooks/               # Custom hooks
+  utils/               # Utilities
+  types/               # TypeScript types
+  services/            # API + integrations (WebRTC, signaling)
+  contexts/            # Global state contexts
+  assets/              # Static assets
+  styles/              # Global styles/Tailwind config
 
-## Architecture
-
-- Entry handled by `"main": "expo-router/entry"` in `package.json` (no root `index.ts` required)
-- Routes live under `app/` and **must** export a default component
-- Root layout: `app/_layout.tsx` with `<Stack screenOptions={{ headerShown: false }} />`
-- Components in `components/` (optional), assets in `assets/`
-- Optional web tagging plugin: `scripts/babel-plugin-dyad-web-tags.js`
-
-Folder snapshot:
-
-```
-app/
+Expo Variant Structure (Current)
+app/                   # expo-router routes
   _layout.tsx
   index.tsx
-assets/
-scripts/
-  babel-plugin-dyad-web-tags.js   # optional for Select UI on web
-app.json
-package.json
-babel.config.js
-metro.config.js
-tsconfig.json
-```
+  ...
+app/components         # UI components
+app/hooks              # Hooks
+app/context            # Context providers
+app/utils              # Utilities
+assets/                # Static assets
 
----
+UI/UX Principles (Authoritative)
+- No persistent top navigation. Use a retractable “Locker” (drawer/sheet) that:
+  - Auto‑hides on inactivity
+  - Opens on user intent/edge gesture/button
+  - Never obstructs the main interactive surface
+- Primary canvas (the “Fabric”) is full‑screen, immersive, and game‑like
+- Micro‑interactions are multi‑sensory: coordinated visual/haptic/audio cues
+- Buttons, cards, and panels adopt game UI aesthetics (glass, depth, glow); avoid webby chrome
+- “Powered by Nirvana” must appear consistently in credits/footer overlays
 
-## Editing guidance
+Branding Requirements
+- Include “Powered by Nirvana” in the footer/credits
+- Use Fanalogy branding colors and logo (cyan/blue energy accents)
+- Unique Fabric favicon on web
+- OG meta tags with Fabric description on web
+- Keep branding consistent across all components
 
-- Prefer **functional components** with hooks; keep props typed
-- Keep platform‑specific code in `.native.tsx` / `.web.tsx` files
-- Use `StyleSheet.create` or inline styles; avoid DOM APIs
-- For web builds, custom components may accept `data-dyad-id` / `data-dyad-name` (RN primitives don’t need them)
-- Navigation: `import { router } from "expo-router"; router.push("/path")`
+Database Safety Protocol
+- NEVER delete existing tables
+- Use unique table prefixes: fabric_
+- Include project identifiers in all operations
+- Verify table existence before operations
+- Use proper migrations for schema changes
+- Enforce RLS when using Supabase (select/insert/update/delete policies)
 
----
+Component Development Rules
+- Web target: pages in src/pages, components in src/components
+- Update src/App.tsx routes when adding new pages (web)
+- Main page is src/pages/Index.tsx (web)
+- Use shadcn/ui components (unmodified) on web; create new components for customization
+- Type all props using interfaces
+- Expo variant: keep routes in app/, components in app/components, minimal changes, and no heavy deps until migration is approved
 
-## Configuration rules
+Available Packages (Web)
+- lucide-react
+- shadcn/ui + Radix UI
+- Three.js, @react-three/fiber, @react-three/drei
+- Tailwind CSS
+- react-router-dom
 
-- **Babel:** use only `babel-preset-expo` (don’t add `expo-router/babel`)
-- **TypeScript:** extend `expo/tsconfig.base` with `module: "ESNext"`, `moduleResolution: "Bundler"`
-- **Expo config:** `app.json` includes `plugins: ["expo-router"]`; optional `scheme` for deep links
+Migration Guidance (Web Approval Required)
+- Introduce Tailwind + shadcn/ui scaffolding under src/
+- Scaffold R3F canvas + shader system for liquid fabric
+- Implement WebRTC signaling + data channels
+- Preserve game‑like UI with Locker drawer (Radix Sheet/Dialog)
 
----
-
-## Do / Don’t
-
-**Do**
-
-- Add or tweak screens under `app/`
-- Make small UI changes and utility hooks/components
-- Open external links with `expo-linking`
-
-**Don’t**
-
-- Change dependency versions or add heavy libraries without instruction
-- Rewrite routing, Metro, or Babel config
-- Remove existing `data-*` tags or the optional tagging plugin
-
----
-
-## Commands
-
-- Start (native/web): `npm run start` (press `w` for web)
-- Web only: `npm run web`
-- iOS / Android: `npm run ios` / `npm run android`
-- Clean cache: `npx expo start --clear`
-
----
-
-## Troubleshooting
-
-- **Entry error:** ensure `package.json` has `"main": "expo-router/entry"`
-- **Missing default export warning:** each route file under `app/` must default‑export a component
-- **React UMD/JSX errors:** don’t restrict `compilerOptions.types`; or add `react`, `react-native` to it
-- **Metro mismatch:** use versions from `package.json`; don’t upgrade unless asked
+PR Checklist (reject anything that fails)
+- No persistent top nav; Locker/Drawer only
+- Full TypeScript typing (no implicit any)
+- No heavy deps added without approval
+- “Powered by Nirvana” present
+- DB operations use fabric_ prefixes and RLS (if applicable)
+- Web components follow shadcn/ui + Tailwind; Expo variant follows RN primitives
+- All user interactions provide toasts/haptics where appropriate
