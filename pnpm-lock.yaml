@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@react-native-async-storage/async-storage':
-        specifier: ^2.2.0
-        version: 2.2.0(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))
+        specifier: ^2.1.2
+        version: 2.1.2(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))
       '@react-navigation/native':
         specifier: ^7.1.6
         version: 7.1.17(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)
@@ -18,14 +18,14 @@ importers:
         specifier: ~53.0.0
         version: 53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)
       expo-clipboard:
-        specifier: ^8.0.7
-        version: 8.0.7(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)
+        specifier: ^7.1.5
+        version: 7.1.5(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)
       expo-constants:
         specifier: ~17.1.7
         version: 17.1.7(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))
       expo-haptics:
-        specifier: ^15.0.7
-        version: 15.0.7(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))
+        specifier: ^14.1.4
+        version: 14.1.4(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))
       expo-linking:
         specifier: ~7.1.7
         version: 7.1.7(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)
@@ -815,8 +815,8 @@ packages:
       '@types/react':
         optional: true
 
-  '@react-native-async-storage/async-storage@2.2.0':
-    resolution: {integrity: sha512-gvRvjR5JAaUZF8tv2Kcq/Gbt3JHwbKFYfmb445rhOj6NUMx3qPLixmDx5pZAyb9at1bYvJ4/eTUipU5aki45xw==}
+  '@react-native-async-storage/async-storage@2.1.2':
+    resolution: {integrity: sha512-dvlNq4AlGWC+ehtH12p65+17V0Dx7IecOWl6WanF2ja38O1Dcjjvn7jVzkUHJ5oWkQBlyASurTPlTHgKXyYiow==}
     peerDependencies:
       react-native: ^0.0.0-0 || >=0.65 <1.0
 
@@ -1543,8 +1543,8 @@ packages:
       react: '*'
       react-native: '*'
 
-  expo-clipboard@8.0.7:
-    resolution: {integrity: sha512-zvlfFV+wB2QQrQnHWlo0EKHAkdi2tycLtE+EXFUWTPZYkgu1XcH+aiKfd4ul7Z0SDF+1IuwoiW9AA9eO35aj3Q==}
+  expo-clipboard@7.1.5:
+    resolution: {integrity: sha512-TCANUGOxouoJXxKBW5ASJl2WlmQLGpuZGemDCL2fO5ZMl57DGTypUmagb0CVUFxDl0yAtFIcESd78UsF9o64aw==}
     peerDependencies:
       expo: '*'
       react: '*'
@@ -1568,8 +1568,8 @@ packages:
       expo: '*'
       react: '*'
 
-  expo-haptics@15.0.7:
-    resolution: {integrity: sha512-7flWsYPrwjJxZ8x82RiJtzsnk1Xp9ahnbd9PhCy3NnsemyMApoWIEUr4waPqFr80DtiLZfhD9VMLL1CKa8AImQ==}
+  expo-haptics@14.1.4:
+    resolution: {integrity: sha512-QZdE3NMX74rTuIl82I+n12XGwpDWKb8zfs5EpwsnGi/D/n7O2Jd4tO5ivH+muEG/OCJOMq5aeaVDqqaQOhTkcA==}
     peerDependencies:
       expo: '*'
 
@@ -4127,7 +4127,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.0.14
 
-  '@react-native-async-storage/async-storage@2.2.0(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))':
+  '@react-native-async-storage/async-storage@2.1.2(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))':
     dependencies:
       merge-options: 3.0.4
       react-native: 0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)
@@ -4986,7 +4986,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  expo-clipboard@8.0.7(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0):
+  expo-clipboard@7.1.5(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0):
     dependencies:
       expo: 53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)
       react: 19.0.0
@@ -5012,7 +5012,7 @@ snapshots:
       fontfaceobserver: 2.3.0
       react: 19.0.0
 
-  expo-haptics@15.0.7(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)):
+  expo-haptics@14.1.4(expo@53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)):
     dependencies:
       expo: 53.0.23(@babel/core@7.28.4)(@expo/metro-runtime@5.0.5(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0)))(react-native@0.79.5(@babel/core@7.28.4)(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)
 
