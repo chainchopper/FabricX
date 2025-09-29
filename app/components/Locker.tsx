@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Pressable, View, Text, Image } from "react-native";
+import { Animated, Easing, Pressable, View, Text, Image, ScrollView } from "react-native";
 import { Link, usePathname } from "expo-router";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
@@ -9,6 +9,7 @@ import { usePreferences } from "../context/PreferencesContext";
 import { useLayers } from "../context/LayersContext";
 import CreditsOverlay from "./CreditsOverlay";
 import { useAudioCues } from "../hooks/useAudioCues";
+import QuickCreateLayer from "./QuickCreateLayer";
 
 type LockerContextValue = {
   open: boolean;
@@ -95,7 +96,7 @@ export function Locker() {
 
   const translateX = slide.interpolate({
     inputRange: [0, 1],
-    outputRange: [-PANEL_WIDTH, 0], // leave just the tab visible when closed
+    outputRange: [-PANEL_WIDTH, 0],
   });
 
   useEffect(() => {
@@ -173,6 +174,8 @@ export function Locker() {
   };
 
   const recent = layers.slice(0, 5);
+  const activeLayerId = getActiveLayerId();
+  const isInLayer = !!activeLayerId;
 
   const backdropOpacity = slide.interpolate({
     inputRange: [0, 1],
@@ -193,7 +196,7 @@ export function Locker() {
 
   return (
     <>
-      {/* Edge opener (tiny left edge handle when closed) */}
+      {/* Edge opener (subtle sliver) */}
       {!open ? (
         <Pressable
           onPress={() => {
@@ -204,9 +207,12 @@ export function Locker() {
             position: "absolute",
             left: 0,
             bottom: TAB_SIZE + 24,
-            width: 10,
+            width: 12,
             height: 120,
             zIndex: 54,
+            backgroundColor: "rgba(34,211,238,0.12)",
+            borderTopRightRadius: 6,
+            borderBottomRightRadius: 6,
           }}
         />
       ) : null}
@@ -237,7 +243,7 @@ export function Locker() {
         </Animated.View>
       ) : null}
 
-      {/* Drawer + Attached Tab (both slide together) */}
+      {/* Drawer + Attached Tab */}
       <Animated.View
         onStartShouldSetResponder={() => true}
         onResponderGrant={updateActivity}
@@ -270,153 +276,156 @@ export function Locker() {
             shadowOffset: { width: 6, height: 0 },
           }}
         >
-          {/* Header with inline logo */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <Image source={require("../../logo.png")} style={{ width: 28, height: 28, borderRadius: 6 }} />
-            <View>
-              <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
-              <Text style={{ color: "#93c5fd", fontSize: 12 }}>Powered by Nirvana</Text>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 20 }}
+            scrollEventThrottle={64}
+            onScroll={updateActivity}
+          >
+            {/* Header with inline logo */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Image source={require("../../logo.png")} style={{ width: 28, height: 28, borderRadius: 6 }} />
+              <View>
+                <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
+                <Text style={{ color: "#93c5fd", fontSize: 12 }}>Powered by Nirvana</Text>
+              </View>
             </View>
-          </View>
 
-          <Divider />
+            <Divider />
 
-          {/* Primary Navigation */}
-          <NavItem href="/" label="Home" hint="Return to the hero" />
-          <NavItem href="/dashboard" label="Dashboard" hint="Recent layers and actions" />
-          <NavItem href="/fabric/new" label="New Layer" hint="Start weaving a new space" />
-          <NavItem href="/plugins" label="Plugins" hint="Discover and manage Looms" />
-          <NavItem href="/profile" label="Profile" hint="Identity and preferences" />
+            {/* Primary Navigation */}
+            <NavItem href="/" label="Home" hint="Return to the hero" />
+            <NavItem href="/dashboard" label="Dashboard" hint="Recent layers and actions" />
+            <NavItem href="/fabric/new" label="New Layer" hint="Start weaving a new space" />
+            <NavItem href="/plugins" label="Plugins" hint="Discover and manage Looms" />
+            <NavItem href="/profile" label="Profile" hint="Identity and preferences" />
 
-          {/* Quick Create inside Locker */}
-          {/* This component already exists in the codebase */}
-          {/* eslint-disable-next-line @typescript-eslint/no-var-requires */}
-          {require("./QuickCreateLayer") && React.createElement(require("./QuickCreateLayer").default)}
+            {/* Quick Create inside Locker */}
+            <QuickCreateLayer />
 
-          {/* Recent Layers */}
-          {recent.length > 0 ? (
-            <>
-              <Divider />
-              <Text style={{ color: "white", fontWeight: "800", fontSize: 16, marginBottom: 8 }}>
-                Recent Layers
-              </Text>
-              <View style={{ gap: 8 }}>
-                {recent.map((l) => (
-                  <View
-                    key={l.id}
-                    style={{
-                      backgroundColor: "rgba(2,8,23,0.6)",
-                      borderColor: "rgba(34,211,238,0.25)",
-                      borderWidth: 1,
-                      borderRadius: 10,
-                      padding: 10,
-                    }}
-                  >
-                    <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>{l.name}</Text>
-                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                      <Link href={`/fabric/${l.id}`} asChild>
+            {/* Recent Layers */}
+            {recent.length > 0 ? (
+              <>
+                <Divider />
+                <Text style={{ color: "white", fontWeight: "800", fontSize: 16, marginBottom: 8 }}>
+                  Recent Layers
+                </Text>
+                <View style={{ gap: 8 }}>
+                  {recent.map((l) => (
+                    <View
+                      key={l.id}
+                      style={{
+                        backgroundColor: "rgba(2,8,23,0.6)",
+                        borderColor: "rgba(34,211,238,0.25)",
+                        borderWidth: 1,
+                        borderRadius: 10,
+                        padding: 10,
+                      }}
+                    >
+                      <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>{l.name}</Text>
+                      <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                        <Link href={`/fabric/${l.id}`} asChild>
+                          <Pressable
+                            onPress={updateActivity}
+                            style={{
+                              borderColor: "#22d3ee",
+                              borderWidth: 1,
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                            }}
+                          >
+                            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Enter</Text>
+                          </Pressable>
+                        </Link>
                         <Pressable
-                          onPress={updateActivity}
+                          onPress={() => void handleCopyInviteFor(l.id, l.name)}
                           style={{
-                            borderColor: "#22d3ee",
+                            borderColor: "rgba(148,163,184,0.5)",
                             borderWidth: 1,
                             paddingVertical: 6,
                             paddingHorizontal: 10,
                             borderRadius: 8,
                           }}
                         >
-                          <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Enter</Text>
+                          <Text style={{ color: "#cbd5e1", fontWeight: "600" }}>Invite</Text>
                         </Pressable>
-                      </Link>
-                      <Pressable
-                        onPress={() => void handleCopyInviteFor(l.id, l.name)}
-                        style={{
-                          borderColor: "rgba(148,163,184,0.5)",
-                          borderWidth: 1,
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <Text style={{ color: "#cbd5e1", fontWeight: "600" }}>Invite</Text>
-                      </Pressable>
+                      </View>
                     </View>
-                  </View>
-                ))}
-              </View>
-            </>
-          ) : null}
+                  ))}
+                </View>
+              </>
+            ) : null}
 
-          <Divider />
+            <Divider />
 
-          {/* Quick Actions */}
-          <Pressable
-            onPress={() => void handleCopyInvite()}
-            style={{
-              backgroundColor: "rgba(2,132,199,0.1)",
-              borderColor: "rgba(34,211,238,0.35)",
-              borderWidth: 1,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-              marginTop: 6,
-            }}
-          >
-            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite to Current Layer</Text>
-            <Text style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
-              Copies a deep link if you’re inside a layer
-            </Text>
-          </Pressable>
+            {/* Quick Actions */}
+            <Pressable
+              onPress={() => void handleCopyInvite()}
+              style={{
+                backgroundColor: "rgba(2,132,199,0.1)",
+                borderColor: "rgba(34,211,238,0.35)",
+                borderWidth: 1,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+                marginTop: 6,
+              }}
+            >
+              <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite to Current Layer</Text>
+              <Text style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
+                Copies a deep link if you’re inside a layer
+              </Text>
+            </Pressable>
 
-          <Pressable
-            onPress={() => {
-              toggleHaptics();
-              haptics.impactLight();
-              audio.click();
-              toast.show(`Haptics ${hapticsEnabled ? "off" : "on"}`);
-              updateActivity();
-            }}
-            style={{
-              marginTop: 10,
-              backgroundColor: hapticsEnabled ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
-              borderColor: hapticsEnabled ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)",
-              borderWidth: 1,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-            }}
-          >
-            <Text style={{ color: hapticsEnabled ? "#34d399" : "#ef4444", fontWeight: "700" }}>
-              Haptics {hapticsEnabled ? "On" : "Off"}
-            </Text>
-          </Pressable>
+            <Pressable
+              onPress={() => {
+                toggleHaptics();
+                haptics.impactLight();
+                audio.click();
+                toast.show(`Haptics ${hapticsEnabled ? "off" : "on"}`);
+                updateActivity();
+              }}
+              style={{
+                marginTop: 10,
+                backgroundColor: hapticsEnabled ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                borderColor: hapticsEnabled ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)",
+                borderWidth: 1,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+              }}
+            >
+              <Text style={{ color: hapticsEnabled ? "#34d399" : "#ef4444", fontWeight: "700" }}>
+                Haptics {hapticsEnabled ? "On" : "Off"}
+              </Text>
+            </Pressable>
 
-          <Pressable
-            onPress={openCredits}
-            style={{
-              marginTop: 10,
-              backgroundColor: "rgba(2,132,199,0.12)",
-              borderColor: "rgba(34,211,238,0.5)",
-              borderWidth: 1,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-            }}
-          >
-            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Credits</Text>
-            <Text style={{ color: "#9ca3af", marginTop: 2, fontSize: 12 }}>
-              Fanalogy • Powered by Nirvana
-            </Text>
-          </Pressable>
+            <Pressable
+              onPress={openCredits}
+              style={{
+                marginTop: 10,
+                backgroundColor: "rgba(2,132,199,0.12)",
+                borderColor: "rgba(34,211,238,0.5)",
+                borderWidth: 1,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+              }}
+            >
+              <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Credits</Text>
+              <Text style={{ color: "#9ca3af", marginTop: 2, fontSize: 12 }}>
+                Fanalogy • Powered by Nirvana
+              </Text>
+            </Pressable>
 
-          <View style={{ flex: 1 }} />
-
-          {/* Footer */}
-          <View style={{ paddingVertical: 10, alignItems: "center" }}>
-            <Text style={{ color: "#9ca3af", fontSize: 12 }}>
-              © 2024 Fanalogy • Powered by Nirvana
-            </Text>
-          </View>
+            {/* Footer spacing handled by content padding */}
+            <View style={{ height: 8 }} />
+            <View style={{ paddingVertical: 10, alignItems: "center" }}>
+              <Text style={{ color: "#9ca3af", fontSize: 12 }}>
+                © 2024 Fanalogy • Powered by Nirvana
+              </Text>
+            </View>
+          </ScrollView>
         </View>
 
         {/* Attached Corner Tab (logo) - bottom-left */}
@@ -433,8 +442,8 @@ export function Locker() {
             height: TAB_SIZE,
             borderTopRightRadius: 14,
             borderBottomRightRadius: 14,
-            backgroundColor: "rgba(2,8,23,0.65)",
-            borderColor: "rgba(34,211,238,0.45)",
+            backgroundColor: isInLayer ? "rgba(2,132,199,0.22)" : "rgba(2,8,23,0.65)",
+            borderColor: isInLayer ? "rgba(34,211,238,0.85)" : "rgba(34,211,238,0.45)",
             borderLeftWidth: 0,
             borderRightWidth: 1,
             borderTopWidth: 1,
@@ -442,8 +451,8 @@ export function Locker() {
             alignItems: "center",
             justifyContent: "center",
             shadowColor: "#22d3ee",
-            shadowOpacity: 0.55,
-            shadowRadius: 14,
+            shadowOpacity: isInLayer ? 0.7 : 0.55,
+            shadowRadius: isInLayer ? 18 : 14,
             shadowOffset: { width: 0, height: 6 },
           }}
         >
