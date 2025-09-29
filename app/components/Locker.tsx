@@ -6,6 +6,7 @@ import { useToast } from "./Toast";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { usePreferences } from "../context/PreferencesContext";
+import { useLayers } from "../context/LayersContext";
 
 type LockerContextValue = {
   open: boolean;
@@ -81,6 +82,7 @@ export function Locker() {
   const haptics = useHaptics();
   const toast = useToast();
   const { hapticsEnabled, toggleHaptics } = usePreferences();
+  const { layers } = useLayers();
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
 
@@ -160,6 +162,16 @@ export function Locker() {
     toast.show("Open a layer to generate an invite");
     updateActivity();
   };
+
+  const handleCopyInviteFor = async (layerId: string, name?: string) => {
+    const url = Linking.createURL(`/fabric/${layerId}`);
+    await Clipboard.setStringAsync(url);
+    haptics.notifySuccess();
+    toast.show(`${name ?? "Layer"} invite copied`);
+    updateActivity();
+  };
+
+  const recent = layers.slice(0, 5);
 
   const backdropOpacity = slide.interpolate({
     inputRange: [0, 1],
@@ -246,6 +258,60 @@ export function Locker() {
           <NavItem href="/fabric/new" label="New Layer" hint="Start weaving a new space" />
           <NavItem href="/plugins" label="Plugins" hint="Discover and manage Looms" />
           <NavItem href="/profile" label="Profile" hint="Identity and preferences" />
+
+          {/* Recent Layers */}
+          {recent.length > 0 ? (
+            <>
+              <Divider />
+              <Text style={{ color: "white", fontWeight: "800", fontSize: 16, marginBottom: 8 }}>
+                Recent Layers
+              </Text>
+              <View style={{ gap: 8 }}>
+                {recent.map((l) => (
+                  <View
+                    key={l.id}
+                    style={{
+                      backgroundColor: "rgba(2,8,23,0.6)",
+                      borderColor: "rgba(34,211,238,0.25)",
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      padding: 10,
+                    }}
+                  >
+                    <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>{l.name}</Text>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                      <Link href={`/fabric/${l.id}`} asChild>
+                        <Pressable
+                          onPress={updateActivity}
+                          style={{
+                            borderColor: "#22d3ee",
+                            borderWidth: 1,
+                            paddingVertical: 6,
+                            paddingHorizontal: 10,
+                            borderRadius: 8,
+                          }}
+                        >
+                          <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Enter</Text>
+                        </Pressable>
+                      </Link>
+                      <Pressable
+                        onPress={() => void handleCopyInviteFor(l.id, l.name)}
+                        style={{
+                          borderColor: "rgba(148,163,184,0.5)",
+                          borderWidth: 1,
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Text style={{ color: "#cbd5e1", fontWeight: "600" }}>Invite</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : null}
 
           <Divider />
 
