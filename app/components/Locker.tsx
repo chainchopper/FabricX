@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Pressable, View, Text, Image, ScrollView } from "react-native";
+import { Animated, Easing, Pressable, View, Text, Image, ScrollView, BackHandler, Platform } from "react-native";
 import { Link, usePathname } from "expo-router";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
@@ -10,6 +10,7 @@ import { useLayers } from "../context/LayersContext";
 import CreditsOverlay from "./CreditsOverlay";
 import { useAudioCues } from "../hooks/useAudioCues";
 import QuickCreateLayer from "./QuickCreateLayer";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type LockerContextValue = {
   open: boolean;
@@ -88,6 +89,7 @@ export function Locker() {
   const { layers } = useLayers();
   const [creditsOpen, setCreditsOpen] = useState(false);
   const audio = useAudioCues();
+  const insets = useSafeAreaInsets();
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
 
@@ -113,6 +115,18 @@ export function Locker() {
     if (open) closeLocker();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // Android back button closes the Locker if open
+  useEffect(() => {
+    if (!open) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      haptics.impactLight();
+      audio.click();
+      closeLocker();
+      return true;
+    });
+    return () => sub.remove();
+  }, [open, closeLocker, haptics, audio]);
 
   const NavItem = ({ href, label, hint }: { href: string; label: string; hint?: string }) => (
     <Link href={href} asChild>
@@ -206,7 +220,7 @@ export function Locker() {
           style={{
             position: "absolute",
             left: 0,
-            bottom: TAB_SIZE + 24,
+            bottom: TAB_SIZE + 24 + insets.bottom,
             width: 12,
             height: 120,
             zIndex: 54,
@@ -258,14 +272,15 @@ export function Locker() {
         }}
       >
         {/* Drawer Panel */}
-        <View
+        <SafeAreaView
+          edges={["top", "bottom"]}
           style={{
             position: "absolute",
             top: 0,
             bottom: 0,
             left: 0,
             width: PANEL_WIDTH,
-            paddingTop: 18,
+            paddingTop: 12,
             paddingHorizontal: 14,
             backgroundColor: "rgba(15,23,42,0.82)",
             borderRightColor: "rgba(34,211,238,0.35)",
@@ -449,9 +464,9 @@ export function Locker() {
               </Text>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
 
-        {/* Attached Corner Tab (logo) - bottom-left */}
+        {/* Attached Corner Tab (logo) - bottom-left, safe-area aware */}
         <Pressable
           onPress={() => {
             audio.click();
@@ -459,7 +474,7 @@ export function Locker() {
           }}
           style={{
             position: "absolute",
-            bottom: 16,
+            bottom: 16 + insets.bottom,
             left: PANEL_WIDTH,
             width: TAB_SIZE,
             height: TAB_SIZE,
