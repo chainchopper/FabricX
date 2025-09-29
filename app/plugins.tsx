@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
-import TopNav from "./components/TopNav";
 import { useToast } from "./components/Toast";
 import { useHaptics } from "./hooks/useHaptics";
 import { getJSON, setJSON } from "./utils/storage";
@@ -57,10 +56,9 @@ export default function PluginGallery() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      <TopNav />
       <ScrollView
         contentContainerStyle={{
-          paddingTop: 72,
+          paddingTop: 24,
           paddingBottom: 24,
           paddingHorizontal: 16,
           gap: 12,

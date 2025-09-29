@@ -1,14 +1,12 @@
 import { View, Text, Pressable } from "react-native";
-import TopNav from "./components/TopNav";
 
 export default function Profile() {
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      <TopNav />
       <View
         style={{
           flex: 1,
-          paddingTop: 72,
+          paddingTop: 24,
           paddingHorizontal: 16,
           gap: 12,
         }}

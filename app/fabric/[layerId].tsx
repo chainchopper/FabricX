@@ -1,6 +1,5 @@
 import { useLocalSearchParams, router } from "expo-router";
 import { View, Text, Pressable, Vibration } from "react-native";
-import TopNav from "../components/TopNav";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
@@ -38,11 +37,10 @@ export default function FabricRoom() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      <TopNav />
       <View
         style={{
           flex: 1,
-          paddingTop: 72,
+          paddingTop: 24,
           paddingHorizontal: 16,
           gap: 16,
         }}

@@ -1,6 +1,5 @@
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link } from "expo-router";
-import TopNav from "./components/TopNav";
 import { useLayers, Layer } from "./context/LayersContext";
 import { useToast } from "./components/Toast";
 import { useHaptics } from "./hooks/useHaptics";
@@ -41,13 +40,11 @@ export default function Dashboard() {
   const haptics = useHaptics();
 
   const recent = layers.slice(0, 6);
-
   const fallback: Array<{ id: string; name: string; meta?: string }> = [
     { name: "Synesthesia Studio", id: "synth-1", meta: "3 weavers • 2h ago" },
     { name: "Music Learning Hub", id: "music-1", meta: "2 weavers • 1d ago" },
     { name: "Portal Playground", id: "portal-1", meta: "5 weavers • 3d ago" },
   ];
-
   const items: Array<{ id: string; name: string; meta?: string }> =
     recent.length > 0 ? recent.map((l: Layer) => ({ id: l.id, name: l.name })) : fallback;
 
@@ -72,10 +69,9 @@ export default function Dashboard() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      <TopNav />
       <ScrollView
         contentContainerStyle={{
-          paddingTop: 72,
+          paddingTop: 24,
           paddingBottom: 24,
           paddingHorizontal: 16,
           gap: 16,
@@ -102,6 +98,10 @@ export default function Dashboard() {
                   paddingVertical: 12,
                   borderRadius: 10,
                   alignItems: "center",
+                  shadowColor: "#22d3ee",
+                  shadowOpacity: 0.35,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 6 },
                 }}
               >
                 <Text style={{ color: "white", fontWeight: "700" }}>

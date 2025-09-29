@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { View, Text, TextInput, Pressable } from "react-native";
 import { router } from "expo-router";
-import TopNav from "../components/TopNav";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
@@ -33,11 +32,10 @@ export default function NewFabricLayer() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      <TopNav />
       <View
         style={{
           flex: 1,
-          paddingTop: 72,
+          paddingTop: 24,
           paddingHorizontal: 16,
           gap: 16,
         }}
