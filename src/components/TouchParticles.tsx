@@ -5,22 +5,31 @@ import { eventBus, InputEvent } from "../../shared/utils/eventBus";
 
 export default function TouchParticles() {
   const pointsRef = useRef<THREE.Points | null>(null);
+  const pausedRef = useRef<boolean>(false);
 
-  const particleCount = useMemo(() => {
+  const env = useMemo(() => {
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-    const smallScreen = typeof window !== "undefined" ? Math.min(window.innerWidth, window.innerHeight) < 700 : false;
-    if (dpr > 2 || smallScreen) return 400;
-    if (dpr > 1.5) return 700;
-    return 1000;
+    const smallScreen =
+      typeof window !== "undefined"
+        ? Math.min(window.innerWidth, window.innerHeight) < 700
+        : false;
+
+    const preset = dpr > 2 || smallScreen ? "low" : dpr > 1.5 ? "medium" : "high";
+    const particleCount =
+      preset === "low" ? 400 : preset === "medium" ? 700 : 1000;
+    const particleSize =
+      preset === "low" ? 0.016 : preset === "medium" ? 0.02 : 0.024;
+
+    return { particleCount, particleSize };
   }, []);
 
   const { geometry, material } = useMemo(() => {
-    const positions = new Float32Array(particleCount * 3);
-    const velocities = new Float32Array(particleCount * 3);
-    const lifetimes = new Float32Array(particleCount);
-    const colors = new Float32Array(particleCount * 3);
+    const positions = new Float32Array(env.particleCount * 3);
+    const velocities = new Float32Array(env.particleCount * 3);
+    const lifetimes = new Float32Array(env.particleCount);
+    const colors = new Float32Array(env.particleCount * 3);
 
-    for (let i = 0; i < particleCount; i++) {
+    for (let i = 0; i < env.particleCount; i++) {
       const i3 = i * 3;
       positions[i3 + 0] = 9999;
       positions[i3 + 1] = 9999;
@@ -36,14 +45,12 @@ export default function TouchParticles() {
 
     const geom = new THREE.BufferGeometry();
     geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    // @ts-expect-error custom attributes not consumed by material directly
     geom.setAttribute("velocity", new THREE.BufferAttribute(velocities, 3));
-    // @ts-expect-error custom attributes not consumed by material directly
     geom.setAttribute("lifetime", new THREE.BufferAttribute(lifetimes, 1));
     geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.02,
+      size: env.particleSize,
       sizeAttenuation: true,
       vertexColors: true,
       transparent: true,
@@ -53,7 +60,26 @@ export default function TouchParticles() {
     });
 
     return { geometry: geom, material: mat };
-  }, [particleCount]);
+  }, [env.particleCount, env.particleSize]);
+
+  useEffect(() => {
+    return () => {
+      geometry.dispose();
+      material.dispose();
+    };
+  }, [geometry, material]);
+
+  useEffect(() => {
+    const onVis = () => {
+      pausedRef.current = typeof document !== "undefined" ? document.hidden : false;
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVis);
+      onVis();
+      return () => document.removeEventListener("visibilitychange", onVis);
+    }
+    return;
+  }, []);
 
   const spawnBurst = (ux: number, uy: number, strength: number) => {
     const posAttr = geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -69,7 +95,7 @@ export default function TouchParticles() {
     const cx = ux * 2 - 1;
     const cy = uy * 2 - 1;
 
-    const emitCount = Math.max(12, Math.floor(32 * strength));
+    const emitCount = Math.max(10, Math.floor(28 * strength));
     let emitted = 0;
 
     for (let i = 0; i < lifetimes.length && emitted < emitCount; i++) {
@@ -111,7 +137,9 @@ export default function TouchParticles() {
   }, [geometry]);
 
   useFrame((_, delta) => {
-    if (!pointsRef.current) return;
+    if (!pointsRef.current || pausedRef.current) return;
+
+    const dt = Math.min(delta, 1 / 30);
 
     const posAttr = geometry.getAttribute("position") as THREE.BufferAttribute;
     const velAttr = geometry.getAttribute("velocity") as unknown as THREE.BufferAttribute;
@@ -130,19 +158,19 @@ export default function TouchParticles() {
       if (lifetimes[i] > 0) {
         const i3 = i * 3;
 
-        positions[i3 + 0] += velocities[i3 + 0] * delta;
-        positions[i3 + 1] += velocities[i3 + 1] * delta;
-        positions[i3 + 2] += velocities[i3 + 2] * delta;
+        positions[i3 + 0] += velocities[i3 + 0] * dt;
+        positions[i3 + 1] += velocities[i3 + 1] * dt;
+        positions[i3 + 2] += velocities[i3 + 2] * dt;
 
         velocities[i3 + 0] *= drag;
-        velocities[i3 + 1] = velocities[i3 + 1] * drag + gravity * delta * 0.2;
+        velocities[i3 + 1] = velocities[i3 + 1] * drag + gravity * dt * 0.2;
         velocities[i3 + 2] *= drag;
 
-        lifetimes[i] -= delta;
+        lifetimes[i] -= dt;
 
-        colors[i3 + 0] *= 0.98;
-        colors[i3 + 1] *= 0.98;
-        colors[i3 + 2] *= 0.98;
+        colors[i3 + 0] *= 0.985;
+        colors[i3 + 1] *= 0.985;
+        colors[i3 + 2] *= 0.985;
 
         if (lifetimes[i] <= 0) {
           positions[i3 + 0] = 9999;
