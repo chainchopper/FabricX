@@ -1,10 +1,12 @@
 import { View, Text, Pressable, ScrollView } from "react-native";
-import { Link } from "expo-router";
+import { router } from "expo-router";
 import { useLayers, Layer } from "./context/LayersContext";
 import { useToast } from "./components/Toast";
 import { useHaptics } from "./hooks/useHaptics";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
+import BackToFabric from "./components/BackToFabric";
+import { confirmAction } from "./utils/confirm";
 
 function Card({
   title,
@@ -18,7 +20,7 @@ function Card({
   return (
     <View
       style={{
-        backgroundColor: "#0f172a",
+        backgroundColor: "rgba(15,23,42,0.85)",
         borderWidth: 1,
         borderColor: "rgba(34,211,238,0.25)",
         borderRadius: 12,
@@ -67,11 +69,21 @@ export default function Dashboard() {
     toast.show("Recent layers cleared");
   };
 
+  const enterLayer = async (id: string) => {
+    const ok = await confirmAction(
+      "Switch Fabric experience?",
+      "This may unload the current canvas and affect connected viewers."
+    );
+    if (!ok) return;
+    router.replace(`/fabric/${id}`);
+  };
+
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
+    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+      <BackToFabric />
       <ScrollView
         contentContainerStyle={{
-          paddingTop: 24,
+          paddingTop: 64,
           paddingBottom: 24,
           paddingHorizontal: 16,
           gap: 16,
@@ -91,42 +103,40 @@ export default function Dashboard() {
             title="Create New Layer"
             description="Start a new Fabric session with custom settings"
           >
-            <Link href="/fabric/new" asChild>
-              <Pressable
-                style={{
-                  backgroundColor: "#0891b2",
-                  paddingVertical: 12,
-                  borderRadius: 10,
-                  alignItems: "center",
-                  shadowColor: "#22d3ee",
-                  shadowOpacity: 0.35,
-                  shadowRadius: 10,
-                  shadowOffset: { width: 0, height: 6 },
-                }}
-              >
-                <Text style={{ color: "white", fontWeight: "700" }}>
-                  Weave New Reality
-                </Text>
-              </Pressable>
-            </Link>
+            <Pressable
+              onPress={() => router.push("/fabric/new")}
+              style={{
+                backgroundColor: "#0891b2",
+                paddingVertical: 12,
+                borderRadius: 10,
+                alignItems: "center",
+                shadowColor: "#22d3ee",
+                shadowOpacity: 0.35,
+                shadowRadius: 10,
+                shadowOffset: { width: 0, height: 6 },
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "700" }}>
+                Weave New Reality
+              </Text>
+            </Pressable>
           </Card>
 
           <Card title="Plugin Gallery" description="Discover and install new Looms">
-            <Link href="/plugins" asChild>
-              <Pressable
-                style={{
-                  borderColor: "#22d3ee",
-                  borderWidth: 1,
-                  paddingVertical: 12,
-                  borderRadius: 10,
-                  alignItems: "center",
-                }}
-              >
-                <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
-                  Explore Looms
-                </Text>
-              </Pressable>
-            </Link>
+            <Pressable
+              onPress={() => router.push("/plugins")}
+              style={{
+                borderColor: "#22d3ee",
+                borderWidth: 1,
+                paddingVertical: 12,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
+                Explore Looms
+              </Text>
+            </Pressable>
           </Card>
         </View>
 
@@ -157,7 +167,7 @@ export default function Dashboard() {
               <View
                 key={item.id}
                 style={{
-                  backgroundColor: "#0f172a",
+                  backgroundColor: "rgba(15,23,42,0.85)",
                   borderWidth: 1,
                   borderColor: "rgba(148,163,184,0.35)",
                   borderRadius: 12,
@@ -174,21 +184,20 @@ export default function Dashboard() {
                       {item.meta ?? "Just created • your layer"}
                     </Text>
                   </View>
-                  <Link href={`/fabric/${item.id}`} asChild>
-                    <Pressable
-                      style={{
-                        borderColor: "#22d3ee",
-                        borderWidth: 1,
-                        paddingVertical: 8,
-                        paddingHorizontal: 12,
-                        borderRadius: 10,
-                      }}
-                    >
-                      <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
-                        Enter
-                      </Text>
-                    </Pressable>
-                  </Link>
+                  <Pressable
+                    onPress={() => void enterLayer(item.id)}
+                    style={{
+                      borderColor: "#22d3ee",
+                      borderWidth: 1,
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                    }}
+                  >
+                    <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
+                      Enter
+                    </Text>
+                  </Pressable>
                 </View>
 
                 {layers.length > 0 && (

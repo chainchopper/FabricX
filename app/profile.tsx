@@ -1,12 +1,14 @@
 import { View, Text, Pressable } from "react-native";
+import BackToFabric from "./components/BackToFabric";
 
 export default function Profile() {
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
+    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+      <BackToFabric />
       <View
         style={{
           flex: 1,
-          paddingTop: 24,
+          paddingTop: 64,
           paddingHorizontal: 16,
           gap: 12,
         }}
@@ -21,7 +23,7 @@ export default function Profile() {
         <View style={{ marginTop: 12, gap: 8 }}>
           <View
             style={{
-              backgroundColor: "#0f172a",
+              backgroundColor: "rgba(15,23,42,0.85)",
               borderWidth: 1,
               borderColor: "rgba(148,163,184,0.35)",
               borderRadius: 12,

@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
+import BackToFabric from "../components/BackToFabric";
 
 function slugify(input: string) {
   return input
@@ -27,15 +28,16 @@ export default function NewFabricLayer() {
     addLayer({ id, name: name.trim() });
     haptics.notifySuccess();
     toast.show("Layer created");
-    router.push(`/fabric/${id}`);
+    router.replace(`/fabric/${id}`);
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
+    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+      <BackToFabric />
       <View
         style={{
           flex: 1,
-          paddingTop: 24,
+          paddingTop: 64,
           paddingHorizontal: 16,
           gap: 16,
         }}
@@ -51,7 +53,7 @@ export default function NewFabricLayer() {
 
         <View
           style={{
-            backgroundColor: "#0f172a",
+            backgroundColor: "rgba(15,23,42,0.85)",
             borderWidth: 1,
             borderColor: "rgba(34,211,238,0.25)",
             borderRadius: 12,

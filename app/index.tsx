@@ -1,31 +1,14 @@
-import React, { Suspense, useEffect, useState } from "react";
-import { Platform, View, Text } from "react-native";
-import FabricCanvas from "./components/FabricCanvas";
-
-type Web3DComp = React.ComponentType;
+import React from "react";
+import { View, Text } from "react-native";
 
 export default function HomeScreen() {
-  const [Web3D, setWeb3D] = useState<Web3DComp | null>(null);
-
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      import("../src/components/FabricWeb3D").then((m) => setWeb3D(() => m.default));
-    }
-  }, []);
-
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      {/* Full-screen Fabric canvas */}
-      <View style={{ flex: 1 }}>
-        {Platform.OS === "web" && Web3D ? (
-          <Suspense fallback={null}>
-            <Web3D />
-          </Suspense>
-        ) : (
-          <FabricCanvas fullScreen />
-        )}
-      </View>
-
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "transparent",
+      }}
+    >
       {/* Centered title overlay (non-interactive) */}
       <View
         pointerEvents="none"

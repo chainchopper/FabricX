@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView } from "react-native";
 import { useToast } from "./components/Toast";
 import { useHaptics } from "./hooks/useHaptics";
 import { getJSON, setJSON } from "./utils/storage";
+import BackToFabric from "./components/BackToFabric";
 
 type Plugin = {
   id: string;
@@ -55,10 +56,11 @@ export default function PluginGallery() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
+    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+      <BackToFabric />
       <ScrollView
         contentContainerStyle={{
-          paddingTop: 24,
+          paddingTop: 64,
           paddingBottom: 24,
           paddingHorizontal: 16,
           gap: 12,
@@ -72,7 +74,7 @@ export default function PluginGallery() {
           <View
             key={p.id}
             style={{
-              backgroundColor: "#0f172a",
+              backgroundColor: "rgba(15,23,42,0.85)",
               borderWidth: 1,
               borderLeftWidth: 4,
               borderColor: p.installed ? "rgba(34,197,94,0.8)" : "rgba(34,211,238,0.8)",
