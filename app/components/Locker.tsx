@@ -167,7 +167,7 @@ export function Locker() {
         }}
       >
         <Image
-          source={require("../../assets/IconLogo.png")}
+          source={require("../assets/IconLogo.png")}
           style={{
             width: 44,
             height: 44,
@@ -228,7 +228,7 @@ export function Locker() {
         {/* Header with inline logo */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
           <Image
-            source={require("../../assets/IconLogo.png")}
+            source={require("../assets/IconLogo.png")}
             style={{ width: 28, height: 28, borderRadius: 6 }}
           />
           <View>
