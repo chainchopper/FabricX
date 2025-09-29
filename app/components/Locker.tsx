@@ -140,7 +140,6 @@ export function Locker() {
   );
 
   const getActiveLayerId = () => {
-    // Expecting paths like /fabric/<id>
     const m = pathname?.match(/^\/fabric\/([^\/?#]+)/);
     return m?.[1] ?? null;
   };
@@ -160,7 +159,6 @@ export function Locker() {
     updateActivity();
   };
 
-  // Backdrop opacity follows slide progress
   const backdropOpacity = slide.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 0.5],
@@ -278,12 +276,12 @@ export function Locker() {
           </View>
         </View>
 
-        {/* Attached Corner Tab (logo) */}
+        {/* Attached Corner Tab (logo) - bottom-left */}
         <Pressable
           onPress={toggleLocker}
           style={{
             position: "absolute",
-            top: 16,
+            bottom: 16,
             left: PANEL_WIDTH,
             width: TAB_SIZE,
             height: TAB_SIZE,
