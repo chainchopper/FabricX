@@ -3,17 +3,30 @@ import { View, Text, Pressable, Vibration } from "react-native";
 import TopNav from "../components/TopNav";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
+import { useLayers } from "../context/LayersContext";
+import * as Clipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
 
 export default function FabricRoom() {
-  const { layerId } = useLocalSearchParams<{ layerId: string }>();
+  const { layerId } = useLocalSearchParams<{ layerId?: string }>();
+  const id = String(layerId || "");
+  const { layers } = useLayers();
+  const layer = layers.find((l) => l.id === id);
+
   const toast = useToast();
   const haptics = useHaptics();
 
   const handleTouchPulse = () => {
-    // Visual/haptic pulse
     Vibration.vibrate([80, 40, 80]);
     haptics.impactHeavy();
     toast.show("Pulse sent");
+  };
+
+  const handleInvite = async () => {
+    const url = Linking.createURL(`/fabric/${id}`);
+    await Clipboard.setStringAsync(url);
+    haptics.notifySuccess();
+    toast.show("Invite link copied");
   };
 
   return (
@@ -31,7 +44,10 @@ export default function FabricRoom() {
           <Text style={{ color: "white", fontSize: 24, fontWeight: "800" }}>
             Fabric Layer
           </Text>
-          <Text style={{ color: "#a5b4fc" }}>ID: {String(layerId || "")}</Text>
+          <Text style={{ color: "#a5b4fc" }}>ID: {id}</Text>
+          {layer?.name ? (
+            <Text style={{ color: "#93c5fd" }}>Name: {layer.name}</Text>
+          ) : null}
         </View>
 
         <View
@@ -45,21 +61,37 @@ export default function FabricRoom() {
           }}
         >
           <Text style={{ color: "#cbd5e1" }}>
-            This is a placeholder for the 3D fabric canvas. Tap the button below
-            to simulate a connection pulse (vibration).
+            This is a placeholder for the 3D fabric canvas. Use the actions below
+            to interact or share your layer.
           </Text>
 
-          <Pressable
-            onPress={handleTouchPulse}
-            style={{
-              backgroundColor: "#0891b2",
-              paddingVertical: 12,
-              borderRadius: 10,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: "white", fontWeight: "700" }}>Touch Pulse</Text>
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Pressable
+              onPress={handleTouchPulse}
+              style={{
+                backgroundColor: "#0891b2",
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "700" }}>Send Pulse</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleInvite}
+              style={{
+                borderColor: "#22d3ee",
+                borderWidth: 1,
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={{ flexDirection: "row", gap: 8 }}>

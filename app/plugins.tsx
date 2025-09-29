@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import TopNav from "./components/TopNav";
 import { useToast } from "./components/Toast";
 import { useHaptics } from "./hooks/useHaptics";
+import { getJSON, setJSON } from "./utils/storage";
 
 type Plugin = {
   id: string;
@@ -10,6 +11,8 @@ type Plugin = {
   desc: string;
   installed: boolean;
 };
+
+const STORAGE_KEY = "fabric_plugins_v1";
 
 const INITIAL_PLUGINS: Plugin[] = [
   { id: "music-visualizer", name: "Music Visualizer", desc: "Transform audio into visual patterns", installed: true },
@@ -22,6 +25,14 @@ export default function PluginGallery() {
   const [plugins, setPlugins] = useState<Plugin[]>(INITIAL_PLUGINS);
   const toast = useToast();
   const haptics = useHaptics();
+
+  useEffect(() => {
+    getJSON<Plugin[]>(STORAGE_KEY, INITIAL_PLUGINS).then(setPlugins);
+  }, []);
+
+  useEffect(() => {
+    setJSON(STORAGE_KEY, plugins);
+  }, [plugins]);
 
   const handleInstall = (id: string) => {
     setPlugins((prev) =>
