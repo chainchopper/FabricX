@@ -4,6 +4,7 @@ import type { ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { eventBus, InputEvent } from "../../shared/utils/eventBus";
 import { decayTowards } from "../../shared/utils/easing";
+import { useAR } from "../contexts/ARContext";
 
 type Vec2 = [number, number];
 
@@ -22,13 +23,11 @@ const vertexShader = `
     vUv = uv;
     vec3 pos = position;
 
-    // Distortion based on pointer-centered ripples + slow waves
     float r = ripple(vUv, uPointer, uTime) * (0.06 + uPulse * 0.08);
     float wave = sin((position.x + position.y) * 2.0 + uTime * 0.7) * 0.02;
 
     pos.z += r + wave;
 
-    // Subtle edge lift for nicer shading
     float edge = smoothstep(0.0, 0.15, vUv.x) * (1.0 - smoothstep(0.85, 1.0, vUv.x));
     edge *= smoothstep(0.0, 0.15, vUv.y) * (1.0 - smoothstep(0.85, 1.0, vUv.y));
     pos.z += edge * 0.01;
@@ -43,7 +42,6 @@ const fragmentShader = `
   uniform vec2 uPointer;
   uniform float uPulse;
 
-  // Fanalogy cyan/blue energy palette
   vec3 baseColor(vec2 uv) {
     vec3 c1 = vec3(0.03, 0.07, 0.15);
     vec3 c2 = vec3(0.10, 0.60, 0.74);
@@ -60,7 +58,6 @@ const fragmentShader = `
     col += vec3(0.0, 0.5, 0.7) * ripple * 0.25;
     col += vec3(0.15, 0.85, 0.95) * glow * 0.35;
 
-    // Soft vignette
     float vx = vUv.x * (1.0 - vUv.x);
     float vy = vUv.y * (1.0 - vUv.y);
     float vignette = pow(vx * vy * 4.0, 0.35);
@@ -70,10 +67,17 @@ const fragmentShader = `
   }
 `;
 
+function CameraBackground({ texture }: { texture: THREE.VideoTexture }) {
+  return (
+    <mesh position={[0, 0, -0.6]} frustumCulled={false}>
+      <planeGeometry args={[2, 2, 1, 1]} />
+      <meshBasicMaterial map={texture} toneMapped={false} />
+    </mesh>
+  );
+}
+
 function LiquidSurface() {
   const materialRef = useRef<THREE.ShaderMaterial | null>(null);
-  const meshRef = useRef<THREE.Mesh | null>(null);
-  const { size } = useThree();
 
   const uniforms = useMemo(
     () => ({
@@ -84,33 +88,24 @@ function LiquidSurface() {
     []
   );
 
-  // Subscribe to unified input bus
   useEffect(() => {
     const sub = eventBus.on((e: InputEvent) => {
       if (!materialRef.current) return;
-
-      // On any event, nudge pulse and update pointer (already normalized 0..1)
       const u = materialRef.current.uniforms;
       const nx = Math.min(1, Math.max(0, e.x));
       const ny = Math.min(1, Math.max(0, e.y));
       (u.uPointer.value as THREE.Vector2).set(nx, ny);
 
-      if (e.type === "tap") {
-        u.uPulse.value = Math.min(1, u.uPulse.value + 0.6);
-      } else if (e.type === "long-press") {
-        u.uPulse.value = Math.min(1, u.uPulse.value + 0.9);
-      } else if (e.type === "drag") {
-        u.uPulse.value = Math.min(1, u.uPulse.value + 0.2);
-      }
+      if (e.type === "tap") u.uPulse.value = Math.min(1, u.uPulse.value + 0.6);
+      else if (e.type === "long-press") u.uPulse.value = Math.min(1, u.uPulse.value + 0.9);
+      else if (e.type === "drag") u.uPulse.value = Math.min(1, u.uPulse.value + 0.2);
     });
     return () => sub();
   }, []);
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (!materialRef.current) return;
     materialRef.current.uniforms.uTime.value += delta;
-
-    // Decay pulse smoothly
     materialRef.current.uniforms.uPulse.value = decayTowards(
       materialRef.current.uniforms.uPulse.value,
       0,
@@ -120,10 +115,8 @@ function LiquidSurface() {
 
   return (
     <mesh
-      ref={meshRef}
       rotation={[-Math.PI * 0.0, 0, 0]}
       onPointerMove={(e: ThreeEvent<PointerEvent>) => {
-        // Update pointer via UV and emit drag to bus for global consumers
         if (!materialRef.current || !e.uv) return;
         const uv = e.uv;
         (materialRef.current.uniforms.uPointer.value as THREE.Vector2).set(uv.x, uv.y);
@@ -131,15 +124,13 @@ function LiquidSurface() {
       }}
       onPointerDown={(e: ThreeEvent<PointerEvent>) => {
         if (!materialRef.current || !e.uv) return;
-        const uv = e.uv;
-        eventBus.emitTap(uv.x, uv.y);
+        eventBus.emitTap(e.uv.x, e.uv.y);
       }}
       onContextMenu={(e: ThreeEvent<MouseEvent>) => {
-        // Simulate long-press via right-click on web
-        e.preventDefault();
+        // Use underlying native event
+        (e.nativeEvent as MouseEvent).preventDefault();
         if (!materialRef.current || !e.uv) return;
-        const uv = e.uv;
-        eventBus.emitLongPress(uv.x, uv.y);
+        eventBus.emitLongPress(e.uv.x, e.uv.y);
       }}
     >
       <planeGeometry args={[2, 2, 128, 128]} />
@@ -155,12 +146,13 @@ function LiquidSurface() {
 }
 
 export default function FabricWeb3D() {
-  // Camera setup: simple perspective, orbit disabled
   const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+  const { isARCameraActive, videoTexture } = useAR();
+
   return (
     <div style={{ width: "100%", height: "100%", background: "#0b1020" }}>
       <Canvas dpr={dpr} gl={{ antialias: true }}>
-        <color attach="background" args={["#0b1020"]} />
+        {isARCameraActive && videoTexture ? <CameraBackground texture={videoTexture} /> : <color attach="background" args={["#0b1020"]} />}
         <ambientLight intensity={0.3} />
         <directionalLight intensity={0.6} position={[2, 3, 2]} />
         <LiquidSurface />

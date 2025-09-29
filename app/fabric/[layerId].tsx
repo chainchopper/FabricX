@@ -8,6 +8,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import FabricCanvas from "../components/FabricCanvas";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAR } from "../context/ARContext";
 
 type Web3DComp = React.ComponentType;
 
@@ -22,6 +23,7 @@ export default function FabricRoom() {
   const insets = useSafeAreaInsets();
 
   const [Web3D, setWeb3D] = useState<Web3DComp | null>(null);
+  const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -30,7 +32,6 @@ export default function FabricRoom() {
   }, []);
 
   const handleCanvasTouch = () => {
-    // Potential hook for realtime propagation later; keep simple now
     Vibration.vibrate([30]);
     haptics.impactLight();
   };
@@ -55,9 +56,23 @@ export default function FabricRoom() {
     toast.show("Saved to recent");
   };
 
+  const toggleAR = async () => {
+    if (Platform.OS !== "web") {
+      toast.show("AR camera is web-only for now");
+      return;
+    }
+    if (isARCameraActive) {
+      disableARCamera();
+      toast.show("AR camera disabled");
+    } else {
+      await enableARCamera();
+      if (isARCameraActive) toast.show("AR camera enabled");
+      else toast.show("Could not enable camera");
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
-      {/* Full-screen Fabric Canvas (web: 3D, native/web fallback: 2D ripples) */}
       <View style={{ flex: 1 }}>
         {Platform.OS === "web" && Web3D ? (
           <Suspense fallback={null}>
@@ -68,7 +83,6 @@ export default function FabricRoom() {
         )}
       </View>
 
-      {/* Minimal Overlays */}
       <SafeAreaView
         pointerEvents="box-none"
         style={{
@@ -105,7 +119,7 @@ export default function FabricRoom() {
           </Text>
         </View>
 
-        {/* Top-right: Invite */}
+        {/* Top-right: Invite + AR */}
         <Pressable
           onPress={handleInvite}
           style={{
@@ -122,6 +136,27 @@ export default function FabricRoom() {
         >
           <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite</Text>
         </Pressable>
+
+        {Platform.OS === "web" ? (
+          <Pressable
+            onPress={toggleAR}
+            style={{
+              position: "absolute",
+              top: insets.top + 54,
+              right: 10,
+              backgroundColor: isARCameraActive ? "rgba(34,197,94,0.18)" : "rgba(2,132,199,0.18)",
+              borderColor: isARCameraActive ? "rgba(34,197,94,0.6)" : "rgba(34,211,238,0.6)",
+              borderWidth: 1,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+            }}
+          >
+            <Text style={{ color: isARCameraActive ? "#34d399" : "#22d3ee", fontWeight: "700" }}>
+              {isARCameraActive ? "AR On" : "Enable AR"}
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* Bottom-right: Pulse */}
         <Pressable
