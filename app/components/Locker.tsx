@@ -3,6 +3,8 @@ import { Animated, Easing, Pressable, View, Text, Image } from "react-native";
 import { Link, usePathname } from "expo-router";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
+import * as Clipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
 
 type LockerContextValue = {
   open: boolean;
@@ -137,7 +139,22 @@ export function Locker() {
     />
   );
 
-  const handleCopyInvite = () => {
+  const getActiveLayerId = () => {
+    // Expecting paths like /fabric/<id>
+    const m = pathname?.match(/^\/fabric\/([^\/?#]+)/);
+    return m?.[1] ?? null;
+  };
+
+  const handleCopyInvite = async () => {
+    const layerId = getActiveLayerId();
+    if (layerId) {
+      const url = Linking.createURL(`/fabric/${layerId}`);
+      await Clipboard.setStringAsync(url);
+      haptics.notifySuccess();
+      toast.show("Invite link copied");
+      updateActivity();
+      return;
+    }
     haptics.impactLight();
     toast.show("Open a layer to generate an invite");
     updateActivity();
@@ -234,7 +251,7 @@ export function Locker() {
 
           {/* Quick Actions */}
           <Pressable
-            onPress={handleCopyInvite}
+            onPress={() => void handleCopyInvite()}
             style={{
               backgroundColor: "rgba(2,132,199,0.1)",
               borderColor: "rgba(34,211,238,0.35)",
@@ -247,7 +264,7 @@ export function Locker() {
           >
             <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite to Current Layer</Text>
             <Text style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
-              Open a layer, then use the room’s Invite for copy link
+              Copies a deep link if you’re inside a layer
             </Text>
           </Pressable>
 
