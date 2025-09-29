@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from "react";
 import { View, Pressable, Animated, StyleSheet, LayoutChangeEvent } from "react-native";
 import { useHaptics } from "../hooks/useHaptics";
+import { useAudioCues } from "../hooks/useAudioCues";
 
 type Ripple = {
   id: number;
@@ -24,7 +25,7 @@ interface FabricCanvasProps {
 /**
  * FabricCanvas
  * - Game-like interactive area
- * - Tapping spawns ripples with glow; triggers haptic feedback
+ * - Tapping spawns ripples with glow; triggers haptic + soft audio cue (web only)
  * - No extra deps, fully native Animated
  */
 export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProps) {
@@ -32,6 +33,7 @@ export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProp
   const [layout, setLayout] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const idRef = useRef(0);
   const haptics = useHaptics();
+  const audio = useAudioCues();
 
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height: h } = e.nativeEvent.layout;
@@ -66,6 +68,7 @@ export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProp
     const { locationX, locationY } = evt.nativeEvent;
     spawnRipple(locationX, locationY);
     haptics.impactLight();
+    audio.click();
     onTouch?.({ x: locationX, y: locationY, timestamp: Date.now() });
   };
 

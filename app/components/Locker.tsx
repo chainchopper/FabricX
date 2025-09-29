@@ -8,6 +8,7 @@ import * as Linking from "expo-linking";
 import { usePreferences } from "../context/PreferencesContext";
 import { useLayers } from "../context/LayersContext";
 import CreditsOverlay from "./CreditsOverlay";
+import { useAudioCues } from "../hooks/useAudioCues";
 
 type LockerContextValue = {
   open: boolean;
@@ -85,6 +86,7 @@ export function Locker() {
   const { hapticsEnabled, toggleHaptics } = usePreferences();
   const { layers } = useLayers();
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const audio = useAudioCues();
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
 
@@ -150,11 +152,13 @@ export function Locker() {
       const url = Linking.createURL(`/fabric/${layerId}`);
       await Clipboard.setStringAsync(url);
       haptics.notifySuccess();
+      audio.success();
       toast.show("Invite link copied");
       updateActivity();
       return;
     }
     haptics.impactLight();
+    audio.click();
     toast.show("Open a layer to generate an invite");
     updateActivity();
   };
@@ -163,6 +167,7 @@ export function Locker() {
     const url = Linking.createURL(`/fabric/${layerId}`);
     await Clipboard.setStringAsync(url);
     haptics.notifySuccess();
+    audio.success();
     toast.show(`${name ?? "Layer"} invite copied`);
     updateActivity();
   };
@@ -177,11 +182,13 @@ export function Locker() {
   const openCredits = () => {
     setCreditsOpen(true);
     haptics.impactLight();
+    audio.click();
     updateActivity();
   };
   const closeCredits = () => {
     setCreditsOpen(false);
     haptics.impactLight();
+    audio.click();
   };
 
   return (
@@ -189,7 +196,10 @@ export function Locker() {
       {/* Edge opener (tiny left edge handle when closed) */}
       {!open ? (
         <Pressable
-          onPress={openLocker}
+          onPress={() => {
+            audio.click();
+            openLocker();
+          }}
           style={{
             position: "absolute",
             left: 0,
@@ -219,6 +229,7 @@ export function Locker() {
           <Pressable
             onPress={() => {
               haptics.impactLight();
+              audio.click();
               closeLocker();
             }}
             style={{ flex: 1 }}
@@ -361,6 +372,7 @@ export function Locker() {
             onPress={() => {
               toggleHaptics();
               haptics.impactLight();
+              audio.click();
               toast.show(`Haptics ${hapticsEnabled ? "off" : "on"}`);
               updateActivity();
             }}
@@ -409,7 +421,10 @@ export function Locker() {
 
         {/* Attached Corner Tab (logo) - bottom-left */}
         <Pressable
-          onPress={toggleLocker}
+          onPress={() => {
+            audio.click();
+            toggleLocker();
+          }}
           style={{
             position: "absolute",
             bottom: 16,
