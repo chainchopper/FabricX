@@ -1,13 +1,19 @@
 import { useLocalSearchParams, router } from "expo-router";
 import { View, Text, Pressable, Vibration } from "react-native";
 import TopNav from "../components/TopNav";
+import { useToast } from "../components/Toast";
+import { useHaptics } from "../hooks/useHaptics";
 
 export default function FabricRoom() {
   const { layerId } = useLocalSearchParams<{ layerId: string }>();
+  const toast = useToast();
+  const haptics = useHaptics();
 
   const handleTouchPulse = () => {
-    // Simulate a quick multi-sensory pulse via vibration
+    // Visual/haptic pulse
     Vibration.vibrate([80, 40, 80]);
+    haptics.impactHeavy();
+    toast.show("Pulse sent");
   };
 
   return (
