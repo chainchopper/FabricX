@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Pressable, View, Text, Image, ScrollView, BackHandler, Platform } from "react-native";
+import { Animated, Easing, Pressable, View, Text, Image, ScrollView, BackHandler } from "react-native";
 import { Link, usePathname } from "expo-router";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
@@ -11,6 +11,7 @@ import CreditsOverlay from "./CreditsOverlay";
 import { useAudioCues } from "../hooks/useAudioCues";
 import QuickCreateLayer from "./QuickCreateLayer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { getJSON, setJSON } from "../utils/storage";
 
 type LockerContextValue = {
   open: boolean;
@@ -91,8 +92,61 @@ export function Locker() {
   const audio = useAudioCues();
   const insets = useSafeAreaInsets();
 
-  const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
+  // One-time hint state
+  const HINT_KEY = "fabric_locker_hint_seen_v1";
+  const [hintSeen, setHintSeen] = useState<boolean>(false);
+  const pulse = useRef(new Animated.Value(0)).current;
+  const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
 
+  useEffect(() => {
+    getJSON<boolean>(HINT_KEY, false).then((v) => setHintSeen(!!v));
+  }, []);
+
+  const startPulse = () => {
+    if (pulseLoop.current) return;
+    pulseLoop.current = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      ])
+    );
+    pulseLoop.current.start();
+  };
+
+  const stopPulse = () => {
+    pulseLoop.current?.stop();
+    pulseLoop.current = null;
+    pulse.setValue(0);
+  };
+
+  // Manage pulse based on visibility and hint state
+  useEffect(() => {
+    if (!open && !hintSeen) {
+      startPulse();
+    } else {
+      stopPulse();
+    }
+    return () => {
+      stopPulse();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hintSeen]);
+
+  const markHintSeen = () => {
+    if (!hintSeen) {
+      setHintSeen(true);
+      void setJSON(HINT_KEY, true);
+      stopPulse();
+    }
+  };
+
+  // Also mark seen if opened by any means
+  useEffect(() => {
+    if (open) markHintSeen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
   const PANEL_WIDTH = 300;
   const TAB_SIZE = 58;
 
@@ -208,12 +262,16 @@ export function Locker() {
     audio.click();
   };
 
+  const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] });
+  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] });
+
   return (
     <>
       {/* Edge opener (subtle sliver) */}
       {!open ? (
         <Pressable
           onPress={() => {
+            markHintSeen();
             audio.click();
             openLocker();
           }}
@@ -469,6 +527,7 @@ export function Locker() {
         {/* Attached Corner Tab (logo) - bottom-left, safe-area aware */}
         <Pressable
           onPress={() => {
+            markHintSeen();
             audio.click();
             toggleLocker();
           }}
@@ -494,6 +553,23 @@ export function Locker() {
             shadowOffset: { width: 0, height: 6 },
           }}
         >
+          {/* Pulsing hint glow (first run only) */}
+          {!hintSeen && !open ? (
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: -8,
+                bottom: -8,
+                left: -8,
+                right: -8,
+                borderRadius: 18,
+                backgroundColor: "rgba(34,211,238,0.35)",
+                opacity: pulseOpacity,
+                transform: [{ scale: pulseScale }],
+              }}
+            />
+          ) : null}
           <Image
             source={require("../../logo.png")}
             style={{
