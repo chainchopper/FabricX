@@ -19,6 +19,7 @@ export interface FabricCanvasTouch {
 
 interface FabricCanvasProps {
   height?: number;
+  fullScreen?: boolean;
   onTouch?: (t: FabricCanvasTouch) => void;
 }
 
@@ -29,7 +30,7 @@ interface FabricCanvasProps {
  * - Long-press sends a stronger "Pulse" (double ripple) with heavier feedback
  * - No extra deps, fully native Animated
  */
-export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProps) {
+export default function FabricCanvas({ height = 260, fullScreen = false, onTouch }: FabricCanvasProps) {
   const [ripples, setRipples] = useState<Ripple[]>([]);
   const [layout, setLayout] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const idRef = useRef(0);
@@ -88,7 +89,7 @@ export default function FabricCanvas({ height = 260, onTouch }: FabricCanvasProp
 
   return (
     <View
-      style={[styles.wrap, { height }]}
+      style={[styles.wrap, fullScreen ? { flex: 1 } : { height }]}
       onLayout={onLayout}
     >
       <Pressable
