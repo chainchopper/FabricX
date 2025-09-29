@@ -7,7 +7,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { usePreferences } from "../context/PreferencesContext";
 import { useLayers } from "../context/LayersContext";
-import QuickCreateLayer from "./QuickCreateLayer";
+import CreditsOverlay from "./CreditsOverlay";
 
 type LockerContextValue = {
   open: boolean;
@@ -78,12 +78,13 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function Locker() {
-  const { open, toggleLocker, closeLocker, updateActivity } = useLocker();
+  const { open, toggleLocker, closeLocker, updateActivity, openLocker } = useLocker();
   const pathname = usePathname();
   const haptics = useHaptics();
   const toast = useToast();
   const { hapticsEnabled, toggleHaptics } = usePreferences();
   const { layers } = useLayers();
+  const [creditsOpen, setCreditsOpen] = useState(false);
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
 
@@ -135,13 +136,7 @@ export function Locker() {
   );
 
   const Divider = () => (
-    <View
-      style={{
-        height: 1,
-        backgroundColor: "rgba(148,163,184,0.25)",
-        marginVertical: 8,
-      }}
-    />
+    <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 8 }} />
   );
 
   const getActiveLayerId = () => {
@@ -179,8 +174,33 @@ export function Locker() {
     outputRange: [0, 0.5],
   });
 
+  const openCredits = () => {
+    setCreditsOpen(true);
+    haptics.impactLight();
+    updateActivity();
+  };
+  const closeCredits = () => {
+    setCreditsOpen(false);
+    haptics.impactLight();
+  };
+
   return (
     <>
+      {/* Edge opener (tiny left edge handle when closed) */}
+      {!open ? (
+        <Pressable
+          onPress={openLocker}
+          style={{
+            position: "absolute",
+            left: 0,
+            bottom: TAB_SIZE + 24,
+            width: 10,
+            height: 120,
+            zIndex: 54,
+          }}
+        />
+      ) : null}
+
       {/* Backdrop */}
       {open ? (
         <Animated.View
@@ -241,10 +261,7 @@ export function Locker() {
         >
           {/* Header with inline logo */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <Image
-              source={require("../../logo.png")}
-              style={{ width: 28, height: 28, borderRadius: 6 }}
-            />
+            <Image source={require("../../logo.png")} style={{ width: 28, height: 28, borderRadius: 6 }} />
             <View>
               <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
               <Text style={{ color: "#93c5fd", fontSize: 12 }}>Powered by Nirvana</Text>
@@ -261,7 +278,9 @@ export function Locker() {
           <NavItem href="/profile" label="Profile" hint="Identity and preferences" />
 
           {/* Quick Create inside Locker */}
-          <QuickCreateLayer />
+          {/* This component already exists in the codebase */}
+          {/* eslint-disable-next-line @typescript-eslint/no-var-requires */}
+          {require("./QuickCreateLayer") && React.createElement(require("./QuickCreateLayer").default)}
 
           {/* Recent Layers */}
           {recent.length > 0 ? (
@@ -360,6 +379,24 @@ export function Locker() {
             </Text>
           </Pressable>
 
+          <Pressable
+            onPress={openCredits}
+            style={{
+              marginTop: 10,
+              backgroundColor: "rgba(2,132,199,0.12)",
+              borderColor: "rgba(34,211,238,0.5)",
+              borderWidth: 1,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+            }}
+          >
+            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Credits</Text>
+            <Text style={{ color: "#9ca3af", marginTop: 2, fontSize: 12 }}>
+              Fanalogy • Powered by Nirvana
+            </Text>
+          </Pressable>
+
           <View style={{ flex: 1 }} />
 
           {/* Footer */}
@@ -406,6 +443,9 @@ export function Locker() {
           />
         </Pressable>
       </Animated.View>
+
+      {/* Credits Overlay */}
+      <CreditsOverlay visible={creditsOpen} onClose={closeCredits} />
     </>
   );
 }
