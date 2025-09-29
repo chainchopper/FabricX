@@ -84,7 +84,7 @@ export function Locker() {
   const pathname = usePathname();
   const haptics = useHaptics();
   const toast = useToast();
-  const { hapticsEnabled, toggleHaptics } = usePreferences();
+  const { hapticsEnabled, toggleHaptics, audioEnabled, toggleAudio } = usePreferences();
   const { layers } = useLayers();
   const [creditsOpen, setCreditsOpen] = useState(false);
   const audio = useAudioCues();
@@ -397,6 +397,29 @@ export function Locker() {
             >
               <Text style={{ color: hapticsEnabled ? "#34d399" : "#ef4444", fontWeight: "700" }}>
                 Haptics {hapticsEnabled ? "On" : "Off"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                toggleAudio();
+                haptics.impactLight();
+                audio.click();
+                toast.show(`Audio cues ${audioEnabled ? "off" : "on"}`);
+                updateActivity();
+              }}
+              style={{
+                marginTop: 10,
+                backgroundColor: audioEnabled ? "rgba(59,130,246,0.12)" : "rgba(107,114,128,0.12)",
+                borderColor: audioEnabled ? "rgba(59,130,246,0.6)" : "rgba(107,114,128,0.6)",
+                borderWidth: 1,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+              }}
+            >
+              <Text style={{ color: audioEnabled ? "#60a5fa" : "#9ca3af", fontWeight: "700" }}>
+                Audio Cues {audioEnabled ? "On" : "Off"}
               </Text>
             </Pressable>
 

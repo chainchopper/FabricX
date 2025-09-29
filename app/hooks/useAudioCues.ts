@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import { usePreferences } from "../context/PreferencesContext";
 
 type WaveType = OscillatorType;
 
@@ -34,47 +35,54 @@ function scheduleTone(
 }
 
 export function useAudioCues() {
+  const { audioEnabled } = usePreferences();
   const ctxRef = useRef<AudioContext | null>(null);
 
   const ensureCtx = useCallback((): AudioContext | null => {
+    if (!audioEnabled) return null;
     if (ctxRef.current) return ctxRef.current;
     const Ctor = getAudioContextCtor();
     if (!Ctor) return null;
     ctxRef.current = new Ctor();
     return ctxRef.current;
-  }, []);
+  }, [audioEnabled]);
 
   const click = useCallback(() => {
+    if (!audioEnabled) return;
     const ctx = ensureCtx();
     if (!ctx) return;
     scheduleTone(ctx, 440, 60, "triangle", 0.025);
-  }, [ensureCtx]);
+  }, [ensureCtx, audioEnabled]);
 
   const pulse = useCallback(() => {
+    if (!audioEnabled) return;
     const ctx = ensureCtx();
     if (!ctx) return;
     scheduleTone(ctx, 220, 70, "sine", 0.03);
     setTimeout(() => scheduleTone(ctx, 180, 70, "sine", 0.03), 80);
-  }, [ensureCtx]);
+  }, [ensureCtx, audioEnabled]);
 
   const success = useCallback(() => {
+    if (!audioEnabled) return;
     const ctx = ensureCtx();
     if (!ctx) return;
     scheduleTone(ctx, 660, 70, "sine", 0.03);
     setTimeout(() => scheduleTone(ctx, 880, 80, "sine", 0.03), 70);
-  }, [ensureCtx]);
+  }, [ensureCtx, audioEnabled]);
 
   const warning = useCallback(() => {
+    if (!audioEnabled) return;
     const ctx = ensureCtx();
     if (!ctx) return;
     scheduleTone(ctx, 520, 120, "square", 0.03);
-  }, [ensureCtx]);
+  }, [ensureCtx, audioEnabled]);
 
   const error = useCallback(() => {
+    if (!audioEnabled) return;
     const ctx = ensureCtx();
     if (!ctx) return;
     scheduleTone(ctx, 220, 140, "sawtooth", 0.03);
-  }, [ensureCtx]);
+  }, [ensureCtx, audioEnabled]);
 
   return { click, pulse, success, warning, error };
 }
