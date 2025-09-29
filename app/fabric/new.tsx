@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import TopNav from "../components/TopNav";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
+import { useLayers } from "../context/LayersContext";
 
 function slugify(input: string) {
   return input
@@ -17,12 +18,14 @@ export default function NewFabricLayer() {
   const [name, setName] = useState("");
   const toast = useToast();
   const haptics = useHaptics();
+  const { addLayer } = useLayers();
 
   const isValid = useMemo(() => name.trim().length >= 2, [name]);
 
   const handleCreate = () => {
     if (!isValid) return;
     const id = slugify(name) || `layer-${Date.now().toString(36)}`;
+    addLayer({ id, name: name.trim() });
     haptics.notifySuccess();
     toast.show("Layer created");
     router.push(`/fabric/${id}`);
@@ -93,11 +96,7 @@ export default function NewFabricLayer() {
           </Pressable>
         </View>
 
-        <View
-          style={{
-            flex: 1,
-          }}
-        />
+        <View style={{ flex: 1 }} />
 
         <View
           style={{

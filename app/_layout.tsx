@@ -1,10 +1,13 @@
 import { Stack } from "expo-router";
 import { ToastProvider } from "./components/Toast";
+import { LayersProvider } from "./context/LayersContext";
 
 export default function RootLayout() {
   return (
     <ToastProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      <LayersProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </LayersProvider>
     </ToastProvider>
   );
 }

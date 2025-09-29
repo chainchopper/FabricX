@@ -1,6 +1,7 @@
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link } from "expo-router";
 import TopNav from "./components/TopNav";
+import { useLayers, Layer } from "./context/LayersContext";
 
 function Card({
   title,
@@ -31,6 +32,18 @@ function Card({
 }
 
 export default function Dashboard() {
+  const { layers } = useLayers();
+  const recent = layers.slice(0, 6);
+
+  const fallback: Array<{ id: string; name: string; meta?: string }> = [
+    { name: "Synesthesia Studio", id: "synth-1", meta: "3 weavers • 2h ago" },
+    { name: "Music Learning Hub", id: "music-1", meta: "2 weavers • 1d ago" },
+    { name: "Portal Playground", id: "portal-1", meta: "5 weavers • 3d ago" },
+  ];
+
+  const items: Array<{ id: string; name: string; meta?: string }> =
+    recent.length > 0 ? recent.map((l: Layer) => ({ id: l.id, name: l.name })) : fallback;
+
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
       <TopNav />
@@ -96,13 +109,9 @@ export default function Dashboard() {
             Recent Layers
           </Text>
           <View style={{ gap: 12 }}>
-            {[
-              { name: "Synesthesia Studio", id: "synth-1", meta: "3 weavers • 2h ago" },
-              { name: "Music Learning Hub", id: "music-1", meta: "2 weavers • 1d ago" },
-              { name: "Portal Playground", id: "portal-1", meta: "5 weavers • 3d ago" },
-            ].map((l) => (
+            {items.map((item) => (
               <View
-                key={l.id}
+                key={item.id}
                 style={{
                   backgroundColor: "#0f172a",
                   borderWidth: 1,
@@ -115,10 +124,14 @@ export default function Dashboard() {
                 }}
               >
                 <View>
-                  <Text style={{ color: "white", fontWeight: "700" }}>{l.name}</Text>
-                  <Text style={{ color: "#9ca3af", marginTop: 2 }}>{l.meta}</Text>
+                  <Text style={{ color: "white", fontWeight: "700" }}>
+                    {item.name}
+                  </Text>
+                  <Text style={{ color: "#9ca3af", marginTop: 2 }}>
+                    {item.meta ?? "Just created • your layer"}
+                  </Text>
                 </View>
-                <Link href={`/fabric/${l.id}`} asChild>
+                <Link href={`/fabric/${item.id}`} asChild>
                   <Pressable
                     style={{
                       borderColor: "#22d3ee",

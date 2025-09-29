@@ -1,7 +1,17 @@
+import React, { useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import TopNav from "./components/TopNav";
+import { useToast } from "./components/Toast";
+import { useHaptics } from "./hooks/useHaptics";
 
-const PLUGINS = [
+type Plugin = {
+  id: string;
+  name: string;
+  desc: string;
+  installed: boolean;
+};
+
+const INITIAL_PLUGINS: Plugin[] = [
   { id: "music-visualizer", name: "Music Visualizer", desc: "Transform audio into visual patterns", installed: true },
   { id: "portal-effects", name: "Portal Effects", desc: "Create wormholes and gates", installed: true },
   { id: "haptic-sequences", name: "Haptic Sequences", desc: "Program vibration patterns", installed: false },
@@ -9,6 +19,31 @@ const PLUGINS = [
 ];
 
 export default function PluginGallery() {
+  const [plugins, setPlugins] = useState<Plugin[]>(INITIAL_PLUGINS);
+  const toast = useToast();
+  const haptics = useHaptics();
+
+  const handleInstall = (id: string) => {
+    setPlugins((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, installed: true } : p))
+    );
+    haptics.notifySuccess();
+    const name = plugins.find((p) => p.id === id)?.name || "Plugin";
+    toast.show(`${name} installed`);
+  };
+
+  const handleConfigure = (id: string) => {
+    const name = plugins.find((p) => p.id === id)?.name || "Plugin";
+    haptics.impactLight();
+    toast.show(`Open ${name} settings (coming soon)`);
+  };
+
+  const handlePreview = (id: string) => {
+    const name = plugins.find((p) => p.id === id)?.name || "Plugin";
+    haptics.impactMedium();
+    toast.show(`Preview ${name} (coming soon)`);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
       <TopNav />
@@ -24,7 +59,7 @@ export default function PluginGallery() {
           Plugin Gallery
         </Text>
 
-        {PLUGINS.map((p) => (
+        {plugins.map((p) => (
           <View
             key={p.id}
             style={{
@@ -42,6 +77,7 @@ export default function PluginGallery() {
             <Text style={{ color: "#cbd5e1", marginTop: 4 }}>{p.desc}</Text>
             <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
               <Pressable
+                onPress={() => (p.installed ? handleConfigure(p.id) : handleInstall(p.id))}
                 style={{
                   backgroundColor: p.installed ? "transparent" : "#0891b2",
                   borderColor: p.installed ? "#22d3ee" : "transparent",
@@ -56,6 +92,7 @@ export default function PluginGallery() {
                 </Text>
               </Pressable>
               <Pressable
+                onPress={() => handlePreview(p.id)}
                 style={{
                   paddingVertical: 10,
                   paddingHorizontal: 14,
