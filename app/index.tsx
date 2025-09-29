@@ -1,17 +1,39 @@
-import { View, Text, Pressable } from "react-native";
-import { Link } from "expo-router";
+import React, { Suspense, useEffect, useState } from "react";
+import { Platform, View, Text } from "react-native";
+import FabricCanvas from "./components/FabricCanvas";
+
+type Web3DComp = React.ComponentType;
 
 export default function HomeScreen() {
+  const [Web3D, setWeb3D] = useState<Web3DComp | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      import("../src/components/FabricWeb3D").then((m) => setWeb3D(() => m.default));
+    }
+  }, []);
+
   return (
     <View style={{ flex: 1, backgroundColor: "#0b1020" }}>
+      {/* Full-screen Fabric canvas */}
+      <View style={{ flex: 1 }}>
+        {Platform.OS === "web" && Web3D ? (
+          <Suspense fallback={null}>
+            <Web3D />
+          </Suspense>
+        ) : (
+          <FabricCanvas fullScreen />
+        )}
+      </View>
+
+      {/* Centered title overlay (non-interactive) */}
       <View
+        pointerEvents="none"
         style={{
-          flex: 1,
+          position: "absolute",
+          inset: 0 as unknown as number,
           alignItems: "center",
           justifyContent: "center",
-          paddingHorizontal: 16,
-          paddingTop: 24,
-          gap: 16,
         }}
       >
         <Text
@@ -30,55 +52,14 @@ export default function HomeScreen() {
         </Text>
         <Text
           style={{
-            fontSize: 18,
-            color: "#a5b4fc",
+            marginTop: 6,
+            fontSize: 16,
+            color: "#93c5fd",
             textAlign: "center",
-            maxWidth: 520,
           }}
         >
-          Weave Reality Together • Multi‑Sensory Social Platform
+          By Fanalogy
         </Text>
-        <Text style={{ fontSize: 14, color: "#22d3ee" }}>Powered by Nirvana AI</Text>
-
-        <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
-          <Link href="/dashboard" asChild>
-            <Pressable
-              style={{
-                paddingVertical: 14,
-                paddingHorizontal: 18,
-                borderRadius: 14,
-                backgroundColor: "rgba(2,8,23,0.6)",
-                borderColor: "rgba(34,211,238,0.5)",
-                borderWidth: 1,
-                shadowColor: "#22d3ee",
-                shadowOpacity: 0.55,
-                shadowRadius: 14,
-                shadowOffset: { width: 0, height: 6 },
-              }}
-            >
-              <Text style={{ color: "white", fontWeight: "800" }}>Start Weaving</Text>
-            </Pressable>
-          </Link>
-
-          <Link href="/plugins" asChild>
-            <Pressable
-              style={{
-                paddingVertical: 14,
-                paddingHorizontal: 18,
-                borderRadius: 14,
-                backgroundColor: "rgba(2,132,199,0.12)",
-                borderColor: "rgba(34,211,238,0.5)",
-                borderWidth: 1,
-                shadowColor: "#22d3ee",
-                shadowOpacity: 0.4,
-                shadowRadius: 12,
-                shadowOffset: { width: 0, height: 4 },
-              }}
-            >
-              <Text style={{ color: "#22d3ee", fontWeight: "800" }}>Explore Plugins</Text>
-            </Pressable>
-          </Link>
-        </View>
       </View>
     </View>
   );
