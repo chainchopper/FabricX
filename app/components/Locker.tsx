@@ -15,7 +15,7 @@ import { getJSON, setJSON } from "../utils/storage";
 import { confirmAction } from "../utils/confirm";
 import ExperienceSwitch from "./ExperienceSwitch";
 import ExperienceControls from "./ExperienceControls";
-import { useOverlays } from "../context/OverlayContext";
+import { useUserDrawer } from "./UserDrawer";
 
 type LockerContextValue = {
   open: boolean;
@@ -37,6 +37,7 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState<boolean>(false);
   const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const haptics = useHaptics();
+  const userDrawer = useUserDrawer();
 
   const clearTimer = () => {
     if (inactivityRef.current) clearTimeout(inactivityRef.current);
@@ -52,10 +53,11 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
   }, [haptics]);
 
   const openLocker = useCallback(() => {
+    userDrawer?.closeDrawer();
     setOpen(true);
     haptics.impactMedium();
     updateActivity();
-  }, [haptics, updateActivity]);
+  }, [haptics, updateActivity, userDrawer]);
 
   const closeLocker = useCallback(() => {
     clearTimer();
@@ -67,6 +69,7 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
     setOpen((prev) => {
       const next = !prev;
       if (next) {
+        userDrawer?.closeDrawer();
         haptics.impactMedium();
         updateActivity();
       } else {
@@ -75,7 +78,7 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
       }
       return next;
     });
-  }, [haptics, updateActivity]);
+  }, [haptics, updateActivity, userDrawer]);
 
   const value = useMemo(
     () => ({ open, openLocker, closeLocker, toggleLocker, updateActivity }),
@@ -95,7 +98,6 @@ export function Locker() {
   const [creditsOpen, setCreditsOpen] = useState(false);
   const audio = useAudioCues();
   const insets = useSafeAreaInsets();
-  const overlays = useOverlays();
 
   const HINT_KEY = "fabric_locker_hint_seen_v1";
   const [hintSeen, setHintSeen] = useState<boolean>(false);
@@ -180,31 +182,6 @@ export function Locker() {
     return () => sub.remove();
   }, [open, closeLocker, haptics, audio]);
 
-  const NavButton = ({ onPress, label, hint }: { onPress: () => void; label: string; hint?: string }) => (
-    <Pressable
-      onPress={() => {
-        onPress();
-        updateActivity();
-      }}
-      style={{
-        backgroundColor: "rgba(2,8,23,0.6)",
-        borderColor: "rgba(34,211,238,0.3)",
-        borderWidth: 1,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderRadius: 12,
-        marginBottom: 10,
-        shadowColor: "#22d3ee",
-        shadowOpacity: 0.35,
-        shadowRadius: 8,
-        shadowOffset: { width: 0, height: 4 },
-      }}
-    >
-      <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>{label}</Text>
-      {hint ? <Text style={{ color: "#9ca3af", marginTop: 2 }}>{hint}</Text> : null}
-    </Pressable>
-  );
-
   const Divider = () => (
     <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 8 }} />
   );
@@ -270,18 +247,6 @@ export function Locker() {
     inputRange: [0, 1],
     outputRange: [0, 0.5],
   });
-
-  const openCredits = () => {
-    setCreditsOpen(true);
-    haptics.impactLight();
-    audio.click();
-    updateActivity();
-  };
-  const closeCredits = () => {
-    setCreditsOpen(false);
-    haptics.impactLight();
-    audio.click();
-  };
 
   const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] });
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] });
@@ -366,10 +331,7 @@ export function Locker() {
             shadowOffset: { width: 6, height: 0 },
           }}
         >
-          <ScrollView
-            contentContainerStyle={{ paddingBottom: 24 }}
-            showsVerticalScrollIndicator={false}
-          >
+          <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
             <View style={{ alignItems: "center", gap: 6, marginBottom: 10 }}>
               <Image source={require("../../logo.png")} style={{ width: 44, height: 44, borderRadius: 8 }} />
               <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
@@ -377,31 +339,18 @@ export function Locker() {
               <Text style={{ color: "#a3e635", fontSize: 12 }}>Powered by Nirvana</Text>
             </View>
 
-            <Divider />
-
-            {/* Overlays instead of page nav */}
-            <NavButton label="Dashboard" hint="Manage settings & experiences" onPress={() => { overlays.open("dashboard"); closeLocker(); }} />
-            <NavButton label="Plugins" hint="Discover and install" onPress={() => { overlays.open("plugins"); closeLocker(); }} />
-            <NavButton label="Profile" onPress={() => { overlays.open("profile"); closeLocker(); }} />
-            <NavButton label="Studio" hint="Engine / Level editor" onPress={() => { overlays.open("studio"); closeLocker(); }} />
-            <NavButton label="Diagnostics" hint="Fabric status & controls" onPress={() => { overlays.open("diagnostics"); closeLocker(); }} />
-
-            <Divider />
-
-            {/* Experience Switcher */}
+            {/* Fabric-only controls */}
+            <Text style={{ color: "white", fontWeight: "800", marginBottom: 6 }}>Experiences</Text>
             <ExperienceSwitch />
-
-            {/* Experience Controls */}
             <View style={{ marginTop: 10 }}>
               <ExperienceControls />
             </View>
 
-            <Divider />
+            <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 8 }} />
 
-            {/* Quick Create */}
             <QuickCreateLayer />
 
-            <Divider />
+            <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 8 }} />
 
             {/* Active/Invite Controls */}
             <View style={{ gap: 8 }}>
@@ -464,32 +413,15 @@ export function Locker() {
               </View>
             </View>
 
-            <Divider />
+            <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 8 }} />
 
             {/* Recent Layers */}
-            <View style={{ gap: 8 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>Recent Layers</Text>
-                {layers.length > 0 ? (
-                  <Pressable
-                    onPress={handleClearRecents}
-                    style={{
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: "rgba(239,68,68,0.8)",
-                    }}
-                  >
-                    <Text style={{ color: "#ef4444", fontWeight: "700" }}>Clear</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-              {layers.length === 0 ? (
+            <Text style={{ color: "white", fontWeight: "800", marginBottom: 6 }}>Recent Layers</Text>
+            <View style={{ gap: 10 }}>
+              {recent.length === 0 ? (
                 <Text style={{ color: "#9ca3af" }}>No recent layers yet.</Text>
               ) : (
-                layers.slice(0, 5).map((l: Layer) => (
+                recent.map((l: Layer) => (
                   <View
                     key={l.id}
                     style={{
@@ -552,11 +484,11 @@ export function Locker() {
               )}
             </View>
 
-            <Divider />
+            <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 8 }} />
 
             {/* Credits */}
             <Pressable
-              onPress={openCredits}
+              onPress={() => setCreditsOpen(true)}
               style={{
                 backgroundColor: "rgba(2,8,23,0.6)",
                 borderColor: "rgba(34,211,238,0.35)",
@@ -615,7 +547,7 @@ export function Locker() {
         </Pressable>
       </Animated.View>
 
-      <CreditsOverlay visible={creditsOpen} onClose={closeCredits} />
+      <CreditsOverlay visible={creditsOpen} onClose={() => setCreditsOpen(false)} />
     </>
   );
 }

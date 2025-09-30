@@ -28,7 +28,7 @@ export default function OverlayRoot() {
     }
   }, [open, opacity, slide]);
 
-  const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [320, 0] });
+  const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [-360, 0] });
 
   const renderContent = () => {
     switch (type) {
@@ -71,18 +71,18 @@ export default function OverlayRoot() {
         style={{
           position: "absolute",
           top: 0,
-          right: 0,
+          left: 0,
           bottom: 0,
           width: 360,
           transform: [{ translateX }],
           zIndex: 59,
           backgroundColor: "rgba(15,23,42,0.95)",
-          borderLeftColor: "rgba(34,211,238,0.35)",
-          borderLeftWidth: 1,
+          borderRightColor: "rgba(34,211,238,0.35)",
+          borderRightWidth: 1,
           shadowColor: "#22d3ee",
           shadowOpacity: 0.35,
           shadowRadius: 18,
-          shadowOffset: { width: -6, height: 0 },
+          shadowOffset: { width: 6, height: 0 },
         }}
       >
         <ScrollView contentContainerStyle={{ padding: 14 }}>

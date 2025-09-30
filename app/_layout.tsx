@@ -10,6 +10,9 @@ import GlobalFabricBackground from "./components/GlobalFabricBackground";
 import { ExperienceProvider } from "./context/ExperienceContext";
 import { OverlayProvider } from "./context/OverlayContext";
 import OverlayRoot from "./components/overlays/OverlayRoot";
+import { UserDrawerProvider } from "./components/UserDrawer";
+import UserDrawer from "./components/UserDrawer";
+import AvatarButton from "./components/AvatarButton";
 
 export default function RootLayout() {
   return (
@@ -19,20 +22,25 @@ export default function RootLayout() {
           <ARProvider>
             <ExperienceProvider>
               <OverlayProvider>
-                <LockerProvider>
-                  <View style={{ flex: 1 }}>
-                    {/* Fabric is the main event: persistent and always-on */}
-                    <GlobalFabricBackground />
-                    {/* Foreground routes (minimal; we favor overlays) */}
-                    <View style={{ flex: 1, zIndex: 10 }}>
-                      <Stack screenOptions={{ headerShown: false }} />
+                <UserDrawerProvider>
+                  <LockerProvider>
+                    <View style={{ flex: 1 }}>
+                      {/* Fabric is the main event: persistent and always-on */}
+                      <GlobalFabricBackground />
+                      {/* Foreground routes (minimal; we favor overlays) */}
+                      <View style={{ flex: 1, zIndex: 10 }}>
+                        <Stack screenOptions={{ headerShown: false }} />
+                      </View>
+                      {/* Overlays (slide from left) */}
+                      <OverlayRoot />
+                      {/* Drawers (left side) */}
+                      <UserDrawer />
+                      <Locker />
+                      {/* Avatar trigger */}
+                      <AvatarButton />
                     </View>
-                    {/* Overlays */}
-                    <OverlayRoot />
-                    {/* Locker for quick actions */}
-                    <Locker />
-                  </View>
-                </LockerProvider>
+                  </LockerProvider>
+                </UserDrawerProvider>
               </OverlayProvider>
             </ExperienceProvider>
           </ARProvider>
