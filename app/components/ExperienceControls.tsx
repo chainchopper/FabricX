@@ -62,6 +62,14 @@ export default function ExperienceControls() {
     toast.show("Experience reset");
   };
 
+  // Audio volume quick controls (0.5, 0.7, 0.9)
+  const currentVol = Number(experienceConfig.common?.audioVolume ?? 0.7);
+  const setAudioVolume = (v: number) => {
+    updateConfig({ common: { ...experienceConfig.common, audioVolume: v } });
+    haptics.impactLight();
+    toast.show(`Audio volume: ${Math.round(v * 100)}%`);
+  };
+
   // MIDI controls for AR Piano
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
   const midiIntensity = Number((experienceConfig.specific as any)?.midiIntensity ?? 1);
@@ -113,6 +121,34 @@ export default function ExperienceControls() {
               >
                 <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
                   {p.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Audio quick volume */}
+      <View style={{ gap: 6 }}>
+        <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Audio</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {[0.5, 0.7, 0.9].map((v) => {
+            const active = Math.abs(currentVol - v) < 0.0001;
+            return (
+              <Pressable
+                key={v}
+                onPress={() => setAudioVolume(v)}
+                style={{
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                  backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                }}
+              >
+                <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                  {Math.round(v * 100)}%
                 </Text>
               </Pressable>
             );

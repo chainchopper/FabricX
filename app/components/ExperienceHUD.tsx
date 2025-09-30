@@ -2,14 +2,19 @@ import React from "react";
 import { Platform, View, Text } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useAR } from "../context/ARContext";
+import { useMIDI } from "../../src/hooks/useMIDI";
 
 export default function ExperienceHUD() {
   if (Platform.OS !== "web") return null;
   const { state } = useExperience();
-  const { activeExperience } = state;
+  const { activeExperience, experienceConfig } = state;
   const { isARCameraActive } = useAR();
 
   if (!activeExperience) return null;
+
+  const isARPiano = activeExperience.id === "ar-piano";
+  const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
+  const { activeNotes } = isARPiano ? useMIDI() : { activeNotes: [] as string[] };
 
   return (
     <View
@@ -33,6 +38,11 @@ export default function ExperienceHUD() {
       <Text style={{ color: "#93c5fd", fontSize: 11 }}>{activeExperience.type}</Text>
       {isARCameraActive ? (
         <Text style={{ color: "#34d399", fontSize: 11, marginTop: 2 }}>AR On</Text>
+      ) : null}
+      {isARPiano ? (
+        <Text style={{ color: midiEnabled ? "#34d399" : "#9ca3af", fontSize: 11, marginTop: 2 }}>
+          MIDI {midiEnabled ? "On" : "Off"}{midiEnabled ? ` • ${activeNotes.length} notes` : ""}
+        </Text>
       ) : null}
     </View>
   );
