@@ -70,6 +70,8 @@ const builtin: ExperienceLayer[] = [
         handTracking: true,
         pianoLayout: "floating",
         cameraFeed: true,
+        midiEnabled: true,
+        midiIntensity: 1,
       },
     },
   },

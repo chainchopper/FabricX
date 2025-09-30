@@ -35,8 +35,9 @@ function noteNameToNumber(note: string): number {
 /**
  * useMIDIFluid
  * Always call this hook; pass enabled=false to disable processing without changing hook order.
+ * intensityScale softly scales force/pressure (0.4..1.6 sensible).
  */
-export function useMIDIFluid(roomId: string = "default", enabled: boolean = true) {
+export function useMIDIFluid(roomId: string = "default", enabled: boolean = true, intensityScale: number = 1) {
   const { activeNotes, noteVelocities } = useMIDI();
   const { sendInteraction } = useFluidMultiUser(roomId);
   const streamsRef = useRef<Map<NoteName, number>>(new Map());
@@ -62,7 +63,7 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
         const duration = 420; // ms
         const noteNum = noteNameToNumber(note);
         const x = (noteNum % 12) / 12;
-        const vel = noteVelocities[note] ?? 0.5;
+        const vel = Math.max(0.05, Math.min(1, (noteVelocities[note] ?? 0.5) * Math.max(0.25, Math.min(1.6, intensityScale))));
         const hue = ((noteNum * 30) % 360) / 360;
         const color = hsvToRgb(hue, 0.85, Math.max(0.4, vel));
         const id = window.requestAnimationFrame(function loop(ts) {
@@ -87,10 +88,10 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
     }
 
     // Stop streams for released notes
-    for (const [note, rafId] of Array.from(streamsRef.current.entries())) {
-      if (!currentNotes.has(note)) {
+    for (const [n, rafId] of Array.from(streamsRef.current.entries())) {
+      if (!currentNotes.has(n)) {
         window.cancelAnimationFrame(rafId);
-        streamsRef.current.delete(note);
+        streamsRef.current.delete(n);
       }
     }
 
@@ -99,7 +100,7 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
       for (const id of streamsRef.current.values()) window.cancelAnimationFrame(id);
       streamsRef.current.clear();
     };
-  }, [currentNotes, noteVelocities, sendInteraction, enabled]);
+  }, [currentNotes, noteVelocities, sendInteraction, enabled, intensityScale]);
 
   return { activeNotes, noteVelocities };
 }

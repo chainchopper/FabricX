@@ -4,6 +4,7 @@ import { useExperience } from "../context/ExperienceContext";
 import { useAR } from "../context/ARContext";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
+import { useMIDI } from "../../src/hooks/useMIDI";
 
 declare global {
   interface Window {
@@ -37,6 +38,11 @@ export default function FabricDiagnostics() {
   const wantsAROrCamera =
     !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
 
+  // MIDI quick status (web)
+  const { activeNotes } = Platform.OS === "web" ? useMIDI() : { activeNotes: [] as string[] };
+  const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
+  const midiNoteCount = Array.isArray(activeNotes) ? activeNotes.length : 0;
+
   const resetCurrentConfig = () => {
     if (!activeExperience) return;
     updateConfig(activeExperience.configDefaults);
@@ -69,6 +75,16 @@ export default function FabricDiagnostics() {
       <Text style={{ color: isARCameraActive ? "#34d399" : "#9ca3af" }}>
         AR Camera Active: {isARCameraActive ? "Yes" : "No"}
       </Text>
+
+      {/* MIDI status */}
+      {activeExperience?.id === "ar-piano" ? (
+        <>
+          <Text style={{ color: midiEnabled ? "#34d399" : "#9ca3af" }}>
+            MIDI → Fabric: {midiEnabled ? "On" : "Off"}
+          </Text>
+          <Text style={{ color: "#e5e7eb" }}>Active Notes: {midiNoteCount}</Text>
+        </>
+      ) : null}
 
       <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 6 }} />
 

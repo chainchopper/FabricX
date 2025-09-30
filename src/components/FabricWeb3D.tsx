@@ -179,12 +179,25 @@ export default function FabricWeb3D() {
   const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   const { isARCameraActive, videoTexture } = useAR();
   const { state } = useExperience();
-  const { activeExperience } = state;
+  const { activeExperience, experienceConfig } = state;
 
   const isARPiano = activeExperience?.id === "ar-piano";
 
-  // Always call hook; pass enabled flag to keep hook order stable
-  useMIDIFluid("ar-piano", !!isARPiano);
+  // MIDI mapping controls from ExperienceConfig
+  const midiEnabled = useMemo(() => {
+    if (!isARPiano) return false;
+    const s = experienceConfig.specific as Record<string, unknown> | undefined;
+    return (s?.midiEnabled as boolean | undefined) ?? true;
+  }, [isARPiano, experienceConfig]);
+
+  const midiIntensity = useMemo(() => {
+    const s = experienceConfig.specific as Record<string, unknown> | undefined;
+    const v = Number(s?.midiIntensity ?? 1);
+    return isFinite(v) ? v : 1;
+  }, [experienceConfig]);
+
+  // Always call; respect enable + intensity
+  useMIDIFluid("ar-piano", !!midiEnabled, midiIntensity);
 
   const densityScale = useMemo(() => {
     if (!activeExperience) return 1;
