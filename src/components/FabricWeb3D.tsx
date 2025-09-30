@@ -9,6 +9,8 @@ import TouchParticles from "./TouchParticles";
 import { useExperience } from "../contexts/ExperienceContext";
 import PianoOverlay from "../components/piano/PianoOverlay";
 import { useMIDIFluid } from "../hooks/useMIDIFluid";
+import ToneEngine from "./audio/ToneEngine";
+import { EffectComposer, Bloom } from "@react-three/postprocessing";
 
 const vertexShader = `
   varying vec2 vUv;
@@ -161,7 +163,7 @@ function LiquidSurface() {
         eventBus.emitLongPress(e.uv.x, e.uv.y);
       }}
     >
-      <planeGeometry args={[2, 2,  segments, segments]} />
+      <planeGeometry args={[2, 2, segments, segments]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={vertexShader}
@@ -184,8 +186,8 @@ export default function FabricWeb3D() {
     // no-op; hook below handles everything conditionally
   }, [activeExperience?.id]);
 
-  // Activate the MIDI-to-fluid pipeline when AR Piano is active
-  if (activeExperience?.id === "ar-piano") {
+  const isARPiano = activeExperience?.id === "ar-piano";
+  if (isARPiano) {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     useMIDIFluid("ar-piano");
   }
@@ -200,6 +202,9 @@ export default function FabricWeb3D() {
 
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "transparent" }}>
+      {/* Audio engine mounts outside Canvas */}
+      <ToneEngine />
+
       <Canvas
         dpr={dpr}
         frameloop="always"
@@ -218,8 +223,16 @@ export default function FabricWeb3D() {
         <directionalLight intensity={0.6} position={[2, 3, 2]} />
         <LiquidSurface />
         {/* AR Piano overlay model */}
-        {activeExperience?.id === "ar-piano" ? <PianoOverlay /> : null}
+        {isARPiano ? <PianoOverlay /> : null}
         <TouchParticles densityScale={densityScale} />
+
+        {/* Subtle bloom for AR Piano */}
+        {isARPiano ? (
+          <EffectComposer multisampling={4}>
+            <Bloom intensity={0.5} luminanceThreshold={0.1} luminanceSmoothing={0.9} />
+          </EffectComposer>
+        ) : null}
+
         <perspectiveCamera position={[0, 0, 1.8]} fov={50} />
       </Canvas>
     </div>
