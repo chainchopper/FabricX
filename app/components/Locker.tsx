@@ -156,7 +156,6 @@ export function Locker() {
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
   const PANEL_WIDTH = 300;
-  const TAB_SIZE = 58;
 
   const translateX = slide.interpolate({
     inputRange: [0, 1],
@@ -259,6 +258,7 @@ export function Locker() {
 
   return (
     <>
+      {/* Top-left CTA for Locker (stacked below AvatarButton) */}
       {!open ? (
         <Pressable
           onPress={() => {
@@ -268,16 +268,25 @@ export function Locker() {
           }}
           style={{
             position: "absolute",
-            left: 0,
-            bottom: TAB_SIZE + 24 + insets.bottom,
-            width: 12,
-            height: 120,
-            zIndex: 54,
-            backgroundColor: "rgba(34,211,238,0.12)",
-            borderTopRightRadius: 6,
-            borderBottomRightRadius: 6,
+            top: 64,
+            left: 12,
+            width: 44,
+            height: 44,
+            zIndex: 56,
+            backgroundColor: "rgba(2,8,23,0.65)",
+            borderColor: "rgba(34,211,238,0.45)",
+            borderWidth: 1,
+            borderRadius: 12,
+            alignItems: "center",
+            justifyContent: "center",
+            shadowColor: "#22d3ee",
+            shadowOpacity: 0.4,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 4 },
           }}
-        />
+        >
+          <Image source={require("../../logo.png")} style={{ width: 26, height: 26, borderRadius: 6, opacity: 0.95 }} />
+        </Pressable>
       ) : null}
 
       {open ? (
@@ -521,6 +530,7 @@ export function Locker() {
           </ScrollView>
         </SafeAreaView>
 
+        {/* Drawer edge toggle when open (kept near top-left edge) */}
         <Pressable
           onPress={() => {
             markHintSeen();
@@ -529,7 +539,7 @@ export function Locker() {
           }}
           style={{
             position: "absolute",
-            bottom: 16 + insets.bottom,
+            top: 16 + insets.top,
             left: 300,
             width: 58,
             height: 58,
@@ -544,8 +554,8 @@ export function Locker() {
             alignItems: "center",
             justifyContent: "center",
             shadowColor: "#22d3ee",
-            shadowOpacity: isInLayer ? 0.7 : 0.55,
-            shadowRadius: isInLayer ? 18 : 14,
+            shadowOpacity: 0.6,
+            shadowRadius: 16,
             shadowOffset: { width: 0, height: 6 },
           }}
         >
