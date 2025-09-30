@@ -4,7 +4,6 @@ import { useToast } from "./components/Toast";
 import { useHaptics } from "./hooks/useHaptics";
 import { getJSON, setJSON } from "./utils/storage";
 import BackToFabric from "./components/BackToFabric";
-import WebFluidBackground from "./components/WebFluidBackground";
 
 type Plugin = {
   id: string;
@@ -58,7 +57,6 @@ export default function PluginGallery() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
-      <WebFluidBackground />
       <BackToFabric />
       <ScrollView
         contentContainerStyle={{

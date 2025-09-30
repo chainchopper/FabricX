@@ -1,20 +1,17 @@
 import React from "react";
 import { Platform, View, Text } from "react-native";
 import BackToFabric from "./components/BackToFabric";
-import LegacyFluid from "../src/components/fluid/LegacyFluid";
 
 export default function FluidTest() {
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
-      {Platform.OS === "web" ? (
-        <LegacyFluid />
-      ) : (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0b1020" }}>
-          <Text style={{ color: "white" }}>
-            Fluid test is web-only. Open this page in a web build.
-          </Text>
-        </View>
-      )}
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: "white", textAlign: "center", paddingHorizontal: 16 }}>
+          {Platform.OS === "web"
+            ? "Global Fabric is running persistently in the background.\nThis page is now for diagnostics."
+            : "Fluid test is web-only. Open this page in a web build."}
+        </Text>
+      </View>
       <BackToFabric />
     </View>
   );

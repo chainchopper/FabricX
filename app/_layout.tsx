@@ -7,6 +7,7 @@ import { ARProvider } from "./context/ARContext";
 import React from "react";
 import { View } from "react-native";
 import GlobalFabricBackground from "./components/GlobalFabricBackground";
+import { ExperienceProvider } from "./context/ExperienceContext";
 
 export default function RootLayout() {
   return (
@@ -14,18 +15,20 @@ export default function RootLayout() {
       <PreferencesProvider>
         <LayersProvider>
           <ARProvider>
-            <LockerProvider>
-              <View style={{ flex: 1 }}>
-                {/* Global Fabric background runs behind all routes (hidden on /fabric) */}
-                <GlobalFabricBackground />
-                {/* Foreground routes */}
-                <View style={{ flex: 1, zIndex: 10 }}>
-                  <Stack screenOptions={{ headerShown: false }} />
+            <ExperienceProvider>
+              <LockerProvider>
+                <View style={{ flex: 1 }}>
+                  {/* Global Fabric/Experience background runs behind all routes */}
+                  <GlobalFabricBackground />
+                  {/* Foreground routes */}
+                  <View style={{ flex: 1, zIndex: 10 }}>
+                    <Stack screenOptions={{ headerShown: false }} />
+                  </View>
+                  {/* Locker overlay */}
+                  <Locker />
                 </View>
-                {/* Locker overlay */}
-                <Locker />
-              </View>
-            </LockerProvider>
+              </LockerProvider>
+            </ExperienceProvider>
           </ARProvider>
         </LayersProvider>
       </PreferencesProvider>

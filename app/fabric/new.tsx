@@ -5,7 +5,6 @@ import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
 import BackToFabric from "../components/BackToFabric";
-import WebFluidBackground from "../components/WebFluidBackground";
 
 function slugify(input: string) {
   return input
@@ -34,7 +33,6 @@ export default function NewFabricLayer() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
-      <WebFluidBackground />
       <BackToFabric />
       <View
         style={{

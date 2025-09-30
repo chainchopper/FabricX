@@ -1,11 +1,9 @@
 import { View, Text, Pressable } from "react-native";
 import BackToFabric from "./components/BackToFabric";
-import WebFluidBackground from "./components/WebFluidBackground";
 
 export default function Profile() {
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
-      <WebFluidBackground />
       <BackToFabric />
       <View
         style={{

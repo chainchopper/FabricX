@@ -1,6 +1,5 @@
 import React, { useRef, useState } from "react";
 import { View, Text, Pressable, Animated, Easing } from "react-native";
-import WebFluidBackground from "./components/WebFluidBackground";
 
 export default function HomeScreen() {
   const [overlayActive, setOverlayActive] = useState(true);
@@ -18,9 +17,6 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
-      {/* Working background on web */}
-      <WebFluidBackground />
-
       {/* Branding overlay */}
       {overlayActive ? (
         <Animated.View

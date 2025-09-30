@@ -7,7 +7,6 @@ import { useLayers } from "../context/LayersContext";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import WebFluidBackground from "../components/WebFluidBackground";
 
 export default function FabricRoom() {
   const { layerId } = useLocalSearchParams<{ layerId?: string }>();
@@ -41,7 +40,6 @@ export default function FabricRoom() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
-      <WebFluidBackground />
       <SafeAreaView
         pointerEvents="box-none"
         style={{
@@ -69,7 +67,7 @@ export default function FabricRoom() {
             paddingHorizontal: 10,
           }}
         >
-          <Text style={{ color: "#e5e7eb", fontWeight: "800" }}>
+          <Text style={{ color: "e5e7eb", fontWeight: "800" }}>
             {layer?.name ?? `Layer ${id}`}
           </Text>
           <Text style={{ color: "#93c5fd", fontSize: 12 }} numberOfLines={1}>
