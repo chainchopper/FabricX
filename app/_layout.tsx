@@ -12,8 +12,6 @@ import { OverlayProvider } from "./context/OverlayContext";
 import OverlayRoot from "./components/overlays/OverlayRoot";
 import { UserDrawerProvider } from "./components/UserDrawer";
 import UserDrawer from "./components/UserDrawer";
-import AvatarButton from "./components/AvatarButton";
-import LockerButton from "./components/LockerButton";
 
 export default function RootLayout() {
   return (
@@ -28,18 +26,14 @@ export default function RootLayout() {
                     <View style={{ flex: 1 }}>
                       {/* Fabric is the main event: persistent and always-on */}
                       <GlobalFabricBackground />
-                      {/* Foreground routes (minimal; we favor overlays) */}
+                      {/* Foreground routes */}
                       <View style={{ flex: 1, zIndex: 10 }}>
                         <Stack screenOptions={{ headerShown: false }} />
                       </View>
-                      {/* Overlays (slide from left) */}
+                      {/* Overlays and Drawers */}
                       <OverlayRoot />
-                      {/* Drawers (slide from left) */}
                       <UserDrawer />
                       <Locker />
-                      {/* Top-left CTA triggers */}
-                      <AvatarButton />
-                      <LockerButton />
                     </View>
                   </LockerProvider>
                 </UserDrawerProvider>

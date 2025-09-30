@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { View, Text, Pressable } from "react-native";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Easing, Pressable, Text, View } from "react-native";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { useOverlays } from "../context/OverlayContext";
 import ExperienceSwitch from "./ExperienceSwitch";
@@ -26,10 +26,7 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
   const closeLocker = useCallback(() => setOpen(false), []);
   const toggleLocker = useCallback(() => setOpen((v) => !v), []);
 
-  const value = useMemo(
-    () => ({ open, openLocker, closeLocker, toggleLocker }),
-    [open, openLocker, closeLocker, toggleLocker]
-  );
+  const value = useMemo(() => ({ open, openLocker, closeLocker, toggleLocker }), [open, openLocker, closeLocker, toggleLocker]);
 
   return (
     <LockerContext.Provider value={value}>
@@ -46,12 +43,18 @@ export function useLocker() {
 }
 
 export default function Locker() {
-  const ctx = useContext(LockerContext);
-  const { open: overlaysOpen, open } = useOverlays();
+  const { open, toggleLocker, closeLocker } = useLocker();
+  const { open: openOverlay } = useOverlays();
+  const slideX = useRef(new Animated.Value(-360)).current;
 
-  if (!ctx) return null;
-  const { open: visible, closeLocker } = ctx;
-  if (!visible) return null;
+  useEffect(() => {
+    Animated.timing(slideX, {
+      toValue: open ? 0 : -360,
+      duration: 220,
+      easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [open, slideX]);
 
   const Action = ({ label, onPress }: { label: string; onPress: () => void }) => (
     <Pressable
@@ -71,75 +74,101 @@ export default function Locker() {
   );
 
   return (
-    <View
+    <Animated.View
       style={{
         position: "absolute",
         top: 0,
         bottom: 0,
         left: 0,
         width: 360,
-        zIndex: 59,
-        backgroundColor: "rgba(15,23,42,0.95)",
-        borderRightColor: "rgba(34,211,238,0.35)",
-        borderRightWidth: 1,
-        paddingTop: 48,
-        paddingHorizontal: 14,
+        transform: [{ translateX: slideX }],
+        zIndex: 58,
       }}
+      pointerEvents="box-none"
     >
-      <Text style={{ color: "white", fontWeight: "800", marginBottom: 12 }}>Locker</Text>
-      <Text style={{ color: "#93c5fd", marginBottom: 10 }}>
-        Quick actions and controls.
-      </Text>
-
-      {/* Quick actions */}
-      <View style={{ marginTop: 6 }}>
-        <Action label="Dashboard" onPress={() => open("dashboard")} />
-        <Action label="Plugins" onPress={() => open("plugins")} />
-        <Action label="Profile" onPress={() => open("profile")} />
-        <Action label="Studio" onPress={() => open("studio")} />
-        <Action label="Diagnostics" onPress={() => open("diagnostics")} />
-      </View>
-
-      {/* Separator */}
+      {/* Drawer panel */}
       <View
         style={{
-          height: 1,
-          backgroundColor: "rgba(148,163,184,0.25)",
-          marginVertical: 10,
-        }}
-      />
-
-      {/* Experiences section (switch + controls) */}
-      <View style={{ gap: 10 }}>
-        <ExperienceSwitch />
-        <ExperienceControls />
-      </View>
-
-      <View
-        style={{
-          marginTop: 14,
-          borderTopWidth: 1,
-          borderTopColor: "rgba(148,163,184,0.25)",
-          paddingTop: 12,
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: 0,
+          width: 360,
+          backgroundColor: "rgba(15,23,42,0.95)",
+          borderRightColor: "rgba(34,211,238,0.35)",
+          borderRightWidth: 1,
+          paddingTop: 48,
+          paddingHorizontal: 14,
         }}
       >
-        <Text style={{ color: "#a3e635", fontSize: 12 }}>Powered by Nirvana</Text>
+        <Text style={{ color: "white", fontWeight: "800", marginBottom: 12 }}>Locker</Text>
+        <Text style={{ color: "#93c5fd", marginBottom: 10 }}>Quick actions and controls.</Text>
+
+        {/* Quick actions */}
+        <View style={{ marginTop: 6 }}>
+          <Action label="Dashboard" onPress={() => openOverlay("dashboard")} />
+          <Action label="Plugins" onPress={() => openOverlay("plugins")} />
+          <Action label="Profile" onPress={() => openOverlay("profile")} />
+          <Action label="Studio" onPress={() => openOverlay("studio")} />
+          <Action label="Diagnostics" onPress={() => openOverlay("diagnostics")} />
+        </View>
+
+        {/* Separator */}
+        <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 10 }} />
+
+        {/* Experiences section */}
+        <View style={{ gap: 10 }}>
+          <ExperienceSwitch />
+          <ExperienceControls />
+        </View>
+
+        <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "rgba(148,163,184,0.25)", paddingTop: 12 }}>
+          <Text style={{ color: "#a3e635", fontSize: 12 }}>Powered by Nirvana</Text>
+        </View>
+
+        <Pressable
+          onPress={closeLocker}
+          style={{
+            marginTop: 10,
+            borderColor: "rgba(148,163,184,0.35)",
+            borderWidth: 1,
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            borderRadius: 10,
+            alignSelf: "flex-start",
+          }}
+        >
+          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Close</Text>
+        </Pressable>
       </View>
 
+      {/* Attached edge tab (≡) positioned below avatar tab; sticks out and slides with drawer */}
       <Pressable
-        onPress={closeLocker}
+        onPress={toggleLocker}
         style={{
-          marginTop: 10,
-          borderColor: "rgba(148,163,184,0.35)",
-          borderWidth: 1,
-          paddingVertical: 8,
-          paddingHorizontal: 12,
-          borderRadius: 10,
-          alignSelf: "flex-start",
+          position: "absolute",
+          top: 12 + 48 + 8,
+          right: -48,
+          width: 48,
+          height: 48,
+          borderTopRightRadius: 12,
+          borderBottomRightRadius: 12,
+          backgroundColor: "rgba(2,8,23,0.65)",
+          borderColor: "rgba(34,211,238,0.45)",
+          borderLeftWidth: 0,
+          borderRightWidth: 1,
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: "#22d3ee",
+          shadowOpacity: 0.35,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 4 },
         }}
       >
-        <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Close</Text>
+        <Text style={{ color: "#22d3ee", fontWeight: "800", fontSize: 18 }}>≡</Text>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
