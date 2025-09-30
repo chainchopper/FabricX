@@ -2,15 +2,15 @@ import React, { Suspense, useEffect, useState } from "react";
 import { Platform, View } from "react-native";
 import FabricCanvas from "./FabricCanvas";
 
-type WebFluidComp = React.ComponentType<{ roomId?: string }>;
+type WebFluidComp = React.ComponentType;
 
 export default function GlobalFabricBackground() {
   const [WebFluid, setWebFluid] = useState<WebFluidComp | null>(null);
 
   useEffect(() => {
     if (Platform.OS === "web") {
-      import("../../src/components/fabric/FluidFabric").then((m) =>
-        setWebFluid(() => m.FluidFabric as unknown as WebFluidComp)
+      import("../../src/components/fluid/LegacyFluid").then((m) =>
+        setWebFluid(() => m.default as unknown as WebFluidComp)
       );
     }
   }, []);
@@ -19,7 +19,7 @@ export default function GlobalFabricBackground() {
     <View
       pointerEvents="auto"
       style={{
-        position: "absolute", // acts as the single background authority
+        position: "absolute", // single background authority
         top: 0,
         left: 0,
         right: 0,
@@ -30,7 +30,7 @@ export default function GlobalFabricBackground() {
     >
       {Platform.OS === "web" && WebFluid ? (
         <Suspense fallback={null}>
-          <WebFluid roomId="default" />
+          <WebFluid />
         </Suspense>
       ) : (
         <FabricCanvas fullScreen />
