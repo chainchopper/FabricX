@@ -14,6 +14,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { getJSON, setJSON } from "../utils/storage";
 import { confirmAction } from "../utils/confirm";
 import ExperienceSwitch from "./ExperienceSwitch";
+import ExperienceControls from "./ExperienceControls";
 
 type LockerContextValue = {
   open: boolean;
@@ -386,6 +387,11 @@ export function Locker() {
 
             {/* Experience Switcher */}
             <ExperienceSwitch />
+
+            {/* Experience Controls */}
+            <View style={{ marginTop: 10 }}>
+              <ExperienceControls />
+            </View>
 
             <Divider />
 

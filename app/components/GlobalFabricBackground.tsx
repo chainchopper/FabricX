@@ -2,6 +2,7 @@ import React from "react";
 import { Platform, View } from "react-native";
 import FabricCanvas from "./FabricCanvas";
 import ExperienceRenderer from "./ExperienceRenderer";
+import ARStatus from "./ARStatus";
 
 export default function GlobalFabricBackground() {
   // Web: persistent experience-driven background (single authority)
@@ -17,6 +18,7 @@ export default function GlobalFabricBackground() {
         }}
       >
         <ExperienceRenderer />
+        <ARStatus />
       </View>
     );
   }
