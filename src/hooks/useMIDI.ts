@@ -1,0 +1,95 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+
+export type NoteName = `${"C"|"C#"|"D"|"D#"|"E"|"F"|"F#"|"G"|"G#"|"A"|"A#"|"B"}${number}`;
+
+function midiNumberToNoteName(num: number): NoteName {
+  const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  const note = names[num % 12] as NoteName extends `${infer N}${number}` ? N : never;
+  const octave = Math.floor(num / 12) - 1;
+  return `${note}${octave}` as NoteName;
+}
+
+export function useMIDI() {
+  const [activeNotes, setActiveNotes] = useState<NoteName[]>([]);
+  const [noteVelocities, setNoteVelocities] = useState<Record<string, number>>({});
+  const accessRef = useRef<MIDIAccess | null>(null);
+  const activeSetRef = useRef<Set<NoteName>>(new Set());
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("requestMIDIAccess" in navigator)) return;
+
+    let mounted = true;
+
+    navigator.requestMIDIAccess({ sysex: false }).then((access) => {
+      if (!mounted) return;
+      accessRef.current = access;
+
+      const handleMessage = (ev: MIDIMessageEvent) => {
+        const raw = (ev as any).data as Uint8Array | null | undefined;
+        if (!raw) return;
+        const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw as any);
+        const status = bytes[0];
+        const data1 = bytes[1];
+        const data2 = bytes[2];
+
+        const cmd = status & 0xf0;
+        const noteNum = data1;
+        const velocity = data2;
+
+        if (cmd === 0x90) {
+          // note on (if vel>0) or off (if vel==0)
+          if (velocity > 0) {
+            const note = midiNumberToNoteName(noteNum);
+            activeSetRef.current.add(note);
+            setNoteVelocities((m) => ({ ...m, [note]: velocity / 127 }));
+            setActiveNotes(Array.from(activeSetRef.current));
+          } else {
+            const note = midiNumberToNoteName(noteNum);
+            activeSetRef.current.delete(note);
+            setActiveNotes(Array.from(activeSetRef.current));
+          }
+        } else if (cmd === 0x80) {
+          // note off
+          const note = midiNumberToNoteName(noteNum);
+          activeSetRef.current.delete(note);
+          setActiveNotes(Array.from(activeSetRef.current));
+        }
+      };
+
+      const attachInput = (input: MIDIInput) => {
+        input.onmidimessage = handleMessage;
+      };
+
+      // Attach current inputs
+      access.inputs.forEach((input) => attachInput(input));
+
+      // Listen for newly connected inputs using the map + port id
+      const onStateChange = (ev: MIDIConnectionEvent) => {
+        const acc = accessRef.current;
+        if (!acc) return;
+        const port = ev.port;
+        if (!port) return;
+        if (port.type === "input" && port.state === "connected") {
+          let found: MIDIInput | undefined;
+          acc.inputs.forEach((value, key) => {
+            if (key === port.id) found = value;
+          });
+          if (found) attachInput(found);
+        }
+      };
+      access.onstatechange = onStateChange;
+    });
+
+    return () => {
+      mounted = false;
+      const access = accessRef.current;
+      if (access) {
+        access.inputs.forEach((input) => {
+          input.onmidimessage = null;
+        });
+      }
+    };
+  }, []);
+
+  return useMemo(() => ({ activeNotes, noteVelocities }), [activeNotes, noteVelocities]);
+}

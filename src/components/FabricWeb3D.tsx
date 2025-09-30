@@ -7,6 +7,8 @@ import { decayTowards } from "../../shared/utils/easing";
 import { useAR } from "../contexts/ARContext";
 import TouchParticles from "./TouchParticles";
 import { useExperience } from "../contexts/ExperienceContext";
+import PianoOverlay from "../components/piano/PianoOverlay";
+import { useMIDIFluid } from "../hooks/useMIDIFluid";
 
 const vertexShader = `
   varying vec2 vUv;
@@ -87,17 +89,16 @@ function LiquidSurface() {
     if (!activeExperience) return 1;
     if (activeExperience.id === "camera-effects") {
       const v = Number(experienceConfig.specific?.filterIntensity ?? 0.7);
-      return Math.max(0.4, Math.min(1.5, v + 0.3)); // emphasize a bit
+      return Math.max(0.4, Math.min(1.5, v + 0.3));
     }
     return 1;
   }, [activeExperience, experienceConfig]);
 
   const segments = useMemo(() => {
-    // For AR/camera experiences we still vary mesh quality by optional quality flag if present
     const q = (experienceConfig.specific as { fluidQuality?: "low" | "medium" | "high" } | undefined)?.fluidQuality;
     if (q === "low") return 96;
     if (q === "medium") return 128;
-    return 160; // high/default
+    return 160;
   }, [experienceConfig]);
 
   const uniforms = useMemo(
@@ -160,7 +161,7 @@ function LiquidSurface() {
         eventBus.emitLongPress(e.uv.x, e.uv.y);
       }}
     >
-      <planeGeometry args={[2, 2, segments, segments]} />
+      <planeGeometry args={[2, 2,  segments, segments]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={vertexShader}
@@ -177,6 +178,17 @@ export default function FabricWeb3D() {
   const { isARCameraActive, videoTexture } = useAR();
   const { state } = useExperience();
   const { activeExperience } = state;
+
+  // MIDI → Fluid streaming only for AR Piano
+  useEffect(() => {
+    // no-op; hook below handles everything conditionally
+  }, [activeExperience?.id]);
+
+  // Activate the MIDI-to-fluid pipeline when AR Piano is active
+  if (activeExperience?.id === "ar-piano") {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useMIDIFluid("ar-piano");
+  }
 
   // Particle density scaling by experience
   const densityScale = useMemo(() => {
@@ -205,6 +217,8 @@ export default function FabricWeb3D() {
         <ambientLight intensity={0.3} />
         <directionalLight intensity={0.6} position={[2, 3, 2]} />
         <LiquidSurface />
+        {/* AR Piano overlay model */}
+        {activeExperience?.id === "ar-piano" ? <PianoOverlay /> : null}
         <TouchParticles densityScale={densityScale} />
         <perspectiveCamera position={[0, 0, 1.8]} fov={50} />
       </Canvas>
