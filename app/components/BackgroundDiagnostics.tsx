@@ -37,6 +37,13 @@ export default function BackgroundDiagnostics() {
   const wantsAROrCamera =
     !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
 
+  const restartBackground = () => {
+    if (Platform.OS !== "web") return;
+    window.dispatchEvent(new CustomEvent("fabric:restart-background"));
+    haptics.impactMedium();
+    toast.show("Background restarting…");
+  };
+
   return (
     <View
       style={{
@@ -50,7 +57,7 @@ export default function BackgroundDiagnostics() {
         borderRadius: 12,
         padding: 12,
         gap: 8,
-        maxWidth: 320,
+        maxWidth: 340,
       }}
     >
       <Text style={{ color: "white", fontWeight: "800" }}>Background Diagnostics</Text>
@@ -70,6 +77,20 @@ export default function BackgroundDiagnostics() {
       <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 6 }} />
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <Pressable
+          onPress={restartBackground}
+          style={{
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: "rgba(234,179,8,0.7)",
+            backgroundColor: "rgba(234,179,8,0.15)",
+          }}
+        >
+          <Text style={{ color: "#fde047", fontWeight: "700" }}>Restart Background</Text>
+        </Pressable>
+
         <Pressable
           onPress={async () => {
             await switchExperience("default-fluid");

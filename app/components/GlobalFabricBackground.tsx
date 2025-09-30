@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Platform, View } from "react-native";
 import FabricCanvas from "./FabricCanvas";
 import ExperienceRenderer from "./ExperienceRenderer";
@@ -8,6 +8,14 @@ import ExperienceHUD from "./ExperienceHUD";
 export default function GlobalFabricBackground() {
   // Web: persistent experience-driven background (single authority)
   if (Platform.OS === "web") {
+    const [bgKey, setBgKey] = useState(0);
+
+    useEffect(() => {
+      const onRestart = () => setBgKey((k) => k + 1);
+      window.addEventListener("fabric:restart-background", onRestart as EventListener);
+      return () => window.removeEventListener("fabric:restart-background", onRestart as EventListener);
+    }, []);
+
     return (
       <View
         pointerEvents="auto"
@@ -18,7 +26,7 @@ export default function GlobalFabricBackground() {
           backgroundColor: "transparent",
         }}
       >
-        <ExperienceRenderer />
+        <ExperienceRenderer key={bgKey} />
         <ExperienceHUD />
         <ARStatus />
       </View>
