@@ -6,11 +6,31 @@ import WebFluidBackground from "../../../app/components/WebFluidBackground";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 
+declare global {
+  interface Window {
+    __fabric_bg_ready?: boolean;
+  }
+}
+
 export default function ExperienceRenderer() {
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
   const { enableARCamera, disableARCamera, isARCameraActive } = useAR();
 
+  // Mark background ready on mount/unmount
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      window.__fabric_bg_ready = true;
+      window.dispatchEvent(new CustomEvent("fabric:background-ready", { detail: true }));
+      return () => {
+        window.__fabric_bg_ready = false;
+        window.dispatchEvent(new CustomEvent("fabric:background-ready", { detail: false }));
+      };
+    }
+    return;
+  }, []);
+
+  // Keep AR camera state in sync with active experience
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const wantsAR = !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;

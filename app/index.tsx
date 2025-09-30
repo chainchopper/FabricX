@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { View, Text, Pressable, Animated, Easing } from "react-native";
+import SafetyBackground from "./components/SafetyBackground";
 
 export default function HomeScreen() {
   const [overlayActive, setOverlayActive] = useState(true);
@@ -17,6 +18,9 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
+      {/* Safety: if global background isn’t ready, use a local fallback on Home */}
+      <SafetyBackground />
+
       {/* Branding overlay */}
       {overlayActive ? (
         <Animated.View
