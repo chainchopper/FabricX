@@ -6,12 +6,14 @@ import { eventBus, InputEvent } from "../../shared/utils/eventBus";
 import { decayTowards } from "../../shared/utils/easing";
 import { useAR } from "../contexts/ARContext";
 import TouchParticles from "./TouchParticles";
+import { useExperience } from "../contexts/ExperienceContext";
 
 const vertexShader = `
   varying vec2 vUv;
   uniform float uTime;
   uniform vec2 uPointer;
   uniform float uPulse;
+  uniform float uBoost;
 
   float ripple(vec2 p, vec2 c, float t) {
     float d = distance(p, c);
@@ -22,7 +24,7 @@ const vertexShader = `
     vUv = uv;
     vec3 pos = position;
 
-    float r = ripple(vUv, uPointer, uTime) * (0.06 + uPulse * 0.08);
+    float r = ripple(vUv, uPointer, uTime) * (0.06 + uPulse * 0.08 * uBoost);
     float wave = sin((position.x + position.y) * 2.0 + uTime * 0.7) * 0.02;
 
     pos.z += r + wave;
@@ -40,6 +42,7 @@ const fragmentShader = `
   uniform float uTime;
   uniform vec2 uPointer;
   uniform float uPulse;
+  uniform float uBoost;
 
   vec3 baseColor(vec2 uv) {
     vec3 c1 = vec3(0.03, 0.07, 0.15);
@@ -51,7 +54,7 @@ const fragmentShader = `
   void main() {
     float d = distance(vUv, uPointer);
     float ripple = sin(12.0 * d - uTime * 2.5) * exp(-3.0 * d);
-    float glow = smoothstep(0.22, 0.0, d) * (0.5 + uPulse * 0.9);
+    float glow = smoothstep(0.22, 0.0, d) * (0.5 + uPulse * 0.9 * uBoost);
 
     vec3 col = baseColor(vUv);
     col += vec3(0.0, 0.5, 0.7) * ripple * 0.25;
@@ -77,15 +80,41 @@ function CameraBackground({ texture }: { texture: THREE.VideoTexture }) {
 
 function LiquidSurface() {
   const materialRef = useRef<THREE.ShaderMaterial | null>(null);
+  const { state } = useExperience();
+  const { activeExperience, experienceConfig } = state;
+
+  const uBoost = useMemo(() => {
+    if (!activeExperience) return 1;
+    if (activeExperience.id === "camera-effects") {
+      const v = Number(experienceConfig.specific?.filterIntensity ?? 0.7);
+      return Math.max(0.4, Math.min(1.5, v + 0.3)); // emphasize a bit
+    }
+    return 1;
+  }, [activeExperience, experienceConfig]);
+
+  const segments = useMemo(() => {
+    // For AR/camera experiences we still vary mesh quality by optional quality flag if present
+    const q = (experienceConfig.specific as { fluidQuality?: "low" | "medium" | "high" } | undefined)?.fluidQuality;
+    if (q === "low") return 96;
+    if (q === "medium") return 128;
+    return 160; // high/default
+  }, [experienceConfig]);
 
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
       uPointer: { value: new THREE.Vector2(0.5, 0.5) },
       uPulse: { value: 0 },
+      uBoost: { value: uBoost },
     }),
-    []
+    [uBoost]
   );
+
+  useEffect(() => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.uBoost.value = uBoost;
+    }
+  }, [uBoost]);
 
   useEffect(() => {
     const sub = eventBus.on((e: InputEvent) => {
@@ -131,7 +160,7 @@ function LiquidSurface() {
         eventBus.emitLongPress(e.uv.x, e.uv.y);
       }}
     >
-      <planeGeometry args={[2, 2, 128, 128]} />
+      <planeGeometry args={[2, 2, segments, segments]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={vertexShader}
@@ -146,6 +175,16 @@ function LiquidSurface() {
 export default function FabricWeb3D() {
   const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   const { isARCameraActive, videoTexture } = useAR();
+  const { state } = useExperience();
+  const { activeExperience } = state;
+
+  // Particle density scaling by experience
+  const densityScale = useMemo(() => {
+    if (!activeExperience) return 1;
+    if (activeExperience.id === "camera-effects") return 0.6;
+    if (activeExperience.id === "ar-piano") return 1.0;
+    return 1.0;
+  }, [activeExperience]);
 
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "transparent" }}>
@@ -166,7 +205,7 @@ export default function FabricWeb3D() {
         <ambientLight intensity={0.3} />
         <directionalLight intensity={0.6} position={[2, 3, 2]} />
         <LiquidSurface />
-        <TouchParticles />
+        <TouchParticles densityScale={densityScale} />
         <perspectiveCamera position={[0, 0, 1.8]} fov={50} />
       </Canvas>
     </div>

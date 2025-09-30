@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { eventBus, InputEvent } from "../../shared/utils/eventBus";
 
-export default function TouchParticles() {
+export default function TouchParticles({ densityScale = 1 }: { densityScale?: number }) {
   const pointsRef = useRef<THREE.Points | null>(null);
   const pausedRef = useRef<boolean>(false);
 
@@ -15,13 +15,12 @@ export default function TouchParticles() {
         : false;
 
     const preset = dpr > 2 || smallScreen ? "low" : dpr > 1.5 ? "medium" : "high";
-    const particleCount =
-      preset === "low" ? 400 : preset === "medium" ? 700 : 1000;
-    const particleSize =
-      preset === "low" ? 0.016 : preset === "medium" ? 0.02 : 0.024;
+    const baseCount = preset === "low" ? 400 : preset === "medium" ? 700 : 1000;
+    const particleCount = Math.max(100, Math.floor(baseCount * Math.max(0.25, densityScale)));
+    const particleSize = preset === "low" ? 0.016 : preset === "medium" ? 0.02 : 0.024;
 
     return { particleCount, particleSize };
-  }, []);
+  }, [densityScale]);
 
   const { geometry, material } = useMemo(() => {
     const positions = new Float32Array(env.particleCount * 3);
