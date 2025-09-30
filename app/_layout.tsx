@@ -8,6 +8,8 @@ import React from "react";
 import { View } from "react-native";
 import GlobalFabricBackground from "./components/GlobalFabricBackground";
 import { ExperienceProvider } from "./context/ExperienceContext";
+import { OverlayProvider } from "./context/OverlayContext";
+import OverlayRoot from "./components/overlays/OverlayRoot";
 
 export default function RootLayout() {
   return (
@@ -16,18 +18,22 @@ export default function RootLayout() {
         <LayersProvider>
           <ARProvider>
             <ExperienceProvider>
-              <LockerProvider>
-                <View style={{ flex: 1 }}>
-                  {/* Global Fabric/Experience background runs behind all routes */}
-                  <GlobalFabricBackground />
-                  {/* Foreground routes */}
-                  <View style={{ flex: 1, zIndex: 10 }}>
-                    <Stack screenOptions={{ headerShown: false }} />
+              <OverlayProvider>
+                <LockerProvider>
+                  <View style={{ flex: 1 }}>
+                    {/* Fabric is the main event: persistent and always-on */}
+                    <GlobalFabricBackground />
+                    {/* Foreground routes (minimal; we favor overlays) */}
+                    <View style={{ flex: 1, zIndex: 10 }}>
+                      <Stack screenOptions={{ headerShown: false }} />
+                    </View>
+                    {/* Overlays */}
+                    <OverlayRoot />
+                    {/* Locker for quick actions */}
+                    <Locker />
                   </View>
-                  {/* Locker overlay */}
-                  <Locker />
-                </View>
-              </LockerProvider>
+                </LockerProvider>
+              </OverlayProvider>
             </ExperienceProvider>
           </ARProvider>
         </LayersProvider>

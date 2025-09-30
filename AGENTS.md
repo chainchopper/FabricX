@@ -1,75 +1,44 @@
 # AGENTS
 
 Overview
-Fabric is delivered by coordinated agents with clear responsibilities and handoff rules. Each agent must follow AI_RULES.md and the Locker (retractable) UI paradigm.
+Fabric is the primary interactive canvas (the main event). All agents must preserve its persistence and treat UI as overlays above it. Page transitions must not remount the Fabric.
 
 Agents
 
 1) Docs Agent
-- Purpose: Maintain AI_RULES.md, AGENTS.md, README.md as the single source of truth
-- Inputs: Product directives, branding guidelines
-- Outputs: Up-to-date docs, migration notes, acceptance checklists
-- Acceptance: Docs are current before any code change; mismatches flagged
+- Maintain AI_RULES.md, AGENTS.md, README.md reflecting Fabric-as-main-canvas
+- Ensure terminology avoids “background restart”; use “Reset Experience” or “Switch Experience”
 
 2) UI/UX Agent
-- Purpose: Implement game-like UI with a retractable Locker (no top nav)
-- Inputs: Design tokens, branding, component specs
-- Outputs: Drawer/Locker, overlays, control panels, toasts
-- Acceptance: No persistent top nav; all controls retractable; “Powered by Nirvana” visible
+- Implement game-like UI with a retractable Locker used for quick actions
+- Core screens (Dashboard, Plugins, Profile, Studio) are overlays, not page navigations
+- Acceptance: Fabric stays mounted; overlays never obstruct beyond intent
 
 3) 3D/Shader Agent
-- Purpose: Liquid fabric shaders, R3F scene layout, visual feedback
-- Inputs: Shader specs, customization variables
-- Outputs: GLSL shaders, R3F components, uniform wiring
-- Acceptance: Stable 60fps target on desktop; responsive to touch/connection uniforms
+- Maintain liquid fabric shaders and R3F scene layout
+- Acceptance: 60fps target; responds to touch; never unmounts the canvas during UI flows
 
 4) Realtime/WebRTC Agent
-- Purpose: Low-latency data channels, signaling, multi-user touch events
-- Inputs: Room IDs, user sessions
-- Outputs: Connection lifecycle, touch propagation, connection events
-- Acceptance: Join/offer/answer/ICE flows; resilient reconnect; minimal packet size
+- Plan data channels for touch deltas; defer heavy deps
+- Acceptance: Minimal payloads, resilient lifecycle
 
 5) Audio/Haptics Agent
-- Purpose: Web Audio (web), haptics/vibration (web/native), synchronized cues
-- Inputs: Interaction events, connection events
-- Outputs: Short synthesized audio cues, vibration patterns, expo-haptics triggers
-- Acceptance: Non-blocking, low-latency feedback; user volume/respect device settings
+- Web Audio + Haptics with low latency; respect preferences toggles
+- Acceptance: Non-blocking, synchronized cues
 
 6) Data/DB Agent
-- Purpose: Tables with fabric_ prefix, migrations, RLS policies
-- Inputs: Data models, access rules
-- Outputs: SQL migrations, access layers
-- Acceptance: No table deletions; policies applied; telemetry without PII
+- Tables with fabric_ prefix; RLS policies enforced
+- Acceptance: No table deletions; least privilege
 
 7) QA Agent
-- Purpose: Enforce PR checklist; scenario coverage
-- Inputs: Stories, requirements
-- Outputs: Test plans, acceptance reports
-- Acceptance: All rules in AI_RULES.md satisfied; performance and UX validated
+- Enforce Fabric persistence; overlays over page changes
+- Validate performance, branding, and accessibility
 
 Handoffs
-- Docs Agent updates rules; UI/UX Agent implements Locker; 3D Agent integrates canvas; Realtime + Audio coordinate on events; DB Agent provides safe endpoints; QA blocks non-conforming PRs.
+- UI overlays consume Experience + Preferences contexts
+- 3D engine exposes hooks for experience-driven parameters
+- QA blocks any change that remounts the Fabric unnecessarily
 
-# Multi‑User Fluid Fabric Integration (Addendum)
-
-Core Integration Strategy
-- Keep the current R3F scene and Locker; add a WebGL fluid simulation as a React component (FluidFabric) that runs alongside.
-- Use a FluidEngine class to host the reference fluid code, adapted for React lifecycle and resize.
-- Maintain separate loops: FluidEngine.step (requestAnimationFrame/useFrame) and R3F render loop.
-
-Critical Integration Points
-- React wrapper: init/resize/cleanup; non‑blocking to main UI.
-- Multi‑user: send only “splats” (x,y,force,color,timestamp); host can be authoritative.
-- Prediction: apply local splats immediately; reconcile if host differs.
-- Haptics/audio: tie splat pressure/velocity to cues.
-
-Agent Handoffs
-- 3D/Shader Agent: port reference GLSL + passes into FluidEngine methods.
-- Realtime Agent: wire useFluidMultiUser hook to signaling; keep payloads minimal.
-- Audio/Haptics Agent: map interactions to cues; respect preferences context.
-- QA Agent: verify full‑screen + single canvas authority + perf guardrails; test overlays.
-
-Pitfalls to Avoid
-- Double‑canvas conflicts (only one full‑screen background authority).
-- Z‑index/pointerEvents that block the canvas.
-- Partial cleanups causing GPU leaks; always dispose framebuffers/programs on unmount.
+Addendum
+- “Restart Background” is disallowed. Provide “Reset Experience” (reapply config defaults) if recovery is needed.
+- Diagnostics: use FabricDiagnostics to surface status and quick actions.

@@ -11,11 +11,11 @@ declare global {
   }
 }
 
-export default function BackgroundDiagnostics() {
+export default function FabricDiagnostics() {
   const toast = useToast();
   const haptics = useHaptics();
-  const { state, switchExperience } = useExperience();
-  const { activeExperience } = state;
+  const { state, switchExperience, updateConfig } = useExperience();
+  const { activeExperience, experienceConfig } = state;
   const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
 
   const [ready, setReady] = useState<boolean>(() => {
@@ -37,30 +37,26 @@ export default function BackgroundDiagnostics() {
   const wantsAROrCamera =
     !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
 
-  const restartBackground = () => {
-    if (Platform.OS !== "web") return;
-    window.dispatchEvent(new CustomEvent("fabric:restart-background"));
-    haptics.impactMedium();
-    toast.show("Background restarting…");
+  const resetCurrentConfig = () => {
+    if (!activeExperience) return;
+    updateConfig(activeExperience.configDefaults);
+    haptics.impactLight();
+    toast.show("Experience config reset");
   };
 
   return (
     <View
       style={{
-        position: "absolute",
-        bottom: 16,
-        left: 16,
-        zIndex: 64,
         backgroundColor: "rgba(2,8,23,0.7)",
         borderColor: "rgba(34,211,238,0.35)",
         borderWidth: 1,
         borderRadius: 12,
         padding: 12,
         gap: 8,
-        maxWidth: 340,
+        maxWidth: 360,
       }}
     >
-      <Text style={{ color: "white", fontWeight: "800" }}>Background Diagnostics</Text>
+      <Text style={{ color: "white", fontWeight: "800" }}>Fabric Diagnostics</Text>
       <Text style={{ color: ready ? "#34d399" : "#fbbf24", fontWeight: "700" }}>
         Ready: {ready ? "Yes" : "No"}
       </Text>
@@ -78,52 +74,21 @@ export default function BackgroundDiagnostics() {
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         <Pressable
-          onPress={restartBackground}
-          style={{
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: "rgba(234,179,8,0.7)",
-            backgroundColor: "rgba(234,179,8,0.15)",
-          }}
-        >
-          <Text style={{ color: "#fde047", fontWeight: "700" }}>Restart Background</Text>
-        </Pressable>
-
-        <Pressable
           onPress={async () => {
             await switchExperience("default-fluid");
             haptics.impactLight();
             toast.show("Switched to Fluid");
           }}
-          style={{
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: "rgba(34,211,238,0.6)",
-            backgroundColor: "rgba(2,132,199,0.18)",
-          }}
+          style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,211,238,0.6)", backgroundColor: "rgba(2,132,199,0.18)" }}
         >
-          <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Reset to Fluid</Text>
+          <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Default Fluid</Text>
         </Pressable>
 
         <Pressable
-          onPress={async () => {
-            await switchExperience("camera-effects");
-            haptics.impactLight();
-            toast.show("Camera Effects selected");
-          }}
-          style={{
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: "rgba(34,211,238,0.35)",
-          }}
+          onPress={resetCurrentConfig}
+          style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(234,179,8,0.7)", backgroundColor: "rgba(234,179,8,0.15)" }}
         >
-          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Camera Effects</Text>
+          <Text style={{ color: "#fde047", fontWeight: "700" }}>Reset Config</Text>
         </Pressable>
 
         <Pressable
@@ -138,14 +103,7 @@ export default function BackgroundDiagnostics() {
               toast.show("AR Camera enabled");
             }
           }}
-          style={{
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: isARCameraActive ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
-            backgroundColor: isARCameraActive ? "rgba(16,185,129,0.18)" : "transparent",
-          }}
+          style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: isARCameraActive ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)", backgroundColor: isARCameraActive ? "rgba(16,185,129,0.18)" : "transparent" }}
         >
           <Text style={{ color: isARCameraActive ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
             {isARCameraActive ? "AR: On" : "AR: Off"}

@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, View, Text, Image, ScrollView, BackHandler } from "react-native";
-import { Link, usePathname, router } from "expo-router";
+import { usePathname, router } from "expo-router";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
 import * as Clipboard from "expo-clipboard";
@@ -15,6 +15,7 @@ import { getJSON, setJSON } from "../utils/storage";
 import { confirmAction } from "../utils/confirm";
 import ExperienceSwitch from "./ExperienceSwitch";
 import ExperienceControls from "./ExperienceControls";
+import { useOverlays } from "../context/OverlayContext";
 
 type LockerContextValue = {
   open: boolean;
@@ -94,6 +95,7 @@ export function Locker() {
   const [creditsOpen, setCreditsOpen] = useState(false);
   const audio = useAudioCues();
   const insets = useSafeAreaInsets();
+  const overlays = useOverlays();
 
   const HINT_KEY = "fabric_locker_hint_seen_v1";
   const [hintSeen, setHintSeen] = useState<boolean>(false);
@@ -178,28 +180,29 @@ export function Locker() {
     return () => sub.remove();
   }, [open, closeLocker, haptics, audio]);
 
-  const NavItem = ({ href, label, hint }: { href: string; label: string; hint?: string }) => (
-    <Link href={href} asChild>
-      <Pressable
-        onPress={updateActivity}
-        style={{
-          backgroundColor: "rgba(2,8,23,0.6)",
-          borderColor: "rgba(34,211,238,0.3)",
-          borderWidth: 1,
-          paddingVertical: 12,
-          paddingHorizontal: 14,
-          borderRadius: 12,
-          marginBottom: 10,
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.35,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 4 },
-        }}
-      >
-        <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>{label}</Text>
-        {hint ? <Text style={{ color: "#9ca3af", marginTop: 2 }}>{hint}</Text> : null}
-      </Pressable>
-    </Link>
+  const NavButton = ({ onPress, label, hint }: { onPress: () => void; label: string; hint?: string }) => (
+    <Pressable
+      onPress={() => {
+        onPress();
+        updateActivity();
+      }}
+      style={{
+        backgroundColor: "rgba(2,8,23,0.6)",
+        borderColor: "rgba(34,211,238,0.3)",
+        borderWidth: 1,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        marginBottom: 10,
+        shadowColor: "#22d3ee",
+        shadowOpacity: 0.35,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 4 },
+      }}
+    >
+      <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>{label}</Text>
+      {hint ? <Text style={{ color: "#9ca3af", marginTop: 2 }}>{hint}</Text> : null}
+    </Pressable>
   );
 
   const Divider = () => (
@@ -376,12 +379,12 @@ export function Locker() {
 
             <Divider />
 
-            {/* Navigation */}
-            <NavItem href="/" label="Home" hint="Focus the canvas" />
-            <NavItem href="/dashboard" label="Dashboard" hint="Create and manage layers" />
-            <NavItem href="/plugins" label="Plugins" hint="Discover and install" />
-            <NavItem href="/profile" label="Profile" />
-            <NavItem href="/fluid-test" label="Fluid Test" hint="Isolated canvas" />
+            {/* Overlays instead of page nav */}
+            <NavButton label="Dashboard" hint="Manage settings & experiences" onPress={() => { overlays.open("dashboard"); closeLocker(); }} />
+            <NavButton label="Plugins" hint="Discover and install" onPress={() => { overlays.open("plugins"); closeLocker(); }} />
+            <NavButton label="Profile" onPress={() => { overlays.open("profile"); closeLocker(); }} />
+            <NavButton label="Studio" hint="Engine / Level editor" onPress={() => { overlays.open("studio"); closeLocker(); }} />
+            <NavButton label="Diagnostics" hint="Fabric status & controls" onPress={() => { overlays.open("diagnostics"); closeLocker(); }} />
 
             <Divider />
 
@@ -608,15 +611,7 @@ export function Locker() {
             shadowOffset: { width: 0, height: 6 },
           }}
         >
-          <Image
-            source={require("../../logo.png")}
-            style={{
-              width: 44,
-              height: 44,
-              resizeMode: "contain",
-              opacity: 0.95,
-            }}
-          />
+          <Image source={require("../../logo.png")} style={{ width: 44, height: 44, resizeMode: "contain", opacity: 0.95 }} />
         </Pressable>
       </Animated.View>
 
