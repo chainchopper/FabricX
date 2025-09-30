@@ -5,6 +5,7 @@ import { useAR } from "../context/ARContext";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
 import { useMIDI } from "../../src/hooks/useMIDI";
+import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../shared/utils/realtimeStatus";
 
 declare global {
   interface Window {
@@ -24,6 +25,8 @@ export default function FabricDiagnostics() {
     return typeof window !== "undefined" ? !!window.__fabric_bg_ready : false;
   });
 
+  const [rt, setRt] = useState<RealtimeStatus>(() => getRealtimeStatus());
+
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const onReady = (e: Event) => {
@@ -32,13 +35,16 @@ export default function FabricDiagnostics() {
       else setReady(!!window.__fabric_bg_ready);
     };
     window.addEventListener("fabric:background-ready", onReady as EventListener);
-    return () => window.removeEventListener("fabric:background-ready", onReady as EventListener);
+    const unsub = subscribeRealtimeStatus(setRt);
+    return () => {
+      window.removeEventListener("fabric:background-ready", onReady as EventListener);
+      unsub();
+    };
   }, []);
 
   const wantsAROrCamera =
     !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
 
-  // MIDI quick status (web)
   const { activeNotes } = Platform.OS === "web" ? useMIDI() : { activeNotes: [] as string[] };
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
   const midiNoteCount = Array.isArray(activeNotes) ? activeNotes.length : 0;
@@ -66,6 +72,12 @@ export default function FabricDiagnostics() {
       <Text style={{ color: ready ? "#34d399" : "#fbbf24", fontWeight: "700" }}>
         Ready: {ready ? "Yes" : "No"}
       </Text>
+
+      {/* Realtime transport */}
+      <Text style={{ color: "#e5e7eb" }}>
+        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}
+      </Text>
+
       <Text style={{ color: "#e5e7eb" }}>
         Experience: {activeExperience ? activeExperience.name : "None"}
       </Text>
