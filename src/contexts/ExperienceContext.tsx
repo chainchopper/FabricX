@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
 import type { ExperienceCapabilities, ExperienceConfig, ExperienceLayer, ExperienceType } from "../types/experience";
+import { getJSON, setJSON } from "../../app/utils/storage";
 
 type ExperienceState = {
   availableExperiences: ExperienceLayer[];
@@ -127,6 +128,8 @@ function reducer(state: ExperienceState, action: ExperienceAction): ExperienceSt
   }
 }
 
+const STORAGE_KEY = "fabric_experience_state_v1";
+
 const ExperienceContext = createContext<{
   state: ExperienceState;
   switchExperience: (id: string) => Promise<void>;
@@ -142,11 +145,31 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
     error: null,
   });
 
+  // Hydrate from storage on first mount
   useEffect(() => {
-    if (!state.activeExperience) {
-      dispatch({ type: "SET_ACTIVE", payload: builtin[0] });
-    }
-  }, [state.activeExperience]);
+    let mounted = true;
+    (async () => {
+      const saved = await getJSON<{ id?: string; config?: ExperienceConfig } | null>(STORAGE_KEY, null);
+      const fallback = builtin[0];
+      const byId = saved?.id ? state.availableExperiences.find((e) => e.id === saved.id) : null;
+      const next = byId ?? fallback;
+      if (!mounted) return;
+      dispatch({ type: "SET_ACTIVE", payload: next });
+      if (saved?.config) {
+        dispatch({ type: "UPDATE_CONFIG", payload: saved.config });
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist on change
+  useEffect(() => {
+    if (!state.activeExperience) return;
+    void setJSON(STORAGE_KEY, { id: state.activeExperience.id, config: state.experienceConfig });
+  }, [state.activeExperience?.id, state.experienceConfig]);
 
   const switchExperience = async (id: string) => {
     dispatch({ type: "SET_LOADING", payload: true });

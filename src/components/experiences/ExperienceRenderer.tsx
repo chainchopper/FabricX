@@ -1,16 +1,16 @@
-import React, { useEffect } from "react";
+import React, { Suspense, lazy, useEffect } from "react";
 import { Platform, View } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useAR } from "../../contexts/ARContext";
 import WebFluidBackground from "../../../app/components/WebFluidBackground";
-import FabricWeb3D from "../FabricWeb3D";
+
+const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 
 export default function ExperienceRenderer() {
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
   const { enableARCamera, disableARCamera, isARCameraActive } = useAR();
 
-  // Keep AR camera state in sync with active experience
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const wantsAR = !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
@@ -23,7 +23,6 @@ export default function ExperienceRenderer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeExperience?.capabilities.ar, activeExperience?.capabilities.camera, isARCameraActive]);
 
-  // On native, we do not render web canvas here; native canvas is handled by GlobalFabricBackground
   if (Platform.OS !== "web") return null;
 
   const wantsAROrCamera =
@@ -41,10 +40,10 @@ export default function ExperienceRenderer() {
       }}
     >
       {wantsAROrCamera ? (
-        // Camera-capable or AR experiences render via R3F scene which can composite camera feed
-        <FabricWeb3D />
+        <Suspense fallback={null}>
+          <FabricWeb3DLazy />
+        </Suspense>
       ) : isDefaultFluid ? (
-        // Default liquid fabric uses the LegacyFluid engine
         <WebFluidBackground />
       ) : null}
     </View>
