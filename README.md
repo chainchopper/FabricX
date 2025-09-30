@@ -3,90 +3,78 @@
 Powered by Nirvana
 
 Project Summary
-Fabric is a multi‑user, game‑like space with a liquid 3D surface (“the Fabric”) that reacts to touch with coordinated haptics, audio, and visuals. Controls live in a retractable Locker (drawer) to keep the canvas clear.
+Fabric is a multi‑user, game‑like space with a liquid 3D surface (“the Fabric”) that reacts to touch with coordinated haptics, audio, and visuals. Controls live in a retractable Locker (drawer) to keep the canvas clear. The Fabric is the main event and stays mounted while overlays come and go.
 
-Authoritative Docs
-- AI Rules: ./AI_RULES.md
-- Agents: ./AGENTS.md
-
-Design Principles
-- No persistent top navigation; use a retractable “Locker” (drawer/sheet)
-- Full‑screen, immersive primary canvas
-- Multi‑sensory feedback for micro‑interactions
-- Game UI aesthetic (glass, glow, depth), consistent branding
-- Credits include “Powered by Nirvana”
-
-Current Stack Status (Expo Variant)
+Current Stack (Expo Variant)
 - Routing: expo-router (app/)
-- UI: React Native primitives; minimal deps
-- Haptics: expo-haptics/Vibration
+- UI: React Native primitives; overlays (Locker, User Drawer)
+- Web: R3F FabricWeb3D and LegacyFluid (single-canvas authority)
+- Multi-user: BroadcastChannel baseline (room-scoped), WebRTC planned
+- Audio/Haptics: Web Audio + expo-haptics/Vibration
 - Persistence: AsyncStorage
-- Deep Link Scheme: fabric://
+- AR (web): getUserMedia → VideoTexture via ARContext
 
-Planned Web Stack (requires approval)
-- React Router, Tailwind CSS, shadcn/ui
-- Three.js with React Three Fiber
-- WebRTC and Web Audio
+What Exists Today
+- Persistent Fabric (ExperienceRenderer on web; FabricCanvas on native)
+- Locker + User Drawer (left-edge tabs) with “Powered by Nirvana”
+- TouchParticles + fluid engines (LegacyFluid + FabricWeb3D surface)
+- Experience system (default-fluid, ar-piano, camera-effects)
+- SafetyBackground fallback and Diagnostics overlay
+- useFluidMultiUser baseline using BroadcastChannel
 
-Fluid Fabric Architecture (Web)
-- Canvas Authority: a single fixed full‑screen WebGL canvas (the Fabric) runs under all pages.
-- R3F Scene: 3D overlays and effects render above the fluid; overlays remain transparent.
-- FluidEngine: React‑friendly class that hosts the WebGL fluid simulation (reference implementation adapted).
-- FluidFabric: React wrapper that mounts the engine, handles resize, and applies interactions.
-- Multi‑User: transmit only “splats” (x,y,force,color); host can be authoritative; local prediction applies.
+Roadmap (Phased, Safe, Additive)
+- Phase 1: Multi‑User WebRTC (data channels) with fallback
+  - Create useWebRTC(roomId) hook (no heavy deps)
+  - Upgrade useFluidMultiUser to prefer WebRTC, fallback to BroadcastChannel
+  - Keep payloads small: { userId, position, force, pressure, color?, timestamp }
+  - Add connection status indicator in Diagnostics
+- Phase 2: MIDI → Fluid
+  - Add useMIDIFluid(roomId) using Web MIDI (web only)
+  - Map note→x, velocity→pressure/force, hue→color; dispatch via sendInteraction
+  - Toggle in Experience controls; respect user audio prefs
+- Phase 3: Enhanced Web Scene Integration
+  - Keep single canvas; compose FabricWeb3D with particles and camera background
+  - Expose minimal engine hooks (applySplatFromUser) and keep APIs stable
+  - Add safe quality presets tied to device class
+- Phase 4: Universal Input Abstraction (scaffold)
+  - InputOrchestrator concept (Bluetooth/Serial/WebSocket/WebRTC/camera/biometrics)
+  - Define transformation mapping → fluid-splat/particles/haptics/audio
+  - Keep this additive; avoid device-specific heavy deps until approved
 
-Integration Safety (checklist)
-- [ ] Only one full‑screen background canvas; pages are transparent overlays
-- [ ] Canvas uses fixed positioning and high‑performance WebGL context
-- [ ] Overlays don’t block the Fabric (use pointerEvents/z‑index carefully)
-- [ ] Proper GPU cleanup on unmount
-- [ ] No heavy deps without prior approval
+Safety Rules (Non‑Negotiable)
+- Preserve: R3F scene, LegacyFluid, Experience/AR/Overlay contexts, multi‑user baseline
+- Never add another full‑screen canvas or cause app remounts
+- Introduce new features alongside existing ones; default off or gated via experience
+- Only small, focused changes; no heavy dependencies without approval
 
-Loop‑avoidance guidance
-- Verify if a feature already exists before editing (avoid re‑implementation).
-- Make focused changes; refresh the preview; rollback if regressions appear.
-- Keep the Fabric as the sole background—never add a second full‑screen background.
-- Use an explicit full‑screen checklist (html/body/#root sizing, canvas fixed edges).
-- Prefer incremental phases: wrapper → engine integration → sync → MIDI hookups.
+Contributor Workflow
+- Before coding, verify if a feature already exists
+- Additive code > invasive edits; maintain backwards compatibility
+- Use overlays/drawers for UI; keep the Fabric canvas persistent
+- Provide a quick test checklist in PR (FPS, multi‑user, MIDI, experience switches)
+- Keep “Powered by Nirvana” visible in Credits/Locker
 
-Phased Roadmap
-Phase 0 — Ground Truth (this PR)
-- Add AI_RULES.md, AGENTS.md, README.md with Locker paradigm and rules
-- Align roadmap; no heavy dependencies added
+Sprint Plan (Next Two)
+- Sprint A (Sync Foundations)
+  - Implement useWebRTC(roomId) + Diagnostics readout
+  - Upgrade useFluidMultiUser to prefer WebRTC, fallback to BroadcastChannel
+  - Add connection indicator and error states
+- Sprint B (MIDI + Fluid)
+  - Implement useMIDIFluid(roomId) (web-only)
+  - Add Locker controls to enable/disable MIDI mapping and set intensity
+  - Validate MIDI → interaction mapping and multi‑user mirroring
 
-Phase 1 — Locker (Drawer) Implementation (Expo variant)
-- Replace existing top nav with retractable Locker overlay
-- Auto-hide on inactivity, toggle on intent
-- Keep UI chrome off the main canvas
-
-Phase 2 — Canvas Scaffolding
-- Add placeholder Fabric canvas container (native/web)
-- Provide hooks for haptic/audio visual cues
-
-Phase 3 — Realtime Foundations
-- Signaling service design
-- WebRTC data channel API (web-first), native feasibility notes
-
-Phase 4 — Liquid Fabric (Web)
-- R3F pipeline + shader uniforms
-- Connection glow + touch highlights
-
-Phase 5 — Migration (If approved)
-- Introduce Tailwind + shadcn/ui under src/
-- Port screens and Locker to web stack
+Acceptance Checklist
+- Fabric does not unmount during navigation
+- Interactions produce haptic/audio cues (based on preferences)
+- Multi‑user sync works with WebRTC or falls back gracefully
+- MIDI mapping works and can be toggled off
+- Diagnostics shows Ready + status; Credits include “Powered by Nirvana”
 
 Branding
-- Use Fanalogy colors (cyan/blue energy accents)
-- OG tags, favicon (web)
-- “Powered by Nirvana” in footer/credits overlays
+- Fanalogy cyan/blue energy; unique favicon + OG meta tags (index.html)
+- “Powered by Nirvana” in credits/overlays
 
-Security & Data
-- Use fabric_ table prefix
-- Never delete existing tables
-- Apply RLS policies for API access (Supabase)
-
-Notes for Contributors
-- Follow AI_RULES.md strictly
-- Don’t add heavy deps or change versions without approval
-- Prefer small, focused components/hooks
-- Provide toasts and (where applicable) haptic feedback for user actions
+Appendix: Terminology
+- “Reset Experience” re-applies defaults
+- “Switch Experience” transitions Experience (handles AR/camera state safely)
