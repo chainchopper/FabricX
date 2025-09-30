@@ -7,6 +7,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import BackToFabric from "./components/BackToFabric";
 import { confirmAction } from "./utils/confirm";
+import WebFluidBackground from "./components/WebFluidBackground";
 
 function Card({
   title,
@@ -80,6 +81,7 @@ export default function Dashboard() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
+      <WebFluidBackground />
       <BackToFabric />
       <ScrollView
         contentContainerStyle={{

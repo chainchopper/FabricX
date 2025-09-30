@@ -1,5 +1,5 @@
 import React from "react";
-import { Platform, View, Text, Pressable, Vibration } from "react-native";
+import { View, Text, Pressable, Vibration } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
@@ -7,7 +7,7 @@ import { useLayers } from "../context/LayersContext";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAR } from "../context/ARContext";
+import WebFluidBackground from "../components/WebFluidBackground";
 
 export default function FabricRoom() {
   const { layerId } = useLocalSearchParams<{ layerId?: string }>();
@@ -18,8 +18,6 @@ export default function FabricRoom() {
   const toast = useToast();
   const haptics = useHaptics();
   const insets = useSafeAreaInsets();
-
-  const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
 
   const handleTouchPulse = () => {
     Vibration.vibrate([80, 40, 80]);
@@ -41,23 +39,9 @@ export default function FabricRoom() {
     toast.show("Saved to recent");
   };
 
-  const toggleAR = async () => {
-    if (Platform.OS !== "web") {
-      toast.show("AR camera is web-only for now");
-      return;
-    }
-    if (isARCameraActive) {
-      disableARCamera();
-      toast.show("AR camera disabled");
-    } else {
-      await enableARCamera();
-      if (isARCameraActive) toast.show("AR camera enabled");
-      else toast.show("Could not enable camera");
-    }
-  };
-
   return (
     <View style={{ flex: 1, backgroundColor: "transparent" }}>
+      <WebFluidBackground />
       <SafeAreaView
         pointerEvents="box-none"
         style={{
@@ -109,27 +93,6 @@ export default function FabricRoom() {
         >
           <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite</Text>
         </Pressable>
-
-        {Platform.OS === "web" ? (
-          <Pressable
-            onPress={toggleAR}
-            style={{
-              position: "absolute",
-              top: insets.top + 54,
-              right: 10,
-              backgroundColor: isARCameraActive ? "rgba(34,197,94,0.18)" : "rgba(2,132,199,0.18)",
-              borderColor: isARCameraActive ? "rgba(34,197,94,0.6)" : "rgba(34,211,238,0.6)",
-              borderWidth: 1,
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-            }}
-          >
-            <Text style={{ color: isARCameraActive ? "#34d399" : "#22d3ee", fontWeight: "700" }}>
-              {isARCameraActive ? "AR On" : "Enable AR"}
-            </Text>
-          </Pressable>
-        ) : null}
 
         <Pressable
           onPress={handleTouchPulse}
