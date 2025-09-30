@@ -1,9 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Image, Pressable, ScrollView, Text, View, BackHandler } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
-import { useToast } from "./Toast";
 import { useOverlays } from "../context/OverlayContext";
 import { drawerEvents } from "../utils/drawerEvents";
 
@@ -24,7 +23,7 @@ export function useUserDrawer() {
 
 export function UserDrawerProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
+  const slide = useRef(new Animated.Value(0)).current;
   const haptics = useHaptics();
   const audio = useAudioCues();
 
@@ -74,11 +73,9 @@ export function UserDrawerProvider({ children }: { children: React.ReactNode }) 
     return () => sub.remove();
   }, [open, closeDrawer]);
 
-  // Listen for close-self signal from Locker
+  // Close when Locker asks
   useEffect(() => {
-    return drawerEvents.on("fabric:close-user-drawer", () => {
-      setOpen(false);
-    });
+    return drawerEvents.on("fabric:close-user-drawer", () => setOpen(false));
   }, []);
 
   const value = useMemo<UserDrawerContextValue>(() => ({ open, openDrawer, closeDrawer, toggleDrawer }), [open, openDrawer, closeDrawer, toggleDrawer]);
@@ -87,20 +84,10 @@ export function UserDrawerProvider({ children }: { children: React.ReactNode }) 
 }
 
 export default function UserDrawer() {
-  const { open, toggleDrawer, closeDrawer } = useUserDrawer();
+  const { open, closeDrawer } = useUserDrawer();
   const overlays = useOverlays();
-  const insets = useSafeAreaInsets();
 
   const PANEL_WIDTH = 300;
-  const translateX = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(translateX, {
-      toValue: open ? 0 : -1,
-      duration: 1,
-      useNativeDriver: true,
-    }).start();
-  }, [open, translateX]);
-
   const slide = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(slide, {
@@ -156,70 +143,13 @@ export default function UserDrawer() {
             <Text style={{ color: "#93c5fd", fontSize: 12 }}>Profile & Menus</Text>
           </View>
 
-          <NavButton
-            label="Dashboard"
-            hint="Global settings • Experiences"
-            onPress={() => {
-              overlays.open("dashboard");
-              closeDrawer();
-            }}
-          />
-          <NavButton
-            label="Plugins"
-            hint="Discover and manage"
-            onPress={() => {
-              overlays.open("plugins");
-              closeDrawer();
-            }}
-          />
-          <NavButton
-            label="Profile"
-            onPress={() => {
-              overlays.open("profile");
-              closeDrawer();
-            }}
-          />
-          <NavButton
-            label="Studio"
-            hint="Engine / Level editor"
-            onPress={() => {
-              overlays.open("studio");
-              closeDrawer();
-            }}
-          />
-          <NavButton
-            label="Diagnostics"
-            hint="Fabric status & controls"
-            onPress={() => {
-              overlays.open("diagnostics");
-              closeDrawer();
-            }}
-          />
+          <NavButton label="Dashboard" hint="Global settings • Experiences" onPress={() => { overlays.open("dashboard"); closeDrawer(); }} />
+          <NavButton label="Plugins" hint="Discover and manage" onPress={() => { overlays.open("plugins"); closeDrawer(); }} />
+          <NavButton label="Profile" onPress={() => { overlays.open("profile"); closeDrawer(); }} />
+          <NavButton label="Studio" hint="Engine / Level editor" onPress={() => { overlays.open("studio"); closeDrawer(); }} />
+          <NavButton label="Diagnostics" hint="Fabric status & controls" onPress={() => { overlays.open("diagnostics"); closeDrawer(); }} />
         </ScrollView>
       </SafeAreaView>
-
-      <Pressable
-        onPress={toggleDrawer}
-        style={{
-          position: "absolute",
-          top: 16 + insets.top,
-          left: PANEL_WIDTH,
-          width: 44,
-          height: 44,
-          borderTopRightRadius: 12,
-          borderBottomRightRadius: 12,
-          backgroundColor: "rgba(2,8,23,0.65)",
-          borderColor: "rgba(34,211,238,0.45)",
-          borderLeftWidth: 0,
-          borderRightWidth: 1,
-          borderTopWidth: 1,
-          borderBottomWidth: 1,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Image source={require("../../logo.png")} style={{ width: 28, height: 28, borderRadius: 14 }} />
-      </Pressable>
     </Animated.View>
   );
 }

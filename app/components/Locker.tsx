@@ -147,14 +147,13 @@ export function Locker() {
     if (open) markHintSeen();
   }, [open]);
 
-  // Listen for external close signal from UserDrawer
   useEffect(() => {
     return drawerEvents.on("fabric:close-locker", () => {
       closeLocker();
     });
   }, [closeLocker]);
 
-  const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
+  const slide = useRef(new Animated.Value(0)).current;
   const PANEL_WIDTH = 300;
 
   const translateX = slide.interpolate({
@@ -258,7 +257,7 @@ export function Locker() {
 
   return (
     <>
-      {/* Top-left CTA for Locker (stacked below AvatarButton) */}
+      {/* Locker CTA (left-edge tab) stacked under avatar tab */}
       {!open ? (
         <Pressable
           onPress={() => {
@@ -268,15 +267,19 @@ export function Locker() {
           }}
           style={{
             position: "absolute",
-            top: 64,
-            left: 12,
-            width: 44,
-            height: 44,
+            top: 12 + 48 + 4, // just beneath avatar tab
+            left: 0,
+            width: 48,
+            height: 48,
             zIndex: 56,
             backgroundColor: "rgba(2,8,23,0.65)",
             borderColor: "rgba(34,211,238,0.45)",
-            borderWidth: 1,
-            borderRadius: 12,
+            borderTopRightRadius: 12,
+            borderBottomRightRadius: 12,
+            borderLeftWidth: 0,
+            borderRightWidth: 1,
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
             alignItems: "center",
             justifyContent: "center",
             shadowColor: "#22d3ee",
@@ -323,7 +326,7 @@ export function Locker() {
           bottom: 0,
           left: 0,
           width: 300 + 58,
-          transform: [{ translateX }],
+          transform: [{ translateX: translateX }],
           zIndex: 56,
         }}
       >
@@ -529,38 +532,6 @@ export function Locker() {
             </Pressable>
           </ScrollView>
         </SafeAreaView>
-
-        {/* Drawer edge toggle when open (kept near top-left edge) */}
-        <Pressable
-          onPress={() => {
-            markHintSeen();
-            audio.click();
-            toggleLocker();
-          }}
-          style={{
-            position: "absolute",
-            top: 16 + insets.top,
-            left: 300,
-            width: 58,
-            height: 58,
-            borderTopRightRadius: 14,
-            borderBottomRightRadius: 14,
-            backgroundColor: isInLayer ? "rgba(2,132,199,0.22)" : "rgba(2,8,23,0.65)",
-            borderColor: isInLayer ? "rgba(34,211,238,0.85)" : "rgba(34,211,238,0.45)",
-            borderLeftWidth: 0,
-            borderRightWidth: 1,
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
-            alignItems: "center",
-            justifyContent: "center",
-            shadowColor: "#22d3ee",
-            shadowOpacity: 0.6,
-            shadowRadius: 16,
-            shadowOffset: { width: 0, height: 6 },
-          }}
-        >
-          <Image source={require("../../logo.png")} style={{ width: 44, height: 44, resizeMode: "contain", opacity: 0.95 }} />
-        </Pressable>
       </Animated.View>
 
       <CreditsOverlay visible={creditsOpen} onClose={() => setCreditsOpen(false)} />
