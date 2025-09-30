@@ -15,7 +15,7 @@ import { getJSON, setJSON } from "../utils/storage";
 import { confirmAction } from "../utils/confirm";
 import ExperienceSwitch from "./ExperienceSwitch";
 import ExperienceControls from "./ExperienceControls";
-import { useUserDrawer } from "./UserDrawer";
+import { drawerEvents } from "../utils/drawerEvents";
 
 type LockerContextValue = {
   open: boolean;
@@ -37,7 +37,6 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState<boolean>(false);
   const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const haptics = useHaptics();
-  const userDrawer = useUserDrawer();
 
   const clearTimer = () => {
     if (inactivityRef.current) clearTimeout(inactivityRef.current);
@@ -53,11 +52,11 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
   }, [haptics]);
 
   const openLocker = useCallback(() => {
-    userDrawer?.closeDrawer();
+    drawerEvents.emitCloseUserDrawer();
     setOpen(true);
     haptics.impactMedium();
     updateActivity();
-  }, [haptics, updateActivity, userDrawer]);
+  }, [haptics, updateActivity]);
 
   const closeLocker = useCallback(() => {
     clearTimer();
@@ -69,7 +68,7 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
     setOpen((prev) => {
       const next = !prev;
       if (next) {
-        userDrawer?.closeDrawer();
+        drawerEvents.emitCloseUserDrawer();
         haptics.impactMedium();
         updateActivity();
       } else {
@@ -78,7 +77,7 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
       }
       return next;
     });
-  }, [haptics, updateActivity, userDrawer]);
+  }, [haptics, updateActivity]);
 
   const value = useMemo(
     () => ({ open, openLocker, closeLocker, toggleLocker, updateActivity }),
@@ -147,6 +146,13 @@ export function Locker() {
   useEffect(() => {
     if (open) markHintSeen();
   }, [open]);
+
+  // Listen for external close signal from UserDrawer
+  useEffect(() => {
+    return drawerEvents.on("fabric:close-locker", () => {
+      closeLocker();
+    });
+  }, [closeLocker]);
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
   const PANEL_WIDTH = 300;

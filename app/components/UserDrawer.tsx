@@ -5,7 +5,7 @@ import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
 import { useToast } from "./Toast";
 import { useOverlays } from "../context/OverlayContext";
-import { useLocker } from "./Locker";
+import { drawerEvents } from "../utils/drawerEvents";
 
 type UserDrawerContextValue = {
   open: boolean;
@@ -27,14 +27,13 @@ export function UserDrawerProvider({ children }: { children: React.ReactNode }) 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
   const haptics = useHaptics();
   const audio = useAudioCues();
-  const locker = useLocker(); // coordinate with Locker
 
   const openDrawer = useCallback(() => {
-    locker?.closeLocker();
+    drawerEvents.emitCloseLocker();
     setOpen(true);
     haptics.impactMedium();
     audio.click();
-  }, [haptics, audio, locker]);
+  }, [haptics, audio]);
 
   const closeDrawer = useCallback(() => {
     setOpen(false);
@@ -43,9 +42,19 @@ export function UserDrawerProvider({ children }: { children: React.ReactNode }) 
   }, [haptics, audio]);
 
   const toggleDrawer = useCallback(() => {
-    if (open) closeDrawer();
-    else openDrawer();
-  }, [open, openDrawer, closeDrawer]);
+    setOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        drawerEvents.emitCloseLocker();
+        haptics.impactMedium();
+        audio.click();
+      } else {
+        haptics.impactLight();
+        audio.click();
+      }
+      return next;
+    });
+  }, [haptics, audio]);
 
   useEffect(() => {
     Animated.timing(slide, {
@@ -64,6 +73,13 @@ export function UserDrawerProvider({ children }: { children: React.ReactNode }) 
     });
     return () => sub.remove();
   }, [open, closeDrawer]);
+
+  // Listen for close-self signal from Locker
+  useEffect(() => {
+    return drawerEvents.on("fabric:close-user-drawer", () => {
+      setOpen(false);
+    });
+  }, []);
 
   const value = useMemo<UserDrawerContextValue>(() => ({ open, openDrawer, closeDrawer, toggleDrawer }), [open, openDrawer, closeDrawer, toggleDrawer]);
 
