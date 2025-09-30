@@ -49,3 +49,27 @@ Agents
 
 Handoffs
 - Docs Agent updates rules; UI/UX Agent implements Locker; 3D Agent integrates canvas; Realtime + Audio coordinate on events; DB Agent provides safe endpoints; QA blocks non-conforming PRs.
+
+# Multi‑User Fluid Fabric Integration (Addendum)
+
+Core Integration Strategy
+- Keep the current R3F scene and Locker; add a WebGL fluid simulation as a React component (FluidFabric) that runs alongside.
+- Use a FluidEngine class to host the reference fluid code, adapted for React lifecycle and resize.
+- Maintain separate loops: FluidEngine.step (requestAnimationFrame/useFrame) and R3F render loop.
+
+Critical Integration Points
+- React wrapper: init/resize/cleanup; non‑blocking to main UI.
+- Multi‑user: send only “splats” (x,y,force,color,timestamp); host can be authoritative.
+- Prediction: apply local splats immediately; reconcile if host differs.
+- Haptics/audio: tie splat pressure/velocity to cues.
+
+Agent Handoffs
+- 3D/Shader Agent: port reference GLSL + passes into FluidEngine methods.
+- Realtime Agent: wire useFluidMultiUser hook to signaling; keep payloads minimal.
+- Audio/Haptics Agent: map interactions to cues; respect preferences context.
+- QA Agent: verify full‑screen + single canvas authority + perf guardrails; test overlays.
+
+Pitfalls to Avoid
+- Double‑canvas conflicts (only one full‑screen background authority).
+- Z‑index/pointerEvents that block the canvas.
+- Partial cleanups causing GPU leaks; always dispose framebuffers/programs on unmount.

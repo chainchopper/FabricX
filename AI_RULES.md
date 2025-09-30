@@ -100,3 +100,49 @@ PR Checklist (reject anything that fails)
 - DB operations use fabric_ prefixes and RLS (if applicable)
 - Web components follow shadcn/ui + Tailwind; Expo variant follows RN primitives
 - All user interactions provide toasts/haptics where appropriate
+
+Directory names MUST be all lower-case (src/pages, src/components, etc.). File names may use mixed-case if you like.
+
+# Multi‑User Fluid Fabric Integration (Blueprint)
+
+Core Integration Strategy
+- Preserve existing React + Three.js architecture; inject a WebGL fluid simulation as its own component.
+- Keep separate render loops: fluid simulation (WebGL) and 3D scene (R3F) layered together.
+- Synchronize multi‑user interactions by sending compact “splat events” (position/force/color), not full simulation state.
+
+Critical Integration Points
+1) React wrapper lifecycle
+- Initialize WebGL on mount; dispose GPU resources on unmount.
+- React to size changes and customization updates.
+
+2) Multi‑user synchronization
+- Transmit only deltas (splats); host is authoritative if needed.
+- Apply client‑side prediction locally; reconcile when host confirms.
+
+3) Audio/Haptics coordination
+- Map MIDI/audio events to splats (color/force).
+- Trigger haptics on local high‑pressure interactions.
+
+Integration Safety Rules (Preserve Existing Code)
+- Do not delete/replace existing R3F components or the Locker.
+- Add FluidEngine alongside; wrap with FluidFabric; connect via hooks/contexts.
+- Maintain backward compatibility for current pages/overlays.
+
+Testing Checklist
+- [ ] Fluid responds to mouse/touch
+- [ ] Multi‑user splats appear across sessions
+- [ ] MIDI can trigger splats
+- [ ] 3D overlays still render above fluid
+- [ ] Customization toggles affect fluid
+- [ ] No perf regression; canvas remains full‑screen
+
+Loop‑avoidance Playbook (to prevent regressive fixes)
+- Single background authority: one canvas layer is responsible for filling the viewport (fixed; z‑index 0). All pages are transparent overlays above it.
+- No double‑canvas: never mount a second full‑screen background; check before adding.
+- Full‑screen checklist (web):
+  - html, body, #root at 100% height/width, transparent background
+  - Canvas: position: fixed; top/left/right/bottom: 0; touch‑action: none
+  - Prefer powerPreference: "high-performance" in WebGL context
+- Before changing code: verify if the feature already exists; avoid re‑implementing.
+- Make one change at a time; refresh; revert on regressions.
+- Keep overlays non‑blocking (pointerEvents as needed) and use z‑indices consistently.

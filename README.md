@@ -28,6 +28,27 @@ Planned Web Stack (requires approval)
 - Three.js with React Three Fiber
 - WebRTC and Web Audio
 
+Fluid Fabric Architecture (Web)
+- Canvas Authority: a single fixed full‑screen WebGL canvas (the Fabric) runs under all pages.
+- R3F Scene: 3D overlays and effects render above the fluid; overlays remain transparent.
+- FluidEngine: React‑friendly class that hosts the WebGL fluid simulation (reference implementation adapted).
+- FluidFabric: React wrapper that mounts the engine, handles resize, and applies interactions.
+- Multi‑User: transmit only “splats” (x,y,force,color); host can be authoritative; local prediction applies.
+
+Integration Safety (checklist)
+- [ ] Only one full‑screen background canvas; pages are transparent overlays
+- [ ] Canvas uses fixed positioning and high‑performance WebGL context
+- [ ] Overlays don’t block the Fabric (use pointerEvents/z‑index carefully)
+- [ ] Proper GPU cleanup on unmount
+- [ ] No heavy deps without prior approval
+
+Loop‑avoidance guidance
+- Verify if a feature already exists before editing (avoid re‑implementation).
+- Make focused changes; refresh the preview; rollback if regressions appear.
+- Keep the Fabric as the sole background—never add a second full‑screen background.
+- Use an explicit full‑screen checklist (html/body/#root sizing, canvas fixed edges).
+- Prefer incremental phases: wrapper → engine integration → sync → MIDI hookups.
+
 Phased Roadmap
 Phase 0 — Ground Truth (this PR)
 - Add AI_RULES.md, AGENTS.md, README.md with Locker paradigm and rules
