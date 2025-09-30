@@ -32,7 +32,7 @@ export default function ExperienceControls() {
   const isCameraEffects = activeExperience.id === "camera-effects";
   const isARPiano = activeExperience.id === "ar-piano";
 
-  const setFluidQuality = (q: "low" | "medium" | "high") => {
+  const setFluidQuality = (q: "low" | "medium" | "high" | "auto") => {
     updateConfig({ specific: { ...experienceConfig.specific, fluidQuality: q } });
     haptics.impactLight();
     toast.show(`Fluid quality: ${q}`);
@@ -54,6 +54,12 @@ export default function ExperienceControls() {
       haptics.notifySuccess();
       toast.show("AR Camera enabled");
     }
+  };
+
+  const resetExperience = () => {
+    updateConfig(activeExperience.configDefaults);
+    haptics.impactLight();
+    toast.show("Experience reset");
   };
 
   // MIDI controls for AR Piano
@@ -119,7 +125,7 @@ export default function ExperienceControls() {
         <View style={{ gap: 6 }}>
           <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Fluid Quality</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {(["low", "medium", "high"] as const).map((q) => {
+            {(["auto", "low", "medium", "high"] as const).map((q) => {
               const active = (experienceConfig.specific as any)?.fluidQuality === q;
               return (
                 <Pressable
@@ -243,6 +249,23 @@ export default function ExperienceControls() {
           </View>
         </View>
       ) : null}
+
+      {/* Reset Experience */}
+      <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 6 }} />
+      <Pressable
+        onPress={resetExperience}
+        style={{
+          alignSelf: "flex-start",
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: "rgba(234,179,8,0.7)",
+          backgroundColor: "rgba(234,179,8,0.15)",
+        }}
+      >
+        <Text style={{ color: "#fde047", fontWeight: "700" }}>Reset Experience</Text>
+      </Pressable>
     </View>
   );
 }

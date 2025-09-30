@@ -97,10 +97,23 @@ function LiquidSurface() {
   }, [activeExperience, experienceConfig]);
 
   const segments = useMemo(() => {
-    const q = (experienceConfig.specific as { fluidQuality?: "low" | "medium" | "high" } | undefined)?.fluidQuality;
-    if (q === "low") return 96;
-    if (q === "medium") return 128;
-    return 160;
+    const fq = (experienceConfig.specific as Record<string, unknown> | undefined)?.["fluidQuality"] as
+      | "low"
+      | "medium"
+      | "high"
+      | "auto"
+      | undefined;
+
+    if (fq === "low") return 96;
+    if (fq === "medium") return 128;
+    if (fq === "high" || fq === undefined) return 160;
+
+    // Auto: scale with DPR and viewport
+    const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2.5) : 1;
+    const minEdge = typeof window !== "undefined" ? Math.min(window.innerWidth, window.innerHeight) : 800;
+    if (dpr <= 1 || minEdge < 700) return 120;
+    if (dpr <= 2 || minEdge < 1000) return 144;
+    return 176;
   }, [experienceConfig]);
 
   const uniforms = useMemo(
@@ -183,7 +196,6 @@ export default function FabricWeb3D() {
 
   const isARPiano = activeExperience?.id === "ar-piano";
 
-  // MIDI mapping controls from ExperienceConfig
   const midiEnabled = useMemo(() => {
     if (!isARPiano) return false;
     const s = experienceConfig.specific as Record<string, unknown> | undefined;
@@ -196,7 +208,6 @@ export default function FabricWeb3D() {
     return isFinite(v) ? v : 1;
   }, [experienceConfig]);
 
-  // Always call; respect enable + intensity
   useMIDIFluid("ar-piano", !!midiEnabled, midiIntensity);
 
   const densityScale = useMemo(() => {
@@ -228,13 +239,11 @@ export default function FabricWeb3D() {
         <LiquidSurface />
         {isARPiano ? <PianoOverlay /> : null}
         <TouchParticles densityScale={densityScale} />
-
         {isARPiano ? (
           <EffectComposer multisampling={4}>
             <Bloom intensity={0.5} luminanceThreshold={0.1} luminanceSmoothing={0.9} />
           </EffectComposer>
         ) : null}
-
         <perspectiveCamera position={[0, 0, 1.8]} fov={50} />
       </Canvas>
     </div>

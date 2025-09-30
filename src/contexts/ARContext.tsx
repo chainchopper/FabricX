@@ -8,6 +8,7 @@ interface ARState {
   isARCameraActive: boolean;
   augmentationMode: AugmentationMode;
   videoTexture: THREE.VideoTexture | null;
+  lastError: string | null;
 }
 
 interface ARActions {
@@ -24,12 +25,14 @@ export function ARProvider({ children }: { children: React.ReactNode }) {
   const [isARCameraActive, setActive] = useState(false);
   const [augmentationMode, setAugmentationMode] = useState<AugmentationMode>("liquid");
   const [videoTexture, setVideoTexture] = useState<THREE.VideoTexture | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const enableARCamera = async () => {
     if (Platform.OS !== "web") return;
+    setLastError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 1280, height: 720, facingMode: "user" },
@@ -59,6 +62,8 @@ export function ARProvider({ children }: { children: React.ReactNode }) {
       setActive(true);
     } catch (err) {
       console.warn("AR camera enable failed:", err);
+      const msg = err instanceof Error ? err.message : "Unable to access camera";
+      setLastError(msg);
       setActive(false);
       setVideoTexture(null);
     }
@@ -70,6 +75,7 @@ export function ARProvider({ children }: { children: React.ReactNode }) {
     videoTexture?.dispose();
     setVideoTexture(null);
     setActive(false);
+    // keep lastError as-is so users see what happened, until next enable attempt
   };
 
   const value: ARContextValue = useMemo(
@@ -77,11 +83,12 @@ export function ARProvider({ children }: { children: React.ReactNode }) {
       isARCameraActive,
       augmentationMode,
       videoTexture,
+      lastError,
       enableARCamera,
       disableARCamera,
       setAugmentationMode,
     }),
-    [isARCameraActive, augmentationMode, videoTexture]
+    [isARCameraActive, augmentationMode, videoTexture, lastError]
   );
 
   return <ARContext.Provider value={value}>{children}</ARContext.Provider>;
