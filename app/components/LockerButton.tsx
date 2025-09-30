@@ -15,8 +15,8 @@ export default function LockerButton() {
     <View
       style={{
         position: "absolute",
-        top: 12,
-        left: 12 + 48 + 8, // next to AvatarButton (48) with an 8px gap
+        top: 12 + 48 + 8, // stacked below the avatar
+        left: 12,
         zIndex: 56,
       }}
     >

@@ -15,13 +15,10 @@ declare global {
 export default function ExperienceRenderer() {
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
-  const { enableARCamera, disableARCamera, isARCameraActive } = useAR();
+  const { isARCameraActive } = useAR();
 
-  // Read mode from capabilities
-  const wantsAROrCamera = !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
-
-  // Curtain to soften mode flips (short fade)
   const curtainOpacity = useRef(new Animated.Value(0)).current;
+  const wantsAROrCamera = !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
   const lastMode = useRef<boolean>(wantsAROrCamera);
 
   useEffect(() => {
@@ -45,7 +42,6 @@ export default function ExperienceRenderer() {
     }
   }, [wantsAROrCamera, curtainOpacity]);
 
-  // Announce readiness lifecycle
   useEffect(() => {
     if (Platform.OS === "web") {
       window.__fabric_bg_ready = true;
@@ -57,18 +53,6 @@ export default function ExperienceRenderer() {
     }
     return;
   }, []);
-
-  // Keep AR camera state in sync with experience
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    if (wantsAROrCamera && !isARCameraActive) {
-      void enableARCamera();
-    }
-    if (!wantsAROrCamera && isARCameraActive) {
-      disableARCamera();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantsAROrCamera, isARCameraActive]);
 
   if (Platform.OS !== "web") return null;
 
@@ -92,7 +76,6 @@ export default function ExperienceRenderer() {
         <WebFluidBackground />
       )}
 
-      {/* Quick fade curtain to hide mode transitions */}
       <Animated.View
         pointerEvents="none"
         style={{
