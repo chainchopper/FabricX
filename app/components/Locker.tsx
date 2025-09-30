@@ -13,6 +13,7 @@ import QuickCreateLayer from "./QuickCreateLayer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getJSON, setJSON } from "../utils/storage";
 import { confirmAction } from "../utils/confirm";
+import ExperienceSwitch from "./ExperienceSwitch";
 
 type LockerContextValue = {
   open: boolean;
@@ -93,7 +94,6 @@ export function Locker() {
   const audio = useAudioCues();
   const insets = useSafeAreaInsets();
 
-  // One-time hint state
   const HINT_KEY = "fabric_locker_hint_seen_v1";
   const [hintSeen, setHintSeen] = useState<boolean>(false);
   const pulse = useRef(new Animated.Value(0)).current;
@@ -161,13 +161,11 @@ export function Locker() {
     }).start();
   }, [open, slide]);
 
-  // Close on route change
   useEffect(() => {
     if (open) closeLocker();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Android back button closes the Locker if open
   useEffect(() => {
     if (!open) return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -286,7 +284,6 @@ export function Locker() {
 
   return (
     <>
-      {/* Edge opener (subtle sliver) */}
       {!open ? (
         <Pressable
           onPress={() => {
@@ -308,7 +305,6 @@ export function Locker() {
         />
       ) : null}
 
-      {/* Backdrop */}
       {open ? (
         <Animated.View
           pointerEvents={open ? "auto" : "none"}
@@ -334,7 +330,6 @@ export function Locker() {
         </Animated.View>
       ) : null}
 
-      {/* Drawer + Attached Tab */}
       <Animated.View
         onStartShouldSetResponder={() => true}
         onResponderGrant={updateActivity}
@@ -348,7 +343,6 @@ export function Locker() {
           zIndex: 56,
         }}
       >
-        {/* Drawer Panel */}
         <SafeAreaView
           edges={["top", "bottom"]}
           style={{
@@ -372,7 +366,6 @@ export function Locker() {
             contentContainerStyle={{ paddingBottom: 24 }}
             showsVerticalScrollIndicator={false}
           >
-            {/* Header */}
             <View style={{ alignItems: "center", gap: 6, marginBottom: 10 }}>
               <Image source={require("../../logo.png")} style={{ width: 44, height: 44, borderRadius: 8 }} />
               <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
@@ -388,6 +381,11 @@ export function Locker() {
             <NavItem href="/plugins" label="Plugins" hint="Discover and install" />
             <NavItem href="/profile" label="Profile" />
             <NavItem href="/fluid-test" label="Fluid Test" hint="Isolated canvas" />
+
+            <Divider />
+
+            {/* Experience Switcher */}
+            <ExperienceSwitch />
 
             <Divider />
 
@@ -576,7 +574,6 @@ export function Locker() {
           </ScrollView>
         </SafeAreaView>
 
-        {/* Attached Corner Tab (logo) */}
         <Pressable
           onPress={() => {
             markHintSeen();
@@ -617,7 +614,6 @@ export function Locker() {
         </Pressable>
       </Animated.View>
 
-      {/* Credits Overlay */}
       <CreditsOverlay visible={creditsOpen} onClose={closeCredits} />
     </>
   );

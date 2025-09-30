@@ -50,6 +50,49 @@ const builtin: ExperienceLayer[] = [
       specific: { fluidQuality: "high", turbulence: 0.5, colorScheme: "dynamic" },
     },
   },
+  {
+    id: "ar-piano",
+    name: "AR Piano",
+    description: "Augmented reality piano with camera overlay",
+    type: "ar-piano" as ExperienceType,
+    version: "1.0.0",
+    author: "Fanalogy",
+    capabilities: { ...defaultCapabilities, ar: true, camera: true, midi: true },
+    configDefaults: {
+      common: {
+        backgroundColor: "transparent",
+        particleDensity: 0.8,
+        audioVolume: 0.9,
+        hapticIntensity: 0.7,
+      },
+      specific: {
+        handTracking: true,
+        pianoLayout: "floating",
+        cameraFeed: true,
+      },
+    },
+  },
+  {
+    id: "camera-effects",
+    name: "Camera Effects",
+    description: "Real-time camera effects and filters",
+    type: "camera-effects" as ExperienceType,
+    version: "1.0.0",
+    author: "Fanalogy",
+    capabilities: { ...defaultCapabilities, ar: true, camera: true, midi: false, audio: false, haptics: false },
+    configDefaults: {
+      common: {
+        backgroundColor: "transparent",
+        particleDensity: 0.3,
+        audioVolume: 0,
+        hapticIntensity: 0,
+      },
+      specific: {
+        activeFilter: "glow",
+        filterIntensity: 0.7,
+      },
+    },
+  },
 ];
 
 function reducer(state: ExperienceState, action: ExperienceAction): ExperienceState {
@@ -111,7 +154,6 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
     try {
       const next = state.availableExperiences.find((e) => e.id === id);
       if (!next) throw new Error(`Experience '${id}' not found`);
-      // Capability transitions (camera/audio/etc.) can be handled by the renderer via hooks
       dispatch({ type: "SET_ACTIVE", payload: next });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
