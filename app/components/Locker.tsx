@@ -1,17 +1,18 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, View, Text, Image, ScrollView, BackHandler } from "react-native";
-import { Link, usePathname } from "expo-router";
+import { Link, usePathname, router } from "expo-router";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { usePreferences } from "../context/PreferencesContext";
-import { useLayers } from "../context/LayersContext";
+import { useLayers, Layer } from "../context/LayersContext";
 import CreditsOverlay from "./CreditsOverlay";
 import { useAudioCues } from "../hooks/useAudioCues";
 import QuickCreateLayer from "./QuickCreateLayer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getJSON, setJSON } from "../utils/storage";
+import { confirmAction } from "../utils/confirm";
 
 type LockerContextValue = {
   open: boolean;
@@ -87,7 +88,7 @@ export function Locker() {
   const haptics = useHaptics();
   const toast = useToast();
   const { hapticsEnabled, toggleHaptics, audioEnabled, toggleAudio } = usePreferences();
-  const { layers } = useLayers();
+  const { layers, removeLayer, addLayer, clear } = useLayers();
   const [creditsOpen, setCreditsOpen] = useState(false);
   const audio = useAudioCues();
   const insets = useSafeAreaInsets();
@@ -119,7 +120,6 @@ export function Locker() {
     pulse.setValue(0);
   };
 
-  // Manage pulse based on visibility and hint state
   useEffect(() => {
     if (!open && !hintSeen) {
       startPulse();
@@ -129,7 +129,6 @@ export function Locker() {
     return () => {
       stopPulse();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, hintSeen]);
 
   const markHintSeen = () => {
@@ -140,10 +139,8 @@ export function Locker() {
     }
   };
 
-  // Also mark seen if opened by any means
   useEffect(() => {
     if (open) markHintSeen();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const slide = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
@@ -239,6 +236,28 @@ export function Locker() {
     audio.success();
     toast.show(`${name ?? "Layer"} invite copied`);
     updateActivity();
+  };
+
+  const enterLayer = async (id: string, name?: string) => {
+    const ok = await confirmAction(
+      "Switch Fabric experience?",
+      "This may unload the current canvas and affect connected viewers."
+    );
+    if (!ok) return;
+    router.replace(`/fabric/${id}`);
+    toast.show(`Entering ${name ?? id}`);
+  };
+
+  const handleRemoveLayer = (id: string, name?: string) => {
+    removeLayer(id);
+    haptics.impactLight();
+    toast.show(`Removed ${name ?? id}`);
+  };
+
+  const handleClearRecents = () => {
+    clear();
+    haptics.notifyWarning();
+    toast.show("Recent layers cleared");
   };
 
   const recent = layers.slice(0, 5);
@@ -349,7 +368,212 @@ export function Locker() {
             shadowOffset: { width: 6, height: 0 },
           }}
         >
-          {/* ... rest of Locker content unchanged ... */}
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 24 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={{ alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <Image source={require("../../logo.png")} style={{ width: 44, height: 44, borderRadius: 8 }} />
+              <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Fabric</Text>
+              <Text style={{ color: "#93c5fd", fontSize: 12 }}>Fanalogy</Text>
+              <Text style={{ color: "#a3e635", fontSize: 12 }}>Powered by Nirvana</Text>
+            </View>
+
+            <Divider />
+
+            {/* Navigation */}
+            <NavItem href="/" label="Home" hint="Focus the canvas" />
+            <NavItem href="/dashboard" label="Dashboard" hint="Create and manage layers" />
+            <NavItem href="/plugins" label="Plugins" hint="Discover and install" />
+            <NavItem href="/profile" label="Profile" />
+            <NavItem href="/fluid-test" label="Fluid Test" hint="Isolated canvas" />
+
+            <Divider />
+
+            {/* Quick Create */}
+            <QuickCreateLayer />
+
+            <Divider />
+
+            {/* Active/Invite Controls */}
+            <View style={{ gap: 8 }}>
+              <Pressable
+                onPress={handleCopyInvite}
+                style={{
+                  backgroundColor: "rgba(2,132,199,0.18)",
+                  borderColor: "rgba(34,211,238,0.6)",
+                  borderWidth: 1,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                }}
+              >
+                <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
+                  Copy Active Invite
+                </Text>
+              </Pressable>
+
+              {/* Toggles */}
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  onPress={() => {
+                    toggleHaptics();
+                    updateActivity();
+                  }}
+                  style={{
+                    flex: 1,
+                    backgroundColor: "rgba(2,8,23,0.6)",
+                    borderColor: hapticsEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.4)",
+                    borderWidth: 1,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ color: hapticsEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                    Haptics: {hapticsEnabled ? "On" : "Off"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    toggleAudio();
+                    updateActivity();
+                  }}
+                  style={{
+                    flex: 1,
+                    backgroundColor: "rgba(2,8,23,0.6)",
+                    borderColor: audioEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.4)",
+                    borderWidth: 1,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ color: audioEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                    Audio: {audioEnabled ? "On" : "Off"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <Divider />
+
+            {/* Recent Layers */}
+            <View style={{ gap: 8 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text style={{ color: "white", fontWeight: "800", fontSize: 16 }}>Recent Layers</Text>
+                {layers.length > 0 ? (
+                  <Pressable
+                    onPress={handleClearRecents}
+                    style={{
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: "rgba(239,68,68,0.8)",
+                    }}
+                  >
+                    <Text style={{ color: "#ef4444", fontWeight: "700" }}>Clear</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {layers.length === 0 ? (
+                <Text style={{ color: "#9ca3af" }}>No recent layers yet.</Text>
+              ) : (
+                layers.slice(0, 5).map((l: Layer) => (
+                  <View
+                    key={l.id}
+                    style={{
+                      backgroundColor: "rgba(2,8,23,0.6)",
+                      borderColor: "rgba(148,163,184,0.35)",
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      padding: 10,
+                      gap: 8,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={{ color: "white", fontWeight: "700" }}>{l.name}</Text>
+                        <Text style={{ color: "#9ca3af", fontSize: 12 }} numberOfLines={1}>
+                          {l.id}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => void enterLayer(l.id, l.name)}
+                        style={{
+                          borderColor: "#22d3ee",
+                          borderWidth: 1,
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Open</Text>
+                      </Pressable>
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <Pressable
+                        onPress={() => handleCopyInviteFor(l.id, l.name)}
+                        style={{
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: "rgba(34,211,238,0.6)",
+                        }}
+                      >
+                        <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Invite</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => handleRemoveLayer(l.id, l.name)}
+                        style={{
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: "rgba(239,68,68,0.7)",
+                        }}
+                      >
+                        <Text style={{ color: "#ef4444", fontWeight: "700" }}>Remove</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+
+            <Divider />
+
+            {/* Credits */}
+            <Pressable
+              onPress={openCredits}
+              style={{
+                backgroundColor: "rgba(2,8,23,0.6)",
+                borderColor: "rgba(34,211,238,0.35)",
+                borderWidth: 1,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Credits</Text>
+              <Animated.View
+                style={{
+                  marginTop: 6,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  backgroundColor: "rgba(34,211,238,0.25)",
+                  transform: [{ scale: pulseScale }],
+                  opacity: pulseOpacity,
+                }}
+              />
+            </Pressable>
+          </ScrollView>
         </SafeAreaView>
 
         {/* Attached Corner Tab (logo) */}
@@ -392,6 +616,9 @@ export function Locker() {
           />
         </Pressable>
       </Animated.View>
+
+      {/* Credits Overlay */}
+      <CreditsOverlay visible={creditsOpen} onClose={closeCredits} />
     </>
   );
 }
