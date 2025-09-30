@@ -13,6 +13,7 @@ import OverlayRoot from "./components/overlays/OverlayRoot";
 import { UserDrawerProvider } from "./components/UserDrawer";
 import UserDrawer from "./components/UserDrawer";
 import AvatarButton from "./components/AvatarButton";
+import LockerTab from "./components/LockerTab";
 
 export default function RootLayout() {
   return (
@@ -33,11 +34,12 @@ export default function RootLayout() {
                       </View>
                       {/* Overlays (slide from left) */}
                       <OverlayRoot />
-                      {/* Drawers (left side) */}
+                      {/* Drawers (left side user, right side locker) */}
                       <UserDrawer />
                       <Locker />
-                      {/* Avatar trigger */}
+                      {/* Triggers */}
                       <AvatarButton />
+                      <LockerTab />
                     </View>
                   </LockerProvider>
                 </UserDrawerProvider>
