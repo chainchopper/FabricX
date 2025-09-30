@@ -11,25 +11,34 @@ interface PianoOverlayProps {
 
 /**
  * PianoOverlay
- * - Minimal GLB loader (no extra deps)
- * - Renders a simple piano model above the Fabric surface
- * - Intended for AR Piano experience visual context
+ * - Loads GLB via bundler-resolved URL (require) so it’s served correctly on web
+ * - Graceful no-op if the asset cannot be resolved
  */
 export default function PianoOverlay({
   scale = 0.18,
   position = [0, -0.6, -0.2],
   rotation = [0, 0, 0],
 }: PianoOverlayProps) {
-  // Serve directly from /piano/public/models/... (already present in repo)
-  const url = useMemo(
-    () =>
-      encodeURI(
-        "/piano/public/models/MIDI to Keyframe - Piano Template - Web V5.glb"
-      ),
-    []
-  );
+  // Resolve asset through bundler so it’s hosted under /assets/... instead of 404/HTML
+  const url = useMemo(() => {
+    try {
+      // NOTE: keep path relative to this file; Metro/Expo will rewrite to a served URL on web
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const resolved = require("../../../piano/public/models/MIDI to Keyframe - Piano Template - Web V5.glb") as string;
+      return resolved;
+    } catch {
+      return null;
+    }
+  }, []);
 
-  const gltf = useLoader(GLTFLoader, url);
+  const gltf = useLoader(GLTFLoader, url ?? "", (loader) => {
+    // no custom settings for now
+  });
+
+  if (!url) {
+    // Asset not found by bundler — no-op overlay
+    return null;
+  }
 
   const scene = useMemo(() => {
     const s = gltf.scene.clone(true);
