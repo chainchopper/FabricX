@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "dyad-react-native-expo-template",
-    "slug": "dyad-react-native-expo-template",
+    "name": "Fabric",
+    "slug": "fabric",
     "plugins": ["expo-router"],
     "experiments": { "typedRoutes": false },
     "scheme": "fabric",
