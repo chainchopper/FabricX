@@ -16,7 +16,7 @@ export default function AvatarButton() {
       style={{
         position: "absolute",
         top: 12,
-        left: 0,
+        right: 52, // sit next to LockerTab on the right edge
         zIndex: 56,
       }}
     >
@@ -29,12 +29,12 @@ export default function AvatarButton() {
         style={{
           width: 48,
           height: 48,
-          borderTopRightRadius: 12,
-          borderBottomRightRadius: 12,
+          borderTopLeftRadius: 12,
+          borderBottomLeftRadius: 12,
           backgroundColor: "rgba(2,8,23,0.65)",
           borderColor: "rgba(34,211,238,0.45)",
-          borderLeftWidth: 0,
           borderRightWidth: 1,
+          borderLeftWidth: 1,
           borderTopWidth: 1,
           borderBottomWidth: 1,
           alignItems: "center",
