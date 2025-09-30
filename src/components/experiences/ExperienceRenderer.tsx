@@ -27,7 +27,6 @@ export default function ExperienceRenderer() {
 
   const wantsAROrCamera =
     !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
-  const isDefaultFluid = (activeExperience?.id ?? "default-fluid") === "default-fluid";
 
   return (
     <View
@@ -43,9 +42,9 @@ export default function ExperienceRenderer() {
         <Suspense fallback={null}>
           <FabricWeb3DLazy />
         </Suspense>
-      ) : isDefaultFluid ? (
+      ) : (
         <WebFluidBackground />
-      ) : null}
+      )}
     </View>
   );
 }
