@@ -10,7 +10,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<Toast[]>([]);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(8)).current;
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const animateIn = () => {
     Animated.parallel([

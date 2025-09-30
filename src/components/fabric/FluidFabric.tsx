@@ -9,7 +9,7 @@ export interface FluidFabricProps {
   customization?: Partial<FluidConfig>;
 }
 
-export const FluidFabric = forwardRef<FluidEngine | null, FluidFabricProps>(
+export const FluidFabric = forwardRef<FluidEngine, FluidFabricProps>(
   ({ roomId = "default", onReady, customization }, ref) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -17,7 +17,7 @@ export const FluidFabric = forwardRef<FluidEngine | null, FluidFabricProps>(
     const rafRef = useRef<number | null>(null);
     const { remoteInteractions, sendInteraction } = useFluidMultiUser(roomId);
 
-    useImperativeHandle(ref, () => engineRef.current, []);
+    useImperativeHandle(ref, () => engineRef.current as FluidEngine, []);
 
     useEffect(() => {
       if (!canvasRef.current) return;
