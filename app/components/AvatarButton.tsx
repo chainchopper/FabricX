@@ -9,7 +9,6 @@ export default function AvatarButton() {
   const haptics = useHaptics();
   const audio = useAudioCues();
 
-  // When drawer is open, the edge tab is rendered inside the drawer itself.
   if (open) return null;
 
   return (

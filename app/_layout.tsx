@@ -1,7 +1,7 @@
 import { Stack } from "expo-router";
 import { ToastProvider } from "./components/Toast";
 import { LayersProvider } from "./context/LayersContext";
-import { LockerProvider, Locker } from "./components/Locker";
+import Locker, { LockerProvider } from "./components/Locker";
 import { PreferencesProvider } from "./context/PreferencesContext";
 import { ARProvider } from "./context/ARContext";
 import React from "react";

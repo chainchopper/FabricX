@@ -5,16 +5,15 @@ import ExperienceRenderer from "./ExperienceRenderer";
 import ARStatus from "./ARStatus";
 import ExperienceHUD from "./ExperienceHUD";
 import { useOverlays } from "../context/OverlayContext";
-import { drawerEvents } from "../utils/drawerEvents";
+import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { eventBus } from "../../shared/utils/eventBus";
 
 export default function GlobalFabricBackground() {
   const { close } = useOverlays();
 
-  // Any Fabric interaction should retract open UI (drawers/overlays)
   useEffect(() => {
     const unsub = eventBus.on(() => {
-      close(); // close any open overlay
+      close();
       drawerEvents.emitCloseUserDrawer();
       drawerEvents.emitCloseLocker();
     });
