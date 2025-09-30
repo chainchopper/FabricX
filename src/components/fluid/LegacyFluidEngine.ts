@@ -10,11 +10,24 @@ import {
   curlShaderSrc, vorticityShaderSrc, pressureShaderSrc, gradientSubtractShaderSrc
 } from "./engine/shaders";
 
-function clamp01(input: number) { return Math.min(Math.max(input, 0), 1); }
-function isMobile() { return typeof navigator !== "undefined" && /Mobi|Android/i.test(navigator.userAgent); }
+function isMobile() {
+  return typeof navigator !== "undefined" && /Mobi|Android/i.test(navigator.userAgent);
+}
 function HSVtoRGB(h: number, s: number, v: number) {
-  let r=0,g=0,b=0; const i=Math.floor(h*6), f=h*6-i, p=v*(1-s), q=v*(1-f*s), t=v*(1-(1-f)*s);
-  switch(i%6){case 0:r=v;g=t;b=p;break;case 1:r=q;g=v;b=p;break;case 2:r=p;g=v;b=t;break;case 3:r=p;g=q;b=v;break;case 4:r=t;g=p;b=v;break;case 5:r=v;g=p;b=q;break;}
+  let r = 0, g = 0, b = 0;
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  switch (i % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    case 5: r = v; g = p; b = q; break;
+  }
   return { r, g, b };
 }
 
@@ -45,7 +58,8 @@ class Material {
     this.fragmentSrc = fragmentSrc;
   }
   setKeywords(keywords: string[]) {
-    let hash = 0; for (const k of keywords) hash += hashCode(k);
+    let hash = 0;
+    for (const k of keywords) hash += hashCode(k);
     let program = this.programs[hash];
     if (!program) {
       const fs = compileShader(this.gl, (this.gl as WebGLRenderingContext).FRAGMENT_SHADER, this.fragmentSrc, keywords);
@@ -157,6 +171,12 @@ export class LegacyFluidEngine {
     this.raf = requestAnimationFrame(this.update);
   }
 
+  // PUBLIC: programmatic splats using normalized coords
+  public splatAt(xNorm: number, yNorm: number, dx = 0, dy = 0, color?: { r: number; g: number; b: number }) {
+    const col = color ?? { r: 1, g: 1, b: 1 };
+    this.splat(xNorm, yNorm, dx, dy, col);
+  }
+
   private initGL() {
     const params: WebGLContextAttributes = {
       alpha: true, depth: false, stencil: false, antialias: false,
@@ -191,7 +211,6 @@ export class LegacyFluidEngine {
       (glx as WebGLRenderingContext).texParameteri((glx as WebGLRenderingContext).TEXTURE_2D, (glx as WebGLRenderingContext).TEXTURE_WRAP_S, (glx as WebGLRenderingContext).CLAMP_TO_EDGE);
       (glx as WebGLRenderingContext).texParameteri((glx as WebGLRenderingContext).TEXTURE_2D, (glx as WebGLRenderingContext).TEXTURE_WRAP_T, (glx as WebGLRenderingContext).CLAMP_TO_EDGE);
       (glx as WebGLRenderingContext).texImage2D((glx as WebGLRenderingContext).TEXTURE_2D, 0, internal, 4, 4, 0, format, type, null);
-
       const fbo = (glx as WebGLRenderingContext).createFramebuffer()!;
       (glx as WebGLRenderingContext).bindFramebuffer((glx as WebGLRenderingContext).FRAMEBUFFER, fbo);
       (glx as WebGLRenderingContext).framebufferTexture2D((glx as WebGLRenderingContext).FRAMEBUFFER, (glx as WebGLRenderingContext).COLOR_ATTACHMENT0, (glx as WebGLRenderingContext).TEXTURE_2D, texture, 0);
@@ -229,7 +248,8 @@ export class LegacyFluidEngine {
     }
 
     if (isMobile()) this.config.DYE_RESOLUTION = 512;
-    // Use the computed supportLinearFiltering flag (avoid redeclaration)
+
+    // reuse computed supportLinearFiltering; do not redeclare
     if (!supportLinearFiltering) {
       this.config.DYE_RESOLUTION = 512;
       this.config.SHADING = false;
@@ -493,7 +513,11 @@ export class LegacyFluidEngine {
     }
 
     this.displayMaterial.bind();
-    if (this.config.SHADING) gl.uniform2f(this.displayMaterial.uniforms.texelSize!, 1 / (target ? target.width : gl.drawingBufferWidth), 1 / (target ? target.height : gl.drawingBufferHeight));
+    if (this.config.SHADING) gl.uniform2f(
+      this.displayMaterial.uniforms.texelSize!,
+      1 / (target ? target.width : gl.drawingBufferWidth),
+      1 / (target ? target.height : gl.drawingBufferHeight)
+    );
     gl.uniform1i(this.displayMaterial.uniforms.uTexture!, this.dye.read.attach(0));
     if (this.config.BLOOM) {
       gl.uniform1i(this.displayMaterial.uniforms.uBloom!, this.bloom.attach(1));
@@ -577,6 +601,12 @@ export class LegacyFluidEngine {
     return delta;
   }
 
+  private correctRadius(radius: number) {
+    let aspectRatio = this.canvas.width / this.canvas.height;
+    if (aspectRatio > 1) radius *= aspectRatio;
+    return radius;
+  }
+
   private splat(x: number, y: number, dx: number, dy: number, color: { r: number; g: number; b: number }) {
     const gl = this.gl as WebGLRenderingContext;
     this.splatProgram.bind();
@@ -604,12 +634,6 @@ export class LegacyFluidEngine {
       const dy = 1000 * (Math.random() - 0.5);
       this.splat(x, y, dx, dy, c);
     }
-  }
-
-  private correctRadius(radius: number) {
-    let aspectRatio = this.canvas.width / this.canvas.height;
-    if (aspectRatio > 1) radius *= aspectRatio;
-    return radius;
   }
 
   private bindEvents() {
