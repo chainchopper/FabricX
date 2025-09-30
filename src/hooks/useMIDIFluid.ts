@@ -24,7 +24,6 @@ function hsvToRgb(h: number, s: number, v: number): RGB {
 }
 
 function noteNameToNumber(note: string): number {
-  // Expect format like C4, C#4, etc.
   const m = note.match(/^([A-G]#?)(-?\d+)$/);
   if (!m) return 60;
   const base = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -33,15 +32,27 @@ function noteNameToNumber(note: string): number {
   return (octave + 1) * 12 + idx;
 }
 
-export function useMIDIFluid(roomId: string = "default") {
+/**
+ * useMIDIFluid
+ * Always call this hook; pass enabled=false to disable processing without changing hook order.
+ */
+export function useMIDIFluid(roomId: string = "default", enabled: boolean = true) {
   const { activeNotes, noteVelocities } = useMIDI();
   const { sendInteraction } = useFluidMultiUser(roomId);
   const streamsRef = useRef<Map<NoteName, number>>(new Map());
 
   const currentNotes = useMemo(() => new Set<NoteName>(activeNotes), [activeNotes]);
 
-  // Start a short “trail stream” for newly pressed notes
   useEffect(() => {
+    // If disabled, cancel any running streams and bail
+    if (!enabled) {
+      for (const id of streamsRef.current.values()) {
+        window.cancelAnimationFrame(id);
+      }
+      streamsRef.current.clear();
+      return;
+    }
+
     const running = streamsRef.current;
 
     // Start streams for new notes
@@ -50,23 +61,21 @@ export function useMIDIFluid(roomId: string = "default") {
         const start = performance.now();
         const duration = 420; // ms
         const noteNum = noteNameToNumber(note);
-        const x = (noteNum % 12) / 12; // across keyboard
+        const x = (noteNum % 12) / 12;
         const vel = noteVelocities[note] ?? 0.5;
         const hue = ((noteNum * 30) % 360) / 360;
         const color = hsvToRgb(hue, 0.85, Math.max(0.4, vel));
         const id = window.requestAnimationFrame(function loop(ts) {
           const t = Math.min(1, (ts - start) / duration);
           const y = 0.15 + t * 0.7; // stream upward
-          // Local visuals via event bus
           eventBus.emitDrag(x, y);
-          // Multi-user fluid splat
           sendInteraction({
             position: { x, y },
             force: { x: 0, y: vel * 1000 },
             pressure: Math.min(1, Math.max(0.1, vel)),
             color,
           });
-          if (t < 1 && currentNotes.has(note)) {
+          if (t < 1 && currentNotes.has(note) && enabled) {
             const nextId = window.requestAnimationFrame(loop);
             running.set(note, nextId);
           } else {
@@ -85,12 +94,12 @@ export function useMIDIFluid(roomId: string = "default") {
       }
     }
 
-    // Cleanup on unmount
     return () => {
+      // Cleanup when deps change or unmount
       for (const id of streamsRef.current.values()) window.cancelAnimationFrame(id);
       streamsRef.current.clear();
     };
-  }, [currentNotes, noteVelocities, sendInteraction]);
+  }, [currentNotes, noteVelocities, sendInteraction, enabled]);
 
   return { activeNotes, noteVelocities };
 }

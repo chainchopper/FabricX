@@ -20,65 +20,66 @@ export function useMIDI() {
 
     let mounted = true;
 
-    navigator.requestMIDIAccess({ sysex: false }).then((access) => {
-      if (!mounted) return;
-      accessRef.current = access;
+    navigator
+      .requestMIDIAccess({ sysex: false })
+      .then((access) => {
+        if (!mounted) return;
+        accessRef.current = access;
 
-      const handleMessage = (ev: MIDIMessageEvent) => {
-        const raw = (ev as any).data as Uint8Array | null | undefined;
-        if (!raw) return;
-        const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw as any);
-        const status = bytes[0];
-        const data1 = bytes[1];
-        const data2 = bytes[2];
+        const handleMessage = (ev: MIDIMessageEvent) => {
+          const raw = (ev as any).data as Uint8Array | null | undefined;
+          if (!raw) return;
+          const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw as any);
+          const status = bytes[0];
+          const data1 = bytes[1];
+          const data2 = bytes[2];
 
-        const cmd = status & 0xf0;
-        const noteNum = data1;
-        const velocity = data2;
+          const cmd = status & 0xf0;
+          const noteNum = data1;
+          const velocity = data2;
 
-        if (cmd === 0x90) {
-          // note on (if vel>0) or off (if vel==0)
-          if (velocity > 0) {
-            const note = midiNumberToNoteName(noteNum);
-            activeSetRef.current.add(note);
-            setNoteVelocities((m) => ({ ...m, [note]: velocity / 127 }));
-            setActiveNotes(Array.from(activeSetRef.current));
-          } else {
+          if (cmd === 0x90) {
+            if (velocity > 0) {
+              const note = midiNumberToNoteName(noteNum);
+              activeSetRef.current.add(note);
+              setNoteVelocities((m) => ({ ...m, [note]: velocity / 127 }));
+              setActiveNotes(Array.from(activeSetRef.current));
+            } else {
+              const note = midiNumberToNoteName(noteNum);
+              activeSetRef.current.delete(note);
+              setActiveNotes(Array.from(activeSetRef.current));
+            }
+          } else if (cmd === 0x80) {
             const note = midiNumberToNoteName(noteNum);
             activeSetRef.current.delete(note);
             setActiveNotes(Array.from(activeSetRef.current));
           }
-        } else if (cmd === 0x80) {
-          // note off
-          const note = midiNumberToNoteName(noteNum);
-          activeSetRef.current.delete(note);
-          setActiveNotes(Array.from(activeSetRef.current));
-        }
-      };
+        };
 
-      const attachInput = (input: MIDIInput) => {
-        input.onmidimessage = handleMessage;
-      };
+        const attachInput = (input: MIDIInput) => {
+          input.onmidimessage = handleMessage;
+        };
 
-      // Attach current inputs
-      access.inputs.forEach((input) => attachInput(input));
+        access.inputs.forEach((input) => attachInput(input));
 
-      // Listen for newly connected inputs using the map + port id
-      const onStateChange = (ev: MIDIConnectionEvent) => {
-        const acc = accessRef.current;
-        if (!acc) return;
-        const port = ev.port;
-        if (!port) return;
-        if (port.type === "input" && port.state === "connected") {
-          let found: MIDIInput | undefined;
-          acc.inputs.forEach((value, key) => {
-            if (key === port.id) found = value;
-          });
-          if (found) attachInput(found);
-        }
-      };
-      access.onstatechange = onStateChange;
-    });
+        const onStateChange = (ev: MIDIConnectionEvent) => {
+          const acc = accessRef.current;
+          if (!acc) return;
+          const port = ev.port;
+          if (!port) return;
+          if (port.type === "input" && port.state === "connected") {
+            let found: MIDIInput | undefined;
+            acc.inputs.forEach((value, key) => {
+              if (key === port.id) found = value;
+            });
+            if (found) attachInput(found);
+          }
+        };
+        access.onstatechange = onStateChange;
+      })
+      .catch(() => {
+        // WebMIDI unsupported or permission denied; ignore
+      });
 
     return () => {
       mounted = false;

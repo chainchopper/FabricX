@@ -181,13 +181,10 @@ export default function FabricWeb3D() {
   const { state } = useExperience();
   const { activeExperience } = state;
 
-  useEffect(() => {}, [activeExperience?.id]);
-
   const isARPiano = activeExperience?.id === "ar-piano";
-  if (isARPiano) {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useMIDIFluid("ar-piano");
-  }
+
+  // Always call hook; pass enabled flag to keep hook order stable
+  useMIDIFluid("ar-piano", !!isARPiano);
 
   const densityScale = useMemo(() => {
     if (!activeExperience) return 1;
@@ -198,9 +195,7 @@ export default function FabricWeb3D() {
 
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "transparent" }}>
-      {/* Audio engine mounts outside Canvas */}
       <ToneEngine />
-
       <Canvas
         dpr={dpr}
         frameloop="always"
