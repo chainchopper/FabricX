@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { Asset } from "expo-asset";
 
 interface PianoOverlayProps {
   scale?: number;
@@ -11,40 +12,47 @@ interface PianoOverlayProps {
 
 /**
  * PianoOverlay
- * - Loads GLB via bundler-resolved URL (require) so it’s served correctly on web
- * - Graceful no-op if the asset cannot be resolved
+ * - Loads GLB using expo-asset so Metro serves a real URL (not HTML)
+ * - Renders null until the asset is ready
  */
 export default function PianoOverlay({
   scale = 0.18,
   position = [0, -0.6, -0.2],
   rotation = [0, 0, 0],
 }: PianoOverlayProps) {
-  // Resolve asset through bundler so it’s hosted under /assets/... instead of 404/HTML
-  const url = useMemo(() => {
-    try {
-      // NOTE: keep path relative to this file; Metro/Expo will rewrite to a served URL on web
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const resolved = require("../../../piano/public/models/MIDI to Keyframe - Piano Template - Web V5.glb") as string;
-      return resolved;
-    } catch {
-      return null;
-    }
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        // Resolve through bundler so the file is included in the web build
+        // Keep path relative; Metro will fingerprint and serve it
+        const moduleId = require("../../../piano/public/models/MIDI to Keyframe - Piano Template - Web V5.glb");
+        const asset = Asset.fromModule(moduleId);
+        if (!asset.downloaded) {
+          await asset.downloadAsync();
+        }
+        if (mounted) setUrl(asset.uri || null);
+      } catch {
+        if (mounted) setUrl(null);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const gltf = useLoader(GLTFLoader, url ?? "", (loader) => {
-    // no custom settings for now
-  });
+  // If asset isn't ready, don't attempt to load
+  if (!url) return null;
 
-  if (!url) {
-    // Asset not found by bundler — no-op overlay
-    return null;
-  }
+  const gltf = useLoader(GLTFLoader, url);
 
   const scene = useMemo(() => {
     const s = gltf.scene.clone(true);
     s.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
-      if (mesh.isMesh) {
+      if ((mesh as any).isMesh) {
         mesh.castShadow = false;
         mesh.receiveShadow = false;
       }

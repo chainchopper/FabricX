@@ -7,7 +7,7 @@ import { decayTowards } from "../../shared/utils/easing";
 import { useAR } from "../contexts/ARContext";
 import TouchParticles from "./TouchParticles";
 import { useExperience } from "../contexts/ExperienceContext";
-import PianoOverlay from "../components/piano/PianoOverlay";
+import PianoOverlay from "./piano/PianoOverlay";
 import { useMIDIFluid } from "../hooks/useMIDIFluid";
 import ToneEngine from "./audio/ToneEngine";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
@@ -181,10 +181,7 @@ export default function FabricWeb3D() {
   const { state } = useExperience();
   const { activeExperience } = state;
 
-  // MIDI → Fluid streaming only for AR Piano
-  useEffect(() => {
-    // no-op; hook below handles everything conditionally
-  }, [activeExperience?.id]);
+  useEffect(() => {}, [activeExperience?.id]);
 
   const isARPiano = activeExperience?.id === "ar-piano";
   if (isARPiano) {
@@ -192,7 +189,6 @@ export default function FabricWeb3D() {
     useMIDIFluid("ar-piano");
   }
 
-  // Particle density scaling by experience
   const densityScale = useMemo(() => {
     if (!activeExperience) return 1;
     if (activeExperience.id === "camera-effects") return 0.6;
@@ -222,11 +218,9 @@ export default function FabricWeb3D() {
         <ambientLight intensity={0.3} />
         <directionalLight intensity={0.6} position={[2, 3, 2]} />
         <LiquidSurface />
-        {/* AR Piano overlay model */}
         {isARPiano ? <PianoOverlay /> : null}
         <TouchParticles densityScale={densityScale} />
 
-        {/* Subtle bloom for AR Piano */}
         {isARPiano ? (
           <EffectComposer multisampling={4}>
             <Bloom intensity={0.5} luminanceThreshold={0.1} luminanceSmoothing={0.9} />
