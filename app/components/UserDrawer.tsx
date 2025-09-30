@@ -73,7 +73,6 @@ export function UserDrawerProvider({ children }: { children: React.ReactNode }) 
     return () => sub.remove();
   }, [open, closeDrawer]);
 
-  // Close when Locker asks
   useEffect(() => {
     return drawerEvents.on("fabric:close-user-drawer", () => setOpen(false));
   }, []);
@@ -150,6 +149,34 @@ export default function UserDrawer() {
           <NavButton label="Diagnostics" hint="Fabric status & controls" onPress={() => { overlays.open("diagnostics"); closeDrawer(); }} />
         </ScrollView>
       </SafeAreaView>
+
+      {/* Edge tab that rides with the drawer to close it */}
+      <Pressable
+        onPress={closeDrawer}
+        style={{
+          position: "absolute",
+          top: 12,
+          left: PANEL_WIDTH,
+          width: 48,
+          height: 48,
+          borderTopRightRadius: 12,
+          borderBottomRightRadius: 12,
+          backgroundColor: "rgba(2,8,23,0.65)",
+          borderColor: "rgba(34,211,238,0.45)",
+          borderLeftWidth: 0,
+          borderRightWidth: 1,
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: "#22d3ee",
+          shadowOpacity: 0.35,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 4 },
+        }}
+      >
+        <Image source={require("../../logo.png")} style={{ width: 28, height: 28, borderRadius: 6 }} />
+      </Pressable>
     </Animated.View>
   );
 }

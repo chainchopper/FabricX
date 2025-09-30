@@ -10,7 +10,7 @@ import { useLayers, Layer } from "../context/LayersContext";
 import CreditsOverlay from "./CreditsOverlay";
 import { useAudioCues } from "../hooks/useAudioCues";
 import QuickCreateLayer from "./QuickCreateLayer";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { getJSON, setJSON } from "../utils/storage";
 import { confirmAction } from "../utils/confirm";
 import ExperienceSwitch from "./ExperienceSwitch";
@@ -96,7 +96,6 @@ export function Locker() {
   const { layers, removeLayer, addLayer, clear } = useLayers();
   const [creditsOpen, setCreditsOpen] = useState(false);
   const audio = useAudioCues();
-  const insets = useSafeAreaInsets();
 
   const HINT_KEY = "fabric_locker_hint_seen_v1";
   const [hintSeen, setHintSeen] = useState<boolean>(false);
@@ -244,8 +243,6 @@ export function Locker() {
   };
 
   const recent = layers.slice(0, 5);
-  const activeLayerId = getActiveLayerId();
-  const isInLayer = !!activeLayerId;
 
   const backdropOpacity = slide.interpolate({
     inputRange: [0, 1],
@@ -257,7 +254,7 @@ export function Locker() {
 
   return (
     <>
-      {/* Locker CTA (left-edge tab) stacked under avatar tab */}
+      {/* Closed-state Locker CTA: left-edge tab under Avatar */}
       {!open ? (
         <Pressable
           onPress={() => {
@@ -267,7 +264,7 @@ export function Locker() {
           }}
           style={{
             position: "absolute",
-            top: 12 + 48 + 4, // just beneath avatar tab
+            top: 12 + 48 + 4,
             left: 0,
             width: 48,
             height: 48,
@@ -326,7 +323,7 @@ export function Locker() {
           bottom: 0,
           left: 0,
           width: 300 + 58,
-          transform: [{ translateX: translateX }],
+          transform: [{ translateX }],
           zIndex: 56,
         }}
       >
@@ -393,7 +390,6 @@ export function Locker() {
                 <Pressable
                   onPress={() => {
                     toggleHaptics();
-                    updateActivity();
                   }}
                   style={{
                     flex: 1,
@@ -412,7 +408,6 @@ export function Locker() {
                 <Pressable
                   onPress={() => {
                     toggleAudio();
-                    updateActivity();
                   }}
                   style={{
                     flex: 1,
@@ -532,6 +527,34 @@ export function Locker() {
             </Pressable>
           </ScrollView>
         </SafeAreaView>
+
+        {/* Edge tab that rides with the Locker to close it */}
+        <Pressable
+          onPress={toggleLocker}
+          style={{
+            position: "absolute",
+            top: 12 + 48 + 4,
+            left: 300,
+            width: 48,
+            height: 48,
+            borderTopRightRadius: 12,
+            borderBottomRightRadius: 12,
+            backgroundColor: "rgba(2,8,23,0.65)",
+            borderColor: "rgba(34,211,238,0.45)",
+            borderLeftWidth: 0,
+            borderRightWidth: 1,
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            shadowColor: "#22d3ee",
+            shadowOpacity: 0.35,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 4 },
+          }}
+        >
+          <Image source={require("../../logo.png")} style={{ width: 28, height: 28, borderRadius: 6 }} />
+        </Pressable>
       </Animated.View>
 
       <CreditsOverlay visible={creditsOpen} onClose={() => setCreditsOpen(false)} />

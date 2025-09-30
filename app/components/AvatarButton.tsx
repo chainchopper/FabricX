@@ -5,9 +5,12 @@ import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
 
 export default function AvatarButton() {
-  const { openDrawer } = useUserDrawer();
+  const { open, openDrawer } = useUserDrawer();
   const haptics = useHaptics();
   const audio = useAudioCues();
+
+  // When drawer is open, the edge tab is rendered inside the drawer itself.
+  if (open) return null;
 
   return (
     <View
