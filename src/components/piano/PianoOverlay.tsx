@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
-import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Asset } from "expo-asset";
 
@@ -12,8 +11,9 @@ interface PianoOverlayProps {
 
 /**
  * PianoOverlay
- * - Loads GLB using expo-asset so Metro serves a real URL (not HTML)
- * - Renders null until the asset is ready
+ * - Resolve GLB via expo-asset so Metro serves a proper URL
+ * - Load with GLTFLoader in an effect (no conditional hooks)
+ * - Render null until the scene is ready
  */
 export default function PianoOverlay({
   scale = 0.18,
@@ -21,13 +21,15 @@ export default function PianoOverlay({
   rotation = [0, 0, 0],
 }: PianoOverlayProps) {
   const [url, setUrl] = useState<string | null>(null);
+  const [scene, setScene] = useState<THREE.Group | null>(null);
 
+  // Resolve bundler asset → URL
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        // Resolve through bundler so the file is included in the web build
-        // Keep path relative; Metro will fingerprint and serve it
+        // Keep relative path; Metro/Expo will fingerprint and host it
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const moduleId = require("../../../piano/public/models/MIDI to Keyframe - Piano Template - Web V5.glb");
         const asset = Asset.fromModule(moduleId);
         if (!asset.downloaded) {
@@ -43,22 +45,36 @@ export default function PianoOverlay({
     };
   }, []);
 
-  // If asset isn't ready, don't attempt to load
-  if (!url) return null;
-
-  const gltf = useLoader(GLTFLoader, url);
-
-  const scene = useMemo(() => {
-    const s = gltf.scene.clone(true);
-    s.traverse((obj) => {
-      const mesh = obj as THREE.Mesh;
-      if ((mesh as any).isMesh) {
-        mesh.castShadow = false;
-        mesh.receiveShadow = false;
+  // Load GLB once URL is available
+  useEffect(() => {
+    if (!url) return;
+    let cancelled = false;
+    const loader = new GLTFLoader();
+    loader.load(
+      url,
+      (gltf) => {
+        if (cancelled) return;
+        const s = gltf.scene.clone(true);
+        s.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if ((mesh as any).isMesh) {
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+          }
+        });
+        setScene(s);
+      },
+      undefined,
+      () => {
+        if (!cancelled) setScene(null);
       }
-    });
-    return s;
-  }, [gltf.scene]);
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  if (!scene) return null;
 
   return (
     <group position={position} rotation={rotation} scale={scale}>
