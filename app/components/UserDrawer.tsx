@@ -38,18 +38,19 @@ export function useUserDrawer() {
 
 export default function UserDrawer() {
   const { open, toggleDrawer, closeDrawer } = useUserDrawer();
-  const slideX = useRef(new Animated.Value(-360)).current;
+  // Drawer width 360; visible tab 48 → closed offset = -312
+  const CLOSED_X = -312;
+  const slideX = useRef(new Animated.Value(CLOSED_X)).current;
 
   useEffect(() => {
     Animated.timing(slideX, {
-      toValue: open ? 0 : -360,
+      toValue: open ? 0 : CLOSED_X,
       duration: 220,
       easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, [open, slideX]);
 
-  // Drawer container (slides in from left)
   return (
     <Animated.View
       style={{

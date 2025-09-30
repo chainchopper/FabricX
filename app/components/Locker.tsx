@@ -45,11 +45,12 @@ export function useLocker() {
 export default function Locker() {
   const { open, toggleLocker, closeLocker } = useLocker();
   const { open: openOverlay } = useOverlays();
-  const slideX = useRef(new Animated.Value(-360)).current;
+  const CLOSED_X = -312;
+  const slideX = useRef(new Animated.Value(CLOSED_X)).current;
 
   useEffect(() => {
     Animated.timing(slideX, {
-      toValue: open ? 0 : -360,
+      toValue: open ? 0 : CLOSED_X,
       duration: 220,
       easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
       useNativeDriver: true,
