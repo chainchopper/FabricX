@@ -14,11 +14,14 @@ export default function LockerTab() {
 
   return (
     <View
+      pointerEvents="box-none"
       style={{
         position: "absolute",
-        top: 12,
+        top: 0,
+        left: 0,
         right: 0,
         zIndex: 60,
+        height: 0, // container just provides a stacking context
       }}
     >
       <Pressable
@@ -30,6 +33,9 @@ export default function LockerTab() {
           openLocker();
         }}
         style={{
+          position: "absolute",
+          top: 12,
+          right: 0,
           width: 48,
           height: 48,
           borderTopLeftRadius: 12,
