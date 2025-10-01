@@ -3,8 +3,10 @@ import { Platform, View, Animated, Easing } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useAR } from "../../contexts/ARContext";
 import WebFluidBackground from "../../../app/components/WebFluidBackground";
+import Ambience from "../audio/Ambience";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
+const FabricWebGPULazy = lazy(() => import("../fabric/WebGPUFabric"));
 
 declare global {
   interface Window {
@@ -24,19 +26,8 @@ export default function ExperienceRenderer() {
   useEffect(() => {
     if (lastMode.current !== wantsAROrCamera) {
       Animated.sequence([
-        Animated.timing(curtainOpacity, {
-          toValue: 1,
-          duration: 120,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(curtainOpacity, {
-          toValue: 0,
-          duration: 140,
-          delay: 40,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
-        }),
+        Animated.timing(curtainOpacity, { toValue: 1, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(curtainOpacity, { toValue: 0, duration: 140, delay: 40, easing: Easing.in(Easing.quad), useNativeDriver: true }),
       ]).start();
       lastMode.current = wantsAROrCamera;
     }
@@ -57,6 +48,12 @@ export default function ExperienceRenderer() {
   if (Platform.OS !== "web") return null;
 
   const bgColor = (experienceConfig?.common?.backgroundColor as string) || "transparent";
+  const renderMode = (experienceConfig?.common as any)?.renderMode ?? "default";
+
+  const useWebGPU =
+    Platform.OS === "web" &&
+    activeExperience?.id === "default-fluid" &&
+    renderMode === "default";
 
   return (
     <View
@@ -68,9 +65,16 @@ export default function ExperienceRenderer() {
         backgroundColor: bgColor,
       }}
     >
+      {/* Ambient audio (web-only) */}
+      <Ambience />
+
       {wantsAROrCamera ? (
         <Suspense fallback={null}>
           <FabricWeb3DLazy />
+        </Suspense>
+      ) : useWebGPU ? (
+        <Suspense fallback={null}>
+          <FabricWebGPULazy />
         </Suspense>
       ) : (
         <WebFluidBackground />

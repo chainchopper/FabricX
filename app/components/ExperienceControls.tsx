@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { View, Text, Pressable, TextInput, Platform } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useHaptics } from "../hooks/useHaptics";
@@ -28,19 +28,51 @@ export default function ExperienceControls() {
 
   if (!activeExperience) return null;
 
-  const presets = [
-    { label: "Cyan Glow", value: "#0b1020" },
-    { label: "Deep Space", value: "#000000" },
-    { label: "Nebula", value: "#0a1f2e" },
-    { label: "Transparent", value: "transparent" },
-  ];
-
-  const applyBg = (color: string) => {
-    updateConfig({ common: { ...experienceConfig.common, backgroundColor: color } });
+  // Rendering mode
+  const renderMode = (experienceConfig.common as any)?.renderMode ?? "default";
+  const setRenderMode = (mode: "default" | "compat") => {
+    updateConfig({ common: { ...experienceConfig.common, renderMode: mode } as any });
     haptics.impactLight();
-    toast.show("Background updated");
+    toast.show(mode === "default" ? "Rendering: Default (recommended)" : "Rendering: Compatibility");
   };
 
+  // Ambience controls (default-fluid only, web)
+  const isDefaultFluid = activeExperience.id === "default-fluid";
+  const s = experienceConfig.specific as any;
+
+  const ambienceEnabled = Boolean(s?.ambienceEnabled ?? false);
+  const ambienceFile = String(s?.ambienceFile ?? "ambience.mp3");
+  const [trackList, setTrackList] = useState<string[]>(["ambience.mp3"]);
+
+  useEffect(() => {
+    let alive = true;
+    if (Platform.OS !== "web") return;
+    (async () => {
+      try {
+        const res = await fetch("/audio/manifest.json");
+        if (res.ok) {
+          const list = (await res.json()) as string[];
+          if (Array.isArray(list) && list.length > 0 && alive) setTrackList(list);
+        }
+      } catch {
+        // leave default single track
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const toggleAmbience = () => {
+    updateConfig({ specific: { ...experienceConfig.specific, ambienceEnabled: !ambienceEnabled } });
+    haptics.impactLight();
+    toast.show(!ambienceEnabled ? "Ambience: On" : "Ambience: Off");
+  };
+  const setAmbienceFile = (name: string) => {
+    updateConfig({ specific: { ...experienceConfig.specific, ambienceFile: name } });
+    haptics.impactLight();
+    toast.show(`Ambience track: ${name.replace(/\.[^/.]+$/, "")}`);
+  };
+
+  // Fluid/camera checks
   const isFluid = activeExperience.id === "default-fluid";
   const isCamera = !!activeExperience.capabilities.camera || !!activeExperience.capabilities.ar;
   const isARPiano = activeExperience.id === "ar-piano";
@@ -92,8 +124,7 @@ export default function ExperienceControls() {
   };
 
   // MIDI controls (AR Piano)
-  const s = experienceConfig.specific as any;
-  const midiEnabled = Boolean(s?.midiEnabled ?? true);
+  const midiEnabled = Boolean((s?.midiEnabled as boolean) ?? true);
   const midiIntensity = Number(s?.midiIntensity ?? 1);
   const midiCurve = ((s?.midiCurve as MidiCurve) ?? "linear") as MidiCurve;
   const midiTranspose = Number.isFinite(s?.midiTranspose) ? Number(s?.midiTranspose) : 0;
@@ -122,7 +153,7 @@ export default function ExperienceControls() {
   const setMidiHueMap = (m: HueMap) => {
     updateConfig({ specific: { ...experienceConfig.specific, midiHueMap: m } });
     haptics.impactLight();
-    toast.show(m === "chromatic" ? "Hue: Chromatic" : "Hue: Circle of Fifths");
+    toast.show(m === "chromatic" ? "Hue: Chromatic" : "Hue: Fifths");
   };
 
   const applyRoom = () => {
@@ -169,16 +200,106 @@ export default function ExperienceControls() {
       <Text style={{ color: "white", fontWeight: "800" }}>Experience Controls</Text>
       <Text style={{ color: "#93c5fd" }}>{activeExperience.name}</Text>
 
+      {/* Rendering Mode */}
+      {activeExperience.id === "default-fluid" ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Rendering</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {[
+              { id: "default", label: "Default (recommended)" },
+              { id: "compat", label: "Compatibility" },
+            ].map((opt) => {
+              const active = renderMode === opt.id;
+              return (
+                <Pressable
+                  key={opt.id}
+                  onPress={() => setRenderMode(opt.id as "default" | "compat")}
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                  }}
+                >
+                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* Ambience */}
+      {isDefaultFluid && Platform.OS === "web" ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Ambience</Text>
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            <Pressable
+              onPress={toggleAmbience}
+              style={{
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: ambienceEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.4)",
+                backgroundColor: ambienceEnabled ? "rgba(16,185,129,0.18)" : "transparent",
+              }}
+            >
+              <Text style={{ color: ambienceEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                {ambienceEnabled ? "On" : "Off"}
+              </Text>
+            </Pressable>
+
+            {trackList.map((t) => {
+              const active = ambienceFile === t;
+              const label = t.replace(/\.[^/.]+$/, "");
+              return (
+                <Pressable
+                  key={t}
+                  onPress={() => setAmbienceFile(t)}
+                  style={{
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                  }}
+                >
+                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={{ color: "#9ca3af", fontSize: 11 }}>
+            Place .mp3 files in /audio and optionally provide /audio/manifest.json listing filenames.
+          </Text>
+        </View>
+      ) : null}
+
       {/* Background presets */}
       <View style={{ gap: 6 }}>
         <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Background</Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {presets.map((p) => {
+          {[
+            { label: "Cyan Glow", value: "#0b1020" },
+            { label: "Deep Space", value: "#000000" },
+            { label: "Nebula", value: "#0a1f2e" },
+            { label: "Transparent", value: "transparent" },
+          ].map((p) => {
             const active = experienceConfig.common.backgroundColor === p.value;
             return (
               <Pressable
                 key={p.value}
-                onPress={() => applyBg(p.value)}
+                onPress={() => {
+                  updateConfig({ common: { ...experienceConfig.common, backgroundColor: p.value } });
+                  haptics.impactLight();
+                  toast.show("Background updated");
+                }}
                 style={{
                   paddingVertical: 6,
                   paddingHorizontal: 10,
@@ -253,13 +374,13 @@ export default function ExperienceControls() {
         </View>
       </View>
 
-      {/* Fluid-specific controls */}
+      {/* Default Fluid controls */}
       {isFluid ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Fluid Quality</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {(["auto", "low", "medium", "high"] as const).map((q) => {
-              const active = (experienceConfig.specific as any)?.fluidQuality === q;
+              const active = (s?.fluidQuality as string) === q;
               return (
                 <Pressable
                   key={q}
@@ -413,14 +534,11 @@ export default function ExperienceControls() {
                     backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
                   }}
                 >
-                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                    Curve {c}
-                  </Text>
+                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>Curve {c}</Text>
                 </Pressable>
               );
             })}
 
-            {/* Transpose */}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
               {[-12, -7, -5, 0, 5, 7, 12].map((t) => {
                 const active = midiTranspose === t;
@@ -445,7 +563,6 @@ export default function ExperienceControls() {
               })}
             </View>
 
-            {/* Hue map */}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
               {(["chromatic", "fifths"] as HueMap[]).map((m) => {
                 const active = midiHueMap === m;
@@ -473,7 +590,6 @@ export default function ExperienceControls() {
         </View>
       ) : null}
 
-      {/* Reset Experience */}
       <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 6 }} />
       <Pressable
         onPress={resetExperience}

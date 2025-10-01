@@ -33,7 +33,8 @@ const defaultConfig: ExperienceConfig = {
     particleDensity: 0.6,
     audioVolume: 0.7,
     hapticIntensity: 0.8,
-  },
+    renderMode: "default", // default = WebGPU (recommended)
+  } as any,
   specific: { roomId: "main" },
 };
 
@@ -47,8 +48,21 @@ const builtin: ExperienceLayer[] = [
     author: "Fanalogy",
     capabilities: { ...defaultCapabilities, ar: false, camera: false },
     configDefaults: {
-      ...defaultConfig,
-      specific: { fluidQuality: "high", turbulence: 0.5, colorScheme: "dynamic", roomId: "main" },
+      common: {
+        backgroundColor: "#0b1020",
+        particleDensity: 0.6,
+        audioVolume: 0.7,
+        hapticIntensity: 0.8,
+        renderMode: "default", // Default (recommended): WebGPU
+      } as any,
+      specific: {
+        fluidQuality: "high",
+        turbulence: 0.5,
+        colorScheme: "dynamic",
+        roomId: "main",
+        ambienceEnabled: false,
+        ambienceFile: "ambience.mp3",
+      },
     },
   },
   {
@@ -65,7 +79,8 @@ const builtin: ExperienceLayer[] = [
         particleDensity: 0.8,
         audioVolume: 0.9,
         hapticIntensity: 0.7,
-      },
+        renderMode: "compat", // camera path stays on WebGL pipeline for now
+      } as any,
       specific: {
         handTracking: true,
         pianoLayout: "floating",
@@ -90,7 +105,8 @@ const builtin: ExperienceLayer[] = [
         particleDensity: 0.3,
         audioVolume: 0,
         hapticIntensity: 0,
-      },
+        renderMode: "compat",
+      } as any,
       specific: {
         activeFilter: "glow",
         filterIntensity: 0.7,
@@ -119,6 +135,10 @@ function reducer(state: ExperienceState, action: ExperienceAction): ExperienceSt
         experienceConfig: {
           ...state.experienceConfig,
           ...action.payload,
+          common: {
+            ...(state.experienceConfig.common as any),
+            ...(action.payload.common as any),
+          },
           specific: {
             ...state.experienceConfig.specific,
             ...(action.payload.specific ?? {}),
@@ -149,7 +169,6 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
     error: null,
   });
 
-  // Hydrate from storage on first mount; also support ?exp and ?room overrides (web only)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -185,13 +204,10 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
         });
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist on change
   useEffect(() => {
     if (!state.activeExperience) return;
     void setJSON(STORAGE_KEY, { id: state.activeExperience.id, config: state.experienceConfig });
@@ -205,7 +221,6 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
       if (!next) throw new Error(`Experience '${id}' not found`);
       dispatch({ type: "SET_ACTIVE", payload: next });
 
-      // Update URL with ?exp= and keep current ?room= (web only)
       if (typeof window !== "undefined") {
         const url = new URL(window.location.href);
         url.searchParams.set("exp", id);

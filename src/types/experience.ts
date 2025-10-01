@@ -24,6 +24,7 @@ export interface ExperienceConfig {
     particleDensity: number;
     audioVolume: number;
     hapticIntensity: number;
+    renderMode?: "default" | "compat"; // default=WebGPU (recommended), compat=WebGL
   };
   specific: Record<string, unknown>;
 }
