@@ -3,7 +3,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { eventBus, InputEvent } from "../../shared/utils/eventBus";
-import { decayTowards } from "../../shared/utils/easing";
+import { clamp, decayTowards } from "../../shared/utils/easing";
 import { useAR } from "../contexts/ARContext";
 import TouchParticles from "./TouchParticles";
 import { useExperience } from "../contexts/ExperienceContext";
@@ -216,12 +216,14 @@ export default function FabricWeb3D() {
   // Always call; respect enable + intensity + room
   useMIDIFluid(roomId, !!midiEnabled, midiIntensity);
 
+  // Particle density follows ExperienceConfig.common.particleDensity (0..1), with subtle per-experience tweak.
   const densityScale = useMemo(() => {
-    if (!activeExperience) return 1;
-    if (activeExperience.id === "camera-effects") return 0.6;
-    if (activeExperience.id === "ar-piano") return 1.0;
-    return 1.0;
-  }, [activeExperience]);
+    const base = clamp(Number(experienceConfig.common?.particleDensity ?? 0.6), 0.25, 1.5);
+    if (!activeExperience) return base;
+    if (activeExperience.id === "camera-effects") return clamp(base * 0.9, 0.25, 1.5);
+    if (activeExperience.id === "ar-piano") return clamp(base * 1.0, 0.25, 1.5);
+    return base;
+  }, [activeExperience, experienceConfig]);
 
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "transparent" }}>

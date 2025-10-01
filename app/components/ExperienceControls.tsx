@@ -98,6 +98,12 @@ export default function ExperienceControls() {
   const applyRoom = () => {
     const id = slugRoom(roomDraft);
     updateConfig({ specific: { ...experienceConfig.specific, roomId: id } });
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const loc = new URL(window.location.href);
+      loc.searchParams.set("room", id);
+      window.history.replaceState({}, "", loc.toString());
+      window.dispatchEvent(new CustomEvent("fabric:webrtc-reannounce", { detail: id }));
+    }
     haptics.impactLight();
     toast.show(`Room set: ${id}`);
   };
