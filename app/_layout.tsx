@@ -1,7 +1,6 @@
 import { Stack } from "expo-router";
 import { ToastProvider } from "./components/Toast";
 import { LayersProvider } from "./context/LayersContext";
-import Locker, { LockerProvider } from "./components/Locker";
 import { PreferencesProvider } from "./context/PreferencesContext";
 import { ARProvider } from "./context/ARContext";
 import React from "react";
@@ -10,16 +9,21 @@ import GlobalFabricBackground from "./components/GlobalFabricBackground";
 import { ExperienceProvider } from "./context/ExperienceContext";
 import { OverlayProvider } from "./context/OverlayContext";
 import OverlayRoot from "./components/overlays/OverlayRoot";
+
+// Legacy providers kept (unwired drawers)
 import { UserDrawerProvider } from "./components/UserDrawer";
-import UserDrawer from "./components/UserDrawer";
-import TabsRail from "./components/TabsRail";
-import { MenuControllerProvider } from "./components/MenuController";
+import { LockerProvider } from "./components/Locker";
+
+// New isolated menus
 import { NeoLockerProvider } from "./components/neo/NeoLockerContext";
 import NeoLockerButton from "./components/neo/NeoLockerButton";
 import NeoLocker from "./components/neo/NeoLocker";
 import { LayerDrawerProvider } from "./components/neo/LayerDrawerContext";
 import LayerDrawerButton from "./components/neo/LayerDrawerButton";
 import LayerDrawer from "./components/neo/LayerDrawer";
+import { ProfileDrawerProvider } from "./components/neo/ProfileDrawerContext";
+import ProfileDrawerButton from "./components/neo/ProfileDrawerButton";
+import ProfileDrawer from "./components/neo/ProfileDrawer";
 
 export default function RootLayout() {
   return (
@@ -31,9 +35,9 @@ export default function RootLayout() {
               <OverlayProvider>
                 <UserDrawerProvider>
                   <LockerProvider>
-                    <MenuControllerProvider>
-                      <NeoLockerProvider>
-                        <LayerDrawerProvider>
+                    <NeoLockerProvider>
+                      <LayerDrawerProvider>
+                        <ProfileDrawerProvider>
                           <View style={{ flex: 1 }}>
                             {/* Fabric is the main event: persistent and always-on */}
                             <GlobalFabricBackground />
@@ -43,23 +47,22 @@ export default function RootLayout() {
                               <Stack screenOptions={{ headerShown: false }} />
                             </View>
 
-                            {/* Edge tabs rail: above routes, below overlays/drawers */}
-                            <TabsRail />
-
-                            {/* Overlays and legacy drawers (highest layer) */}
+                            {/* Overlays (highest layer) */}
                             <OverlayRoot />
-                            <UserDrawer debugVariant="layout" />
-                            <Locker debugVariant="layout" />
 
-                            {/* New isolated right-side panels */}
+                            {/* New left-edge icon menus */}
+                            <ProfileDrawerButton />
                             <NeoLockerButton />
-                            <NeoLocker />
                             <LayerDrawerButton />
+
+                            {/* New right-side drawers */}
+                            <NeoLocker />
                             <LayerDrawer />
+                            <ProfileDrawer />
                           </View>
-                        </LayerDrawerProvider>
-                      </NeoLockerProvider>
-                    </MenuControllerProvider>
+                        </ProfileDrawerProvider>
+                      </LayerDrawerProvider>
+                    </NeoLockerProvider>
                   </LockerProvider>
                 </UserDrawerProvider>
               </OverlayProvider>
