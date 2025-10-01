@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 
-export type OverlayType = "dashboard" | "plugins" | "profile" | "studio" | "diagnostics";
+export type OverlayType = "dashboard" | "plugins" | "profile" | "studio" | "diagnostics" | "credits";
 
 type OverlayState = {
   type: OverlayType | null;

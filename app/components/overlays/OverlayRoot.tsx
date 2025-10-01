@@ -6,6 +6,7 @@ import PluginsOverlay from "./PluginsOverlay";
 import ProfileOverlay from "./ProfileOverlay";
 import StudioOverlay from "./StudioOverlay";
 import FabricDiagnostics from "../FabricDiagnostics";
+import CreditsOverlay from "../CreditsOverlay";
 
 export default function OverlayRoot() {
   const { state, close } = useOverlays();
@@ -30,7 +31,7 @@ export default function OverlayRoot() {
 
   const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [-360, 0] });
 
-  const renderContent = () => {
+  const renderDrawerContent = () => {
     switch (type) {
       case "dashboard":
         return <DashboardOverlay onClose={close} />;
@@ -53,8 +54,11 @@ export default function OverlayRoot() {
 
   if (!open || !type) return null;
 
+  const isCredits = type === "credits";
+
   return (
     <>
+      {/* Backdrop */}
       <Animated.View
         style={{
           position: "absolute",
@@ -67,31 +71,37 @@ export default function OverlayRoot() {
         <Pressable style={{ flex: 1 }} onPress={close} />
       </Animated.View>
 
-      <Animated.View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: 360,
-          transform: [{ translateX }],
-          zIndex: 59,
-          backgroundColor: "rgba(15,23,42,0.95)",
-          borderRightColor: "rgba(34,211,238,0.35)",
-          borderRightWidth: 1,
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.35,
-          shadowRadius: 18,
-          shadowOffset: { width: 6, height: 0 },
-        }}
-      >
-        <ScrollView contentContainerStyle={{ padding: 14 }}>
-          <Text style={{ color: "white", fontWeight: "800", fontSize: 18, marginBottom: 8 }}>
-            {type === "dashboard" ? "Dashboard" : type === "plugins" ? "Plugins" : type === "profile" ? "Profile" : type === "studio" ? "Studio" : "Fabric Diagnostics"}
-          </Text>
-          {renderContent()}
-        </ScrollView>
-      </Animated.View>
+      {/* Credits: centered modal (no drawer) */}
+      {isCredits ? (
+        <CreditsOverlay visible={true} onClose={close} />
+      ) : (
+        // Drawer panel for other overlays
+        <Animated.View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: 360,
+            transform: [{ translateX }],
+            zIndex: 59,
+            backgroundColor: "rgba(15,23,42,0.95)",
+            borderRightColor: "rgba(34,211,238,0.35)",
+            borderRightWidth: 1,
+            shadowColor: "#22d3ee",
+            shadowOpacity: 0.35,
+            shadowRadius: 18,
+            shadowOffset: { width: 6, height: 0 },
+          }}
+        >
+          <ScrollView contentContainerStyle={{ padding: 14 }}>
+            <Text style={{ color: "white", fontWeight: "800", fontSize: 18, marginBottom: 8 }}>
+              {type === "dashboard" ? "Dashboard" : type === "plugins" ? "Plugins" : type === "profile" ? "Profile" : type === "studio" ? "Studio" : "Fabric Diagnostics"}
+            </Text>
+            {renderDrawerContent()}
+          </ScrollView>
+        </Animated.View>
+      )}
     </>
   );
 }

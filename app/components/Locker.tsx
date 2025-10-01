@@ -112,6 +112,7 @@ export default function Locker() {
           <Action label="Profile" onPress={() => openOverlay("profile")} />
           <Action label="Studio" onPress={() => openOverlay("studio")} />
           <Action label="Diagnostics" onPress={() => openOverlay("diagnostics")} />
+          <Action label="Credits" onPress={() => openOverlay("credits")} />
         </View>
 
         {/* Separator */}
