@@ -17,11 +17,9 @@ export default function LockerTab() {
       pointerEvents="box-none"
       style={{
         position: "absolute",
-        top: 0,
+        top: 12 + 48 + 8, // stacked below ProfileTab
         left: 0,
-        right: 0,
         zIndex: 60,
-        height: 0, // container just provides a stacking context
       }}
     >
       <Pressable
@@ -33,17 +31,14 @@ export default function LockerTab() {
           openLocker();
         }}
         style={{
-          position: "absolute",
-          top: 12,
-          right: 0,
           width: 48,
           height: 48,
-          borderTopLeftRadius: 12,
-          borderBottomLeftRadius: 12,
+          borderTopRightRadius: 12,
+          borderBottomRightRadius: 12,
           backgroundColor: "rgba(2,8,23,0.65)",
           borderColor: "rgba(34,211,238,0.45)",
-          borderRightWidth: 0,
-          borderLeftWidth: 1,
+          borderLeftWidth: 0,
+          borderRightWidth: 1,
           borderTopWidth: 1,
           borderBottomWidth: 1,
           alignItems: "center",
