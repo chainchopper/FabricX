@@ -143,24 +143,7 @@ function LiquidSurface() {
       else if (e.type === "long-press") u.uPulse.value = Math.min(1, u.uPulse.value + 0.9);
       else if (e.type === "drag") u.uPulse.value = Math.min(1, u.uPulse.value + 0.2);
     });
-
-    const onShock = (ev: Event) => {
-      const detail = (ev as CustomEvent).detail as { x?: number; y?: number; strength?: number } | undefined;
-      if (!materialRef.current) return;
-      const u = materialRef.current.uniforms;
-      const x = typeof detail?.x === "number" ? detail.x : 0.08;
-      const y = typeof detail?.y === "number" ? detail.y : 0.12;
-      const s = typeof detail?.strength === "number" ? detail.strength : 0.9;
-      (u.uPointer.value as THREE.Vector2).set(x, y);
-      u.uPulse.value = Math.min(1, u.uPulse.value + 0.5 * s);
-    };
-
-    window.addEventListener("fabric:shockwave", onShock as EventListener);
-
-    return () => {
-      sub();
-      window.removeEventListener("fabric:shockwave", onShock as EventListener);
-    };
+    return () => sub();
   }, []);
 
   useFrame((_, delta) => {
@@ -262,6 +245,7 @@ export default function FabricWeb3D() {
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "transparent" }}>
       <ToneEngine />
       <Canvas
+        id="fabric-canvas"
         dpr={dpr}
         frameloop="always"
         gl={{

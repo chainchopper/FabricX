@@ -10,20 +10,25 @@ import { ExperienceProvider } from "./context/ExperienceContext";
 import { OverlayProvider } from "./context/OverlayContext";
 import OverlayRoot from "./components/overlays/OverlayRoot";
 
-// Legacy providers kept (unwired drawers)
+// Keep legacy providers alive but not rendered
 import { UserDrawerProvider } from "./components/UserDrawer";
 import { LockerProvider } from "./components/Locker";
 
-// New isolated menus
-import { NeoLockerProvider } from "./components/neo/NeoLockerContext";
-import NeoLockerButton from "./components/neo/NeoLockerButton";
-import NeoLocker from "./components/neo/NeoLocker";
-import { LayerDrawerProvider } from "./components/neo/LayerDrawerContext";
-import LayerDrawerButton from "./components/neo/LayerDrawerButton";
-import LayerDrawer from "./components/neo/LayerDrawer";
-import { ProfileDrawerProvider } from "./components/neo/ProfileDrawerContext";
+// New Drawers Controller
+import { NewDrawersProvider } from "./components/neo/NewDrawersContext";
+
+// New left-edge icons and drawers
 import ProfileDrawerButton from "./components/neo/ProfileDrawerButton";
+import NeoLockerButton from "./components/neo/NeoLockerButton";
+import LayerDrawerButton from "./components/neo/LayerDrawerButton";
+import StudioDrawerButton from "./components/neo/StudioDrawerButton";
+import PluginsDrawerButton from "./components/neo/PluginsDrawerButton";
+
 import ProfileDrawer from "./components/neo/ProfileDrawer";
+import NeoLocker from "./components/neo/NeoLocker";
+import LayerDrawer from "./components/neo/LayerDrawer";
+import StudioDrawer from "./components/neo/StudioDrawer";
+import PluginsDrawer from "./components/neo/PluginsDrawer";
 
 export default function RootLayout() {
   return (
@@ -35,34 +40,34 @@ export default function RootLayout() {
               <OverlayProvider>
                 <UserDrawerProvider>
                   <LockerProvider>
-                    <NeoLockerProvider>
-                      <LayerDrawerProvider>
-                        <ProfileDrawerProvider>
-                          <View style={{ flex: 1 }}>
-                            {/* Fabric is the main event: persistent and always-on */}
-                            <GlobalFabricBackground />
+                    <NewDrawersProvider>
+                      <View style={{ flex: 1 }}>
+                        {/* Fabric is the main event: persistent and always-on */}
+                        <GlobalFabricBackground />
 
-                            {/* Foreground routes */}
-                            <View style={{ flex: 1, zIndex: 10 }}>
-                              <Stack screenOptions={{ headerShown: false }} />
-                            </View>
+                        {/* Foreground routes */}
+                        <View style={{ flex: 1, zIndex: 10 }}>
+                          <Stack screenOptions={{ headerShown: false }} />
+                        </View>
 
-                            {/* Overlays (highest layer) */}
-                            <OverlayRoot />
+                        {/* Overlays (highest layer) */}
+                        <OverlayRoot />
 
-                            {/* New left-edge icon menus */}
-                            <ProfileDrawerButton />
-                            <NeoLockerButton />
-                            <LayerDrawerButton />
+                        {/* New left-edge icon menus (attached to drawers) */}
+                        <ProfileDrawerButton />
+                        <NeoLockerButton />
+                        <LayerDrawerButton />
+                        <StudioDrawerButton />
+                        <PluginsDrawerButton />
 
-                            {/* New right-side drawers */}
-                            <NeoLocker />
-                            <LayerDrawer />
-                            <ProfileDrawer />
-                          </View>
-                        </ProfileDrawerProvider>
-                      </LayerDrawerProvider>
-                    </NeoLockerProvider>
+                        {/* Left-side drawers */}
+                        <NeoLocker />
+                        <LayerDrawer />
+                        <ProfileDrawer />
+                        <StudioDrawer />
+                        <PluginsDrawer />
+                      </View>
+                    </NewDrawersProvider>
                   </LockerProvider>
                 </UserDrawerProvider>
               </OverlayProvider>

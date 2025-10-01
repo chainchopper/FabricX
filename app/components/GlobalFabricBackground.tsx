@@ -18,6 +18,9 @@ export default function GlobalFabricBackground() {
       close();
       drawerEvents.emitCloseUserDrawer();
       drawerEvents.emitCloseLocker();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("newdrawers:close-all"));
+      }
     });
     return () => unsub();
   }, [close]);
