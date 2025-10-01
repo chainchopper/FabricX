@@ -27,7 +27,8 @@ export function UserDrawerProvider({ children }: { children: React.ReactNode }) 
 
   const value = useMemo(() => ({ open, openDrawer, closeDrawer, toggleDrawer }), [open, openDrawer, closeDrawer, toggleDrawer]);
 
-  return <UserDrawerContext.Provider value={value}>{children}<UserDrawer /></UserDrawerContext.Provider>;
+  // Provider-owned instance = authoritative (red border)
+  return <UserDrawerContext.Provider value={value}>{children}<UserDrawer debugVariant="provider" /></UserDrawerContext.Provider>;
 }
 
 export function useUserDrawer() {
@@ -36,7 +37,11 @@ export function useUserDrawer() {
   return ctx;
 }
 
-export default function UserDrawer() {
+interface DrawerProps {
+  debugVariant?: "provider" | "layout";
+}
+
+export default function UserDrawer({ debugVariant = "provider" }: DrawerProps) {
   const { open, closeDrawer } = useUserDrawer();
   const CLOSED_X = -360;
   const slideX = useRef(new Animated.Value(CLOSED_X)).current;
@@ -56,6 +61,8 @@ export default function UserDrawer() {
     }
   }, [open]);
 
+  const outlineColor = debugVariant === "provider" ? "red" : "limegreen";
+
   return (
     <Animated.View
       style={{
@@ -66,6 +73,9 @@ export default function UserDrawer() {
         width: 360,
         transform: [{ translateX: slideX }],
         zIndex: 59,
+        borderWidth: 3,
+        borderColor: outlineColor,
+        borderStyle: "solid",
       }}
       pointerEvents="box-none"
     >

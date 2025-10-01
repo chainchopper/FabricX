@@ -33,10 +33,11 @@ export function LockerProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(() => ({ open, openLocker, closeLocker, toggleLocker }), [open, openLocker, closeLocker, toggleLocker]);
 
+  // Provider-owned instance = authoritative (red border)
   return (
     <LockerContext.Provider value={value}>
       {children}
-      <Locker />
+      <Locker debugVariant="provider" />
     </LockerContext.Provider>
   );
 }
@@ -47,7 +48,11 @@ export function useLocker() {
   return ctx;
 }
 
-export default function Locker() {
+interface LockerProps {
+  debugVariant?: "provider" | "layout";
+}
+
+export default function Locker({ debugVariant = "provider" }: LockerProps) {
   const { open } = useLocker();
   const { open: openOverlay } = useOverlays();
   const { state } = useExperience();
@@ -102,6 +107,8 @@ export default function Locker() {
     toast.show("Invite link copied");
   };
 
+  const outlineColor = debugVariant === "provider" ? "red" : "limegreen";
+
   return (
     <Animated.View
       style={{
@@ -112,6 +119,9 @@ export default function Locker() {
         width: 360,
         transform: [{ translateX: slideX }],
         zIndex: 58,
+        borderWidth: 3,
+        borderColor: outlineColor,
+        borderStyle: "solid",
       }}
       pointerEvents="box-none"
     >

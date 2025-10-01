@@ -40,8 +40,9 @@ export default function RootLayout() {
 
                         {/* Overlays and Drawers (highest layer) */}
                         <OverlayRoot />
-                        <UserDrawer />
-                        <Locker />
+                        {/* Layout-mounted (duplicate) instances: marked green */}
+                        <UserDrawer debugVariant="layout" />
+                        <Locker debugVariant="layout" />
                       </View>
                     </MenuControllerProvider>
                   </LockerProvider>
