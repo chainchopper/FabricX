@@ -14,6 +14,9 @@ import { UserDrawerProvider } from "./components/UserDrawer";
 import UserDrawer from "./components/UserDrawer";
 import TabsRail from "./components/TabsRail";
 import { MenuControllerProvider } from "./components/MenuController";
+import { NeoLockerProvider } from "./components/neo/NeoLockerContext";
+import NeoLockerButton from "./components/neo/NeoLockerButton";
+import NeoLocker from "./components/neo/NeoLocker";
 
 export default function RootLayout() {
   return (
@@ -26,24 +29,30 @@ export default function RootLayout() {
                 <UserDrawerProvider>
                   <LockerProvider>
                     <MenuControllerProvider>
-                      <View style={{ flex: 1 }}>
-                        {/* Fabric is the main event: persistent and always-on */}
-                        <GlobalFabricBackground />
+                      <NeoLockerProvider>
+                        <View style={{ flex: 1 }}>
+                          {/* Fabric is the main event: persistent and always-on */}
+                          <GlobalFabricBackground />
 
-                        {/* Foreground routes */}
-                        <View style={{ flex: 1, zIndex: 10 }}>
-                          <Stack screenOptions={{ headerShown: false }} />
+                          {/* Foreground routes */}
+                          <View style={{ flex: 1, zIndex: 10 }}>
+                            <Stack screenOptions={{ headerShown: false }} />
+                          </View>
+
+                          {/* Edge tabs rail: above routes, below overlays/drawers */}
+                          <TabsRail />
+
+                          {/* Overlays and Drawers (highest layer) */}
+                          <OverlayRoot />
+                          {/* Layout-mounted (duplicate) instances: marked green */}
+                          <UserDrawer debugVariant="layout" />
+                          <Locker debugVariant="layout" />
+
+                          {/* New isolated Neo Locker (right side) */}
+                          <NeoLockerButton />
+                          <NeoLocker />
                         </View>
-
-                        {/* Edge tabs rail: above routes, below overlays/drawers */}
-                        <TabsRail />
-
-                        {/* Overlays and Drawers (highest layer) */}
-                        <OverlayRoot />
-                        {/* Layout-mounted (duplicate) instances: marked green */}
-                        <UserDrawer debugVariant="layout" />
-                        <Locker debugVariant="layout" />
-                      </View>
+                      </NeoLockerProvider>
                     </MenuControllerProvider>
                   </LockerProvider>
                 </UserDrawerProvider>
