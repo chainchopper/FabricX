@@ -8,8 +8,6 @@ import { useOverlays } from "../context/OverlayContext";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { eventBus } from "../../shared/utils/eventBus";
 import ConnectionBadge from "./ConnectionBadge";
-import LockerTab from "./LockerTab";
-import ProfileTab from "./ProfileTab";
 
 export default function GlobalFabricBackground() {
   const { close } = useOverlays();
@@ -38,9 +36,6 @@ export default function GlobalFabricBackground() {
         <ExperienceHUD />
         <ARStatus />
         <ConnectionBadge />
-        {/* Edge tabs */}
-        <ProfileTab />
-        <LockerTab />
       </View>
     );
   }
@@ -56,9 +51,6 @@ export default function GlobalFabricBackground() {
       }}
     >
       <FabricCanvas fullScreen />
-      {/* Edge tabs also useful on native */}
-      <ProfileTab />
-      <LockerTab />
     </View>
   );
 }

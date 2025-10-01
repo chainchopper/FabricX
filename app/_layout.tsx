@@ -12,6 +12,8 @@ import { OverlayProvider } from "./context/OverlayContext";
 import OverlayRoot from "./components/overlays/OverlayRoot";
 import { UserDrawerProvider } from "./components/UserDrawer";
 import UserDrawer from "./components/UserDrawer";
+import ProfileTab from "./components/ProfileTab";
+import LockerTab from "./components/LockerTab";
 
 export default function RootLayout() {
   return (
@@ -26,11 +28,28 @@ export default function RootLayout() {
                     <View style={{ flex: 1 }}>
                       {/* Fabric is the main event: persistent and always-on */}
                       <GlobalFabricBackground />
+
                       {/* Foreground routes */}
                       <View style={{ flex: 1, zIndex: 10 }}>
                         <Stack screenOptions={{ headerShown: false }} />
                       </View>
-                      {/* Overlays and Drawers */}
+
+                      {/* Edge tabs (always visible, above routes, below overlays) */}
+                      <View
+                        pointerEvents="box-none"
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          zIndex: 20,
+                        }}
+                      >
+                        <ProfileTab />
+                        <LockerTab />
+                      </View>
+
+                      {/* Overlays and Drawers (highest layer) */}
                       <OverlayRoot />
                       <UserDrawer />
                       <Locker />
