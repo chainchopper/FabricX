@@ -7,8 +7,8 @@ import { useAudioCues } from "../../hooks/useAudioCues";
 const ICON_SIZE = 48;
 
 export default function PluginsDrawerButton() {
-  const { toggle, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("plugins");
+  const { toggle, getIconTx } = useNewDrawers();
+  const tx = getIconTx("plugins");
   const haptics = useHaptics();
   const audio = useAudioCues();
 
@@ -23,8 +23,6 @@ export default function PluginsDrawerButton() {
     ).start();
   }, [pulse]);
 
-  const attachedX = Animated.add(tx, new Animated.Value(width));
-
   return (
     <Animated.View
       style={{
@@ -32,7 +30,7 @@ export default function PluginsDrawerButton() {
         top: 12 + 96 + 10 + 48 + 10 + 48 + 10 + 48 + 10,
         left: 0,
         zIndex: 80,
-        transform: [{ translateX: attachedX }, { scale: pulse.interpolate({ inputRange: [0,1], outputRange: [1, 1.06] }) }],
+        transform: [{ translateX: tx }, { scale: pulse.interpolate({ inputRange: [0,1], outputRange: [1, 1.06] }) }],
         opacity: pulse.interpolate({ inputRange: [0,1], outputRange: [1, 0.94] }),
         borderTopRightRadius: 12,
         borderBottomRightRadius: 12,
