@@ -12,8 +12,7 @@ import { OverlayProvider } from "./context/OverlayContext";
 import OverlayRoot from "./components/overlays/OverlayRoot";
 import { UserDrawerProvider } from "./components/UserDrawer";
 import UserDrawer from "./components/UserDrawer";
-import ProfileTab from "./components/ProfileTab";
-import LockerTab from "./components/LockerTab";
+import TabsRail from "./components/TabsRail";
 
 export default function RootLayout() {
   return (
@@ -34,20 +33,8 @@ export default function RootLayout() {
                         <Stack screenOptions={{ headerShown: false }} />
                       </View>
 
-                      {/* Edge tabs (always visible, above routes, below overlays) */}
-                      <View
-                        pointerEvents="box-none"
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          zIndex: 20,
-                        }}
-                      >
-                        <ProfileTab />
-                        <LockerTab />
-                      </View>
+                      {/* Edge tabs rail: above routes, below overlays/drawers */}
+                      <TabsRail />
 
                       {/* Overlays and Drawers (highest layer) */}
                       <OverlayRoot />
