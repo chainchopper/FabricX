@@ -62,20 +62,23 @@ export default function Locker({ debugVariant = "provider" }: LockerProps) {
   const CLOSED_X = -360;
   const slideX = useRef(new Animated.Value(CLOSED_X)).current;
 
-  useEffect(() => {
-    Animated.timing(slideX, {
-      toValue: open ? 0 : CLOSED_X,
-      duration: 220,
-      easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [open, slideX]);
+  // Only the green (layout) instance responds to open state; red (provider) stays closed
+  const effectiveOpen = debugVariant === "layout" ? open : false;
 
   useEffect(() => {
-    if (open && typeof window !== "undefined") {
+    Animated.timing(slideX, {
+      toValue: effectiveOpen ? 0 : CLOSED_X,
+      duration: 220,
+      easing: effectiveOpen ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [effectiveOpen, slideX]);
+
+  useEffect(() => {
+    if (effectiveOpen && typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("fabric:shockwave", { detail: { x: 0.06, y: 0.22, strength: 0.9 } }));
     }
-  }, [open]);
+  }, [effectiveOpen]);
 
   const Action = ({ label, onPress }: { label: string; onPress: () => void }) => (
     <Pressable
