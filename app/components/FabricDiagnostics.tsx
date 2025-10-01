@@ -6,6 +6,7 @@ import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
 import { useMIDI } from "../../src/hooks/useMIDI";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../shared/utils/realtimeStatus";
+import * as Clipboard from "expo-clipboard";
 
 declare global {
   interface Window {
@@ -45,10 +46,11 @@ export default function FabricDiagnostics() {
   const wantsAROrCamera =
     !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
 
-  // MIDI quick status (web)
   const { activeNotes } = Platform.OS === "web" ? useMIDI() : { activeNotes: [] as string[] };
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
   const midiNoteCount = Array.isArray(activeNotes) ? activeNotes.length : 0;
+
+  const roomId = String(((experienceConfig.specific as any)?.roomId as string) || "main");
 
   const resetCurrentConfig = () => {
     if (!activeExperience) return;
@@ -63,6 +65,20 @@ export default function FabricDiagnostics() {
       haptics.impactLight();
       toast.show("Re-announced presence");
     }
+  };
+
+  const copyInvite = async () => {
+    let url = "";
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const loc = new URL(window.location.href);
+      loc.searchParams.set("room", roomId);
+      url = loc.toString();
+    } else {
+      url = `fabric:///?room=${roomId}`;
+    }
+    await Clipboard.setStringAsync(url);
+    haptics.notifySuccess();
+    toast.show("Invite link copied");
   };
 
   return (
@@ -84,8 +100,9 @@ export default function FabricDiagnostics() {
 
       {/* Realtime transport */}
       <Text style={{ color: "#e5e7eb" }}>
-        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}{typeof rt.latencyMs === "number" ? ` • latency: ${Math.round(rt.latencyMs)}ms` : ""}
+        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}{typeof (rt as any).latencyMs === "number" ? ` • latency: ${Math.round((rt as any).latencyMs)}ms` : ""}
       </Text>
+      <Text style={{ color: "#93c5fd" }}>Room: {roomId}</Text>
 
       <Text style={{ color: "#e5e7eb" }}>
         Experience: {activeExperience ? activeExperience.name : "None"}
@@ -133,6 +150,13 @@ export default function FabricDiagnostics() {
           style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,211,238,0.6)" }}
         >
           <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Re-announce Peers</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => void copyInvite()}
+          style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,211,238,0.6)" }}
+        >
+          <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Copy Invite</Text>
         </Pressable>
 
         <Pressable

@@ -1,9 +1,15 @@
-import React from "react";
-import { View, Text, Pressable } from "react-native";
+import React, { useMemo, useState } from "react";
+import { View, Text, Pressable, TextInput, Platform } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
 import { useAR } from "../context/ARContext";
+import * as Clipboard from "expo-clipboard";
+import * as Linking from "expo-linking";
+
+function slugRoom(input: string) {
+  return input.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "main";
+}
 
 export default function ExperienceControls() {
   const { state, updateConfig } = useExperience();
@@ -11,6 +17,11 @@ export default function ExperienceControls() {
   const haptics = useHaptics();
   const toast = useToast();
   const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
+
+  const [roomDraft, setRoomDraft] = useState<string>(() => {
+    const s = experienceConfig.specific as any;
+    return (s?.roomId as string) || "main";
+  });
 
   if (!activeExperience) return null;
 
@@ -70,20 +81,41 @@ export default function ExperienceControls() {
     toast.show(`Audio volume: ${Math.round(v * 100)}%`);
   };
 
-  // MIDI controls for AR Piano
+  // MIDI controls (AR Piano)
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
   const midiIntensity = Number((experienceConfig.specific as any)?.midiIntensity ?? 1);
-
   const setMidiEnabled = (v: boolean) => {
     updateConfig({ specific: { ...experienceConfig.specific, midiEnabled: v } });
     haptics.impactLight();
     toast.show(`MIDI mapping ${v ? "enabled" : "disabled"}`);
   };
-
   const setMidiIntensity = (v: number) => {
     updateConfig({ specific: { ...experienceConfig.specific, midiIntensity: v } });
     haptics.impactLight();
     toast.show(`MIDI intensity: ${v.toFixed(2)}`);
+  };
+
+  const applyRoom = () => {
+    const id = slugRoom(roomDraft);
+    updateConfig({ specific: { ...experienceConfig.specific, roomId: id } });
+    haptics.impactLight();
+    toast.show(`Room set: ${id}`);
+  };
+
+  const copyInvite = async () => {
+    const s = experienceConfig.specific as any;
+    const id = slugRoom(roomDraft || s?.roomId || "main");
+    let url = "";
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const loc = new URL(window.location.href);
+      loc.searchParams.set("room", id);
+      url = loc.toString();
+    } else {
+      url = Linking.createURL(`/?room=${id}`);
+    }
+    await Clipboard.setStringAsync(url);
+    haptics.notifySuccess();
+    toast.show("Invite link copied");
   };
 
   return (
@@ -210,35 +242,53 @@ export default function ExperienceControls() {
         </View>
       ) : null}
 
-      {/* Camera Effects controls */}
-      {isCameraEffects ? (
-        <View style={{ gap: 6 }}>
-          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Effects</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {[0.3, 0.5, 0.7, 0.9].map((v) => {
-              const active = Number((experienceConfig.specific as any)?.filterIntensity ?? 0.7) === v;
-              return (
-                <Pressable
-                  key={v}
-                  onPress={() => setFilterIntensity(v)}
-                  style={{
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
-                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
-                  }}
-                >
-                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                    Intensity {v}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+      {/* Realtime room controls */}
+      <View style={{ gap: 6 }}>
+        <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Realtime</Text>
+        <Text style={{ color: "#93c5fd", fontSize: 12 }}>Room</Text>
+        <TextInput
+          value={roomDraft}
+          onChangeText={setRoomDraft}
+          placeholder="room id"
+          placeholderTextColor="#6b7280"
+          style={{
+            backgroundColor: "#111827",
+            borderWidth: 1,
+            borderColor: "rgba(148,163,184,0.35)",
+            borderRadius: 10,
+            color: "white",
+            paddingHorizontal: 10,
+            paddingVertical: 10,
+          }}
+        />
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable
+            onPress={applyRoom}
+            style={{
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "rgba(34,211,238,0.6)",
+              backgroundColor: "rgba(2,132,199,0.18)",
+            }}
+          >
+            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Apply</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void copyInvite()}
+            style={{
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "rgba(34,211,238,0.6)",
+            }}
+          >
+            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Copy Invite</Text>
+          </Pressable>
         </View>
-      ) : null}
+      </View>
 
       {/* AR Piano - MIDI controls */}
       {isARPiano ? (

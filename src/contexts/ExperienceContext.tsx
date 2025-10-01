@@ -34,7 +34,7 @@ const defaultConfig: ExperienceConfig = {
     audioVolume: 0.7,
     hapticIntensity: 0.8,
   },
-  specific: {},
+  specific: { roomId: "main" },
 };
 
 const builtin: ExperienceLayer[] = [
@@ -48,7 +48,7 @@ const builtin: ExperienceLayer[] = [
     capabilities: { ...defaultCapabilities, ar: false, camera: false },
     configDefaults: {
       ...defaultConfig,
-      specific: { fluidQuality: "high", turbulence: 0.5, colorScheme: "dynamic" },
+      specific: { fluidQuality: "high", turbulence: 0.5, colorScheme: "dynamic", roomId: "main" },
     },
   },
   {
@@ -72,6 +72,7 @@ const builtin: ExperienceLayer[] = [
         cameraFeed: true,
         midiEnabled: true,
         midiIntensity: 1,
+        roomId: "arpiano",
       },
     },
   },
@@ -93,6 +94,7 @@ const builtin: ExperienceLayer[] = [
       specific: {
         activeFilter: "glow",
         filterIntensity: 0.7,
+        roomId: "camfx",
       },
     },
   },
@@ -159,6 +161,18 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
       dispatch({ type: "SET_ACTIVE", payload: next });
       if (saved?.config) {
         dispatch({ type: "UPDATE_CONFIG", payload: saved.config });
+      }
+
+      // Web-only: read ?room= param and apply to current config (no remount)
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search || window.location.hash.replace(/^#\?/, ""));
+        const roomParam = params.get("room");
+        if (roomParam && roomParam.trim().length >= 2) {
+          dispatch({
+            type: "UPDATE_CONFIG",
+            payload: { specific: { ...(saved?.config?.specific ?? {}), roomId: roomParam.trim().slice(0, 40) } },
+          });
+        }
       }
     })();
     return () => {

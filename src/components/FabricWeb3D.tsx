@@ -90,7 +90,7 @@ function LiquidSurface() {
   const uBoost = useMemo(() => {
     if (!activeExperience) return 1;
     if (activeExperience.id === "camera-effects") {
-      const v = Number(experienceConfig.specific?.filterIntensity ?? 0.7);
+      const v = Number((experienceConfig.specific as any)?.filterIntensity ?? 0.7);
       return Math.max(0.4, Math.min(1.5, v + 0.3));
     }
     return 1;
@@ -108,7 +108,6 @@ function LiquidSurface() {
     if (fq === "medium") return 128;
     if (fq === "high" || fq === undefined) return 160;
 
-    // Auto: scale with DPR and viewport
     const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2.5) : 1;
     const minEdge = typeof window !== "undefined" ? Math.min(window.innerWidth, window.innerHeight) : 800;
     if (dpr <= 1 || minEdge < 700) return 120;
@@ -208,7 +207,14 @@ export default function FabricWeb3D() {
     return isFinite(v) ? v : 1;
   }, [experienceConfig]);
 
-  useMIDIFluid("ar-piano", !!midiEnabled, midiIntensity);
+  const roomId = useMemo(() => {
+    const s = experienceConfig.specific as Record<string, unknown> | undefined;
+    const r = (s?.roomId as string | undefined) || "main";
+    return r;
+  }, [experienceConfig]);
+
+  // Always call; respect enable + intensity + room
+  useMIDIFluid(roomId, !!midiEnabled, midiIntensity);
 
   const densityScale = useMemo(() => {
     if (!activeExperience) return 1;
