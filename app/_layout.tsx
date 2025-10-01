@@ -23,12 +23,24 @@ import NeoLockerButton from "./components/neo/NeoLockerButton";
 import LayerDrawerButton from "./components/neo/LayerDrawerButton";
 import StudioDrawerButton from "./components/neo/StudioDrawerButton";
 import PluginsDrawerButton from "./components/neo/PluginsDrawerButton";
+import CompanionDrawerButton from "./components/neo/CompanionDrawerButton";
+import ShopDrawerButton from "./components/neo/ShopDrawerButton";
+import CallDrawerButton from "./components/neo/CallDrawerButton";
+import WalletDrawerButton from "./components/neo/WalletDrawerButton";
+import FriendsDrawerButton from "./components/neo/FriendsDrawerButton";
+import SettingsDrawerButton from "./components/neo/SettingsDrawerButton";
 
 import ProfileDrawer from "./components/neo/ProfileDrawer";
 import NeoLocker from "./components/neo/NeoLocker";
 import LayerDrawer from "./components/neo/LayerDrawer";
 import StudioDrawer from "./components/neo/StudioDrawer";
 import PluginsDrawer from "./components/neo/PluginsDrawer";
+import CompanionDrawer from "./components/neo/CompanionDrawer";
+import ShopDrawer from "./components/neo/ShopDrawer";
+import CallDrawer from "./components/neo/CallDrawer";
+import WalletDrawer from "./components/neo/WalletDrawer";
+import FriendsDrawer from "./components/neo/FriendsDrawer";
+import SettingsDrawer from "./components/neo/SettingsDrawer";
 
 export default function RootLayout() {
   return (
@@ -59,6 +71,12 @@ export default function RootLayout() {
                         <LayerDrawerButton />
                         <StudioDrawerButton />
                         <PluginsDrawerButton />
+                        <CompanionDrawerButton />
+                        <ShopDrawerButton />
+                        <CallDrawerButton />
+                        <WalletDrawerButton />
+                        <FriendsDrawerButton />
+                        <SettingsDrawerButton />
 
                         {/* Left-side drawers */}
                         <NeoLocker />
@@ -66,6 +84,12 @@ export default function RootLayout() {
                         <ProfileDrawer />
                         <StudioDrawer />
                         <PluginsDrawer />
+                        <CompanionDrawer />
+                        <ShopDrawer />
+                        <CallDrawer />
+                        <WalletDrawer />
+                        <FriendsDrawer />
+                        <SettingsDrawer />
                       </View>
                     </NewDrawersProvider>
                   </LockerProvider>

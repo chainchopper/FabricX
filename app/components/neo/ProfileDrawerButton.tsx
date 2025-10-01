@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Image, Pressable, View } from "react-native";
+import { Animated, Image, Pressable } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
@@ -7,8 +7,8 @@ import { useAudioCues } from "../../hooks/useAudioCues";
 const AVATAR_SIZE = 96;
 
 export default function ProfileDrawerButton() {
-  const { toggle, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("profile");
+  const { toggle, getIconTx, requestIconExpand } = useNewDrawers();
+  const tx = getIconTx("profile");
   const haptics = useHaptics();
   const audio = useAudioCues();
 
@@ -23,9 +23,6 @@ export default function ProfileDrawerButton() {
     ).start();
   }, [pulse]);
 
-  // attachedX = tx + width so when closed (-width) it's 0; when open (0) it's width
-  const attachedX = Animated.add(tx, new Animated.Value(width));
-
   return (
     <Animated.View
       style={{
@@ -33,7 +30,7 @@ export default function ProfileDrawerButton() {
         top: 12,
         left: 0,
         zIndex: 80,
-        transform: [{ translateX: attachedX }, { scale: pulse.interpolate({ inputRange: [0,1], outputRange: [1, 1.06] }) }],
+        transform: [{ translateX: tx }, { scale: pulse.interpolate({ inputRange: [0,1], outputRange: [1, 1.06] }) }],
         opacity: pulse.interpolate({ inputRange: [0,1], outputRange: [1, 0.92] }),
         borderTopRightRadius: 14,
         borderBottomRightRadius: 14,
@@ -44,6 +41,7 @@ export default function ProfileDrawerButton() {
     >
       <Pressable
         onPress={() => { haptics.impactLight(); audio.click(); toggle("profile"); }}
+        onLongPress={() => requestIconExpand(true)}
         style={{ width: AVATAR_SIZE, height: AVATAR_SIZE, alignItems: "center", justifyContent: "center" }}
       >
         <Image source={require("../../../logo.png")} style={{ width: AVATAR_SIZE - 16, height: AVATAR_SIZE - 16, borderRadius: 12 }} />
