@@ -81,6 +81,14 @@ export default function ExperienceControls() {
     toast.show(`Audio volume: ${Math.round(v * 100)}%`);
   };
 
+  // Particles: quick density presets (0.4, 0.6, 0.9)
+  const currentDensity = Number(experienceConfig.common?.particleDensity ?? 0.6);
+  const setParticleDensity = (v: number) => {
+    updateConfig({ common: { ...experienceConfig.common, particleDensity: v } });
+    haptics.impactLight();
+    toast.show(`Particles: ${Math.round(v * 100)}%`);
+  };
+
   // MIDI controls (AR Piano)
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
   const midiIntensity = Number((experienceConfig.specific as any)?.midiIntensity ?? 1);
@@ -176,6 +184,34 @@ export default function ExperienceControls() {
               <Pressable
                 key={v}
                 onPress={() => setAudioVolume(v)}
+                style={{
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                  backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                }}
+              >
+                <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                  {Math.round(v * 100)}%
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Particles density */}
+      <View style={{ gap: 6 }}>
+        <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Particles</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {[0.4, 0.6, 0.9].map((v) => {
+            const active = Math.abs(currentDensity - v) < 0.0001;
+            return (
+              <Pressable
+                key={v}
+                onPress={() => setParticleDensity(v)}
                 style={{
                   paddingVertical: 6,
                   paddingHorizontal: 10,

@@ -149,30 +149,40 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
     error: null,
   });
 
-  // Hydrate from storage on first mount
+  // Hydrate from storage on first mount; also support ?exp and ?room overrides (web only)
   useEffect(() => {
     let mounted = true;
     (async () => {
       const saved = await getJSON<{ id?: string; config?: ExperienceConfig } | null>(STORAGE_KEY, null);
       const fallback = builtin[0];
-      const byId = saved?.id ? state.availableExperiences.find((e) => e.id === saved.id) : null;
-      const next = byId ?? fallback;
+      const savedExp = saved?.id ? state.availableExperiences.find((e) => e.id === saved.id) : null;
+      let next = savedExp ?? fallback;
+
+      let roomParam: string | null = null;
+      let expParam: string | null = null;
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search || window.location.hash.replace(/^#\?/, ""));
+        roomParam = params.get("room");
+        expParam = params.get("exp");
+      }
+
+      if (expParam) {
+        const byParam = state.availableExperiences.find((e) => e.id === expParam);
+        if (byParam) next = byParam;
+      }
+
       if (!mounted) return;
       dispatch({ type: "SET_ACTIVE", payload: next });
+
       if (saved?.config) {
         dispatch({ type: "UPDATE_CONFIG", payload: saved.config });
       }
 
-      // Web-only: read ?room= param and apply to current config (no remount)
-      if (typeof window !== "undefined") {
-        const params = new URLSearchParams(window.location.search || window.location.hash.replace(/^#\?/, ""));
-        const roomParam = params.get("room");
-        if (roomParam && roomParam.trim().length >= 2) {
-          dispatch({
-            type: "UPDATE_CONFIG",
-            payload: { specific: { ...(saved?.config?.specific ?? {}), roomId: roomParam.trim().slice(0, 40) } },
-          });
-        }
+      if (roomParam && roomParam.trim().length >= 2) {
+        dispatch({
+          type: "UPDATE_CONFIG",
+          payload: { specific: { ...(saved?.config?.specific ?? {}), roomId: roomParam.trim().slice(0, 40) } },
+        });
       }
     })();
     return () => {
