@@ -43,7 +43,7 @@ export function useLocker() {
 }
 
 export default function Locker() {
-  const { open, closeLocker } = useLocker();
+  const { open } = useLocker();
   const { open: openOverlay } = useOverlays();
   const CLOSED_X = -360;
   const slideX = useRef(new Animated.Value(CLOSED_X)).current;
@@ -74,8 +74,8 @@ export default function Locker() {
     </Pressable>
   );
 
+  // NOTE: Do NOT close the locker here; keeping it open ensures TabsRail stays pushed while locker is open.
   const openAndFocus = (type: Parameters<typeof openOverlay>[0]) => {
-    closeLocker();
     openOverlay(type);
   };
 
