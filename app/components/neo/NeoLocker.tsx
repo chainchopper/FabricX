@@ -7,12 +7,16 @@ import ExperienceControls from "../ExperienceControls";
 export default function NeoLocker() {
   const { openName, back, getAnim } = useNewDrawers();
   const { tx, width } = getAnim("neo");
-  const isOpen = openName === "neo";
 
   return (
     <View pointerEvents="box-none">
       <View
-        style={{ position: "absolute", top: 0, bottom: 0, left: 0, width, transform: [{ translateX: tx }], zIndex: 84 }}
+        style={{
+          position: "absolute",
+          top: 0, bottom: 0, left: 0, width,
+          transform: [{ translateX: tx }],
+          zIndex: 200,
+        }}
         pointerEvents="box-none"
       >
         <View style={{

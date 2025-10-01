@@ -3,9 +3,8 @@ import { Pressable, Text, View } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 
 export default function StudioDrawer() {
-  const { openName, back, getAnim } = useNewDrawers();
+  const { back, getAnim } = useNewDrawers();
   const { tx, width } = getAnim("studio");
-  const isOpen = openName === "studio";
 
   return (
     <View pointerEvents="box-none">
@@ -14,7 +13,7 @@ export default function StudioDrawer() {
           position: "absolute",
           top: 0, bottom: 0, left: 0, width,
           transform: [{ translateX: tx }],
-          zIndex: 84,
+          zIndex: 200,
         }}
         pointerEvents="box-none"
       >
