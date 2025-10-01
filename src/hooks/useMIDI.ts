@@ -13,7 +13,11 @@ export function useMIDI() {
   const [activeNotes, setActiveNotes] = useState<NoteName[]>([]);
   const [noteVelocities, setNoteVelocities] = useState<Record<string, number>>({});
   const accessRef = useRef<MIDIAccess | null>(null);
+
+  // Sustain handling
+  const sustainOnRef = useRef<boolean>(false);
   const activeSetRef = useRef<Set<NoteName>>(new Set());
+  const pendingReleaseRef = useRef<Set<NoteName>>(new Set());
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !("requestMIDIAccess" in navigator)) return;
@@ -35,24 +39,60 @@ export function useMIDI() {
           const data2 = bytes[2];
 
           const cmd = status & 0xf0;
-          const noteNum = data1;
-          const velocity = data2;
 
           if (cmd === 0x90) {
+            const noteNum = data1;
+            const velocity = data2;
+            const note = midiNumberToNoteName(noteNum);
             if (velocity > 0) {
-              const note = midiNumberToNoteName(noteNum);
+              // Note on
               activeSetRef.current.add(note);
+              pendingReleaseRef.current.delete(note);
               setNoteVelocities((m) => ({ ...m, [note]: velocity / 127 }));
               setActiveNotes(Array.from(activeSetRef.current));
             } else {
-              const note = midiNumberToNoteName(noteNum);
-              activeSetRef.current.delete(note);
-              setActiveNotes(Array.from(activeSetRef.current));
+              // Velocity 0 note-on == note-off
+              const noteOff = midiNumberToNoteName(noteNum);
+              if (sustainOnRef.current) {
+                pendingReleaseRef.current.add(noteOff);
+              } else {
+                activeSetRef.current.delete(noteOff);
+                pendingReleaseRef.current.delete(noteOff);
+                setActiveNotes(Array.from(activeSetRef.current));
+              }
             }
           } else if (cmd === 0x80) {
+            // Note off
+            const noteNum = data1;
             const note = midiNumberToNoteName(noteNum);
-            activeSetRef.current.delete(note);
-            setActiveNotes(Array.from(activeSetRef.current));
+            if (sustainOnRef.current) {
+              pendingReleaseRef.current.add(note);
+            } else {
+              activeSetRef.current.delete(note);
+              pendingReleaseRef.current.delete(note);
+              setActiveNotes(Array.from(activeSetRef.current));
+            }
+          } else if (cmd === 0xB0) {
+            // Control Change
+            const controller = data1;
+            const value = data2;
+            if (controller === 64) {
+              // Sustain pedal
+              const on = value >= 64;
+              const prev = sustainOnRef.current;
+              sustainOnRef.current = on;
+
+              if (!on && prev) {
+                // Pedal released: flush pending releases
+                if (pendingReleaseRef.current.size > 0) {
+                  pendingReleaseRef.current.forEach((n) => {
+                    activeSetRef.current.delete(n);
+                  });
+                  pendingReleaseRef.current.clear();
+                  setActiveNotes(Array.from(activeSetRef.current));
+                }
+              }
+            }
           }
         };
 
