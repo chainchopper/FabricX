@@ -5,6 +5,7 @@ import { eventBus } from "../../shared/utils/eventBus";
 
 type RGB = { r: number; g: number; b: number };
 type MidiCurve = "soft" | "linear" | "hard";
+type HueMap = "chromatic" | "fifths";
 
 function hsvToRgb(h: number, s: number, v: number): RGB {
   const i = Math.floor(h * 6);
@@ -24,6 +25,14 @@ function hsvToRgb(h: number, s: number, v: number): RGB {
   return map[mod];
 }
 
+function chromaticIndex(noteNum: number) {
+  return noteNum % 12;
+}
+function fifthsIndex(noteNum: number) {
+  // circle of fifths: +7 mod 12 mapping
+  return (noteNum * 7) % 12;
+}
+
 function noteNameToNumber(note: string): number {
   const m = note.match(/^([A-G]#?)(-?\d+)$/);
   if (!m) return 60;
@@ -40,13 +49,13 @@ function applyCurve(v: number, curve: MidiCurve): number {
   return x;
 }
 
-/**
- * useMIDIFluid
- * - enabled: enable/disable dispatch
- * - intensityScale: overall multiplier (0.4..1.6 sensible)
- * - curve: 'soft'|'linear'|'hard' mapping of MIDI velocity → pressure/force
- */
-export function useMIDIFluid(roomId: string = "default", enabled: boolean = true, intensityScale: number = 1, curve: MidiCurve = "linear") {
+export function useMIDIFluid(
+  roomId: string = "default",
+  enabled: boolean = true,
+  intensityScale: number = 1,
+  curve: MidiCurve = "linear",
+  opts?: { transpose?: number; hueMap?: HueMap }
+) {
   const { activeNotes, noteVelocities } = useMIDI();
   const { sendInteraction } = useFluidMultiUser(roomId);
   const streamsRef = useRef<Map<NoteName, number>>(new Map());
@@ -55,25 +64,30 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
 
   useEffect(() => {
     if (!enabled) {
-      for (const id of streamsRef.current.values()) {
-        window.cancelAnimationFrame(id);
-      }
+      for (const id of streamsRef.current.values()) window.cancelAnimationFrame(id);
       streamsRef.current.clear();
       return;
     }
 
     const running = streamsRef.current;
+    const transpose = Math.max(-24, Math.min(24, opts?.transpose ?? 0));
+    const hueMap = (opts?.hueMap ?? "chromatic") as HueMap;
 
     for (const note of currentNotes) {
       if (!running.has(note)) {
         const start = performance.now();
         const duration = 420;
-        const noteNum = noteNameToNumber(note);
-        const x = (noteNum % 12) / 12;
+
+        let noteNum = noteNameToNumber(note);
+        noteNum += transpose;
+
+        const idx = hueMap === "fifths" ? fifthsIndex(noteNum) : chromaticIndex(noteNum);
+        const x = idx / 12;
+
         const vRaw = noteVelocities[note] ?? 0.5;
         const vCurved = applyCurve(vRaw, curve);
         const vel = Math.max(0.05, Math.min(1, vCurved * Math.max(0.25, Math.min(1.6, intensityScale))));
-        const hue = ((noteNum * 30) % 360) / 360;
+        const hue = ((idx * 30) % 360) / 360;
         const color = hsvToRgb(hue, 0.85, Math.max(0.4, vel));
 
         const id = window.requestAnimationFrame(function loop(ts) {
@@ -108,7 +122,7 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
       for (const id of streamsRef.current.values()) window.cancelAnimationFrame(id);
       streamsRef.current.clear();
     };
-  }, [currentNotes, noteVelocities, sendInteraction, enabled, intensityScale, curve]);
+  }, [currentNotes, noteVelocities, sendInteraction, enabled, intensityScale, curve, opts?.transpose, opts?.hueMap]);
 
   return { activeNotes, noteVelocities };
 }

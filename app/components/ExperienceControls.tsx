@@ -12,6 +12,7 @@ function slugRoom(input: string) {
 }
 
 type MidiCurve = "soft" | "linear" | "hard";
+type HueMap = "chromatic" | "fifths";
 
 export default function ExperienceControls() {
   const { state, updateConfig } = useExperience();
@@ -91,9 +92,12 @@ export default function ExperienceControls() {
   };
 
   // MIDI controls (AR Piano)
-  const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
-  const midiIntensity = Number((experienceConfig.specific as any)?.midiIntensity ?? 1);
-  const midiCurve = ((experienceConfig.specific as any)?.midiCurve as MidiCurve) || "linear";
+  const s = experienceConfig.specific as any;
+  const midiEnabled = Boolean(s?.midiEnabled ?? true);
+  const midiIntensity = Number(s?.midiIntensity ?? 1);
+  const midiCurve = ((s?.midiCurve as MidiCurve) ?? "linear") as MidiCurve;
+  const midiTranspose = Number.isFinite(s?.midiTranspose) ? Number(s?.midiTranspose) : 0;
+  const midiHueMap = ((s?.midiHueMap as HueMap) ?? "chromatic") as HueMap;
 
   const setMidiEnabled = (v: boolean) => {
     updateConfig({ specific: { ...experienceConfig.specific, midiEnabled: v } });
@@ -109,6 +113,16 @@ export default function ExperienceControls() {
     updateConfig({ specific: { ...experienceConfig.specific, midiCurve: c } });
     haptics.impactLight();
     toast.show(`MIDI curve: ${c}`);
+  };
+  const setMidiTranspose = (v: number) => {
+    updateConfig({ specific: { ...experienceConfig.specific, midiTranspose: v } });
+    haptics.impactLight();
+    toast.show(`Transpose: ${v >= 0 ? "+" : ""}${v}`);
+  };
+  const setMidiHueMap = (m: HueMap) => {
+    updateConfig({ specific: { ...experienceConfig.specific, midiHueMap: m } });
+    haptics.impactLight();
+    toast.show(m === "chromatic" ? "Hue: Chromatic" : "Hue: Circle of Fifths");
   };
 
   const applyRoom = () => {
@@ -126,7 +140,6 @@ export default function ExperienceControls() {
   };
 
   const copyInvite = async () => {
-    const s = experienceConfig.specific as any;
     const id = slugRoom(roomDraft || s?.roomId || "main");
     let url = "";
     if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -406,6 +419,56 @@ export default function ExperienceControls() {
                 </Pressable>
               );
             })}
+
+            {/* Transpose */}
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              {[-12, -7, -5, 0, 5, 7, 12].map((t) => {
+                const active = midiTranspose === t;
+                return (
+                  <Pressable
+                    key={t}
+                    onPress={() => setMidiTranspose(t)}
+                    style={{
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                      backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                    }}
+                  >
+                    <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                      {t >= 0 ? `+${t}` : `${t}`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Hue map */}
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              {(["chromatic", "fifths"] as HueMap[]).map((m) => {
+                const active = midiHueMap === m;
+                return (
+                  <Pressable
+                    key={m}
+                    onPress={() => setMidiHueMap(m)}
+                    style={{
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                      backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                    }}
+                  >
+                    <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                      {m === "chromatic" ? "Hue: Chromatic" : "Hue: Fifths"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         </View>
       ) : null}

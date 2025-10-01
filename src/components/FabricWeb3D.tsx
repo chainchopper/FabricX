@@ -213,14 +213,26 @@ export default function FabricWeb3D() {
     return c;
   }, [experienceConfig]);
 
+  const midiTranspose = useMemo(() => {
+    const s = experienceConfig.specific as Record<string, unknown> | undefined;
+    const v = Number(s?.midiTranspose ?? 0);
+    return Math.round(v);
+  }, [experienceConfig]);
+
+  const midiHueMap = useMemo(() => {
+    const s = experienceConfig.specific as Record<string, unknown> | undefined;
+    const m = (s?.midiHueMap as "chromatic" | "fifths" | undefined) ?? "chromatic";
+    return m;
+  }, [experienceConfig]);
+
   const roomId = useMemo(() => {
     const s = experienceConfig.specific as Record<string, unknown> | undefined;
     const r = (s?.roomId as string | undefined) || "main";
     return r;
   }, [experienceConfig]);
 
-  // Always call; respect enable + intensity + room + curve
-  useMIDIFluid(roomId, !!midiEnabled, midiIntensity, midiCurve);
+  // Respect enable + intensity + room + curve + transpose + hueMap
+  useMIDIFluid(roomId, !!midiEnabled, midiIntensity, midiCurve, { transpose: midiTranspose, hueMap: midiHueMap });
 
   const densityScale = useMemo(() => {
     const base = clamp(Number(experienceConfig.common?.particleDensity ?? 0.6), 0.25, 1.5);
