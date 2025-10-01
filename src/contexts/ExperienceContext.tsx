@@ -204,6 +204,17 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
       const next = state.availableExperiences.find((e) => e.id === id);
       if (!next) throw new Error(`Experience '${id}' not found`);
       dispatch({ type: "SET_ACTIVE", payload: next });
+
+      // Update URL with ?exp= and keep current ?room= (web only)
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.set("exp", id);
+        const roomCurrent = (state.experienceConfig?.specific as any)?.roomId;
+        if (roomCurrent && typeof roomCurrent === "string") {
+          url.searchParams.set("room", roomCurrent);
+        }
+        window.history.replaceState({}, "", url.toString());
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       dispatch({ type: "SET_ERROR", payload: msg });

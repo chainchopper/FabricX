@@ -72,9 +72,10 @@ export default function FabricDiagnostics() {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const loc = new URL(window.location.href);
       loc.searchParams.set("room", roomId);
+      if (activeExperience?.id) loc.searchParams.set("exp", activeExperience.id);
       url = loc.toString();
     } else {
-      url = `fabric:///?room=${roomId}`;
+      url = `fabric:///?room=${roomId}${activeExperience?.id ? `&exp=${activeExperience.id}` : ""}`;
     }
     await Clipboard.setStringAsync(url);
     haptics.notifySuccess();
@@ -98,7 +99,6 @@ export default function FabricDiagnostics() {
         Ready: {ready ? "Yes" : "No"}
       </Text>
 
-      {/* Realtime transport */}
       <Text style={{ color: "#e5e7eb" }}>
         Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}{typeof (rt as any).latencyMs === "number" ? ` • latency: ${Math.round((rt as any).latencyMs)}ms` : ""}
       </Text>
@@ -114,7 +114,6 @@ export default function FabricDiagnostics() {
         AR Camera Active: {isARCameraActive ? "Yes" : "No"}
       </Text>
 
-      {/* MIDI status */}
       {activeExperience?.id === "ar-piano" ? (
         <>
           <Text style={{ color: midiEnabled ? "#34d399" : "#9ca3af" }}>
@@ -157,6 +156,16 @@ export default function FabricDiagnostics() {
           style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,211,238,0.6)" }}
         >
           <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Copy Invite</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => {
+            haptics.notifySuccess();
+            toast.show("Haptics OK");
+          }}
+          style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(16,185,129,0.6)" }}
+        >
+          <Text style={{ color: "#34d399", fontWeight: "700" }}>Test Haptics</Text>
         </Pressable>
 
         <Pressable

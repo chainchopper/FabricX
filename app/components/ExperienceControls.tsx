@@ -109,6 +109,8 @@ export default function ExperienceControls() {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const loc = new URL(window.location.href);
       loc.searchParams.set("room", id);
+      // keep existing exp param
+      loc.searchParams.set("exp", activeExperience.id);
       window.history.replaceState({}, "", loc.toString());
       window.dispatchEvent(new CustomEvent("fabric:webrtc-reannounce", { detail: id }));
     }
@@ -123,9 +125,10 @@ export default function ExperienceControls() {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const loc = new URL(window.location.href);
       loc.searchParams.set("room", id);
+      loc.searchParams.set("exp", activeExperience.id);
       url = loc.toString();
     } else {
-      url = Linking.createURL(`/?room=${id}`);
+      url = Linking.createURL(`/?room=${id}&exp=${activeExperience.id}`);
     }
     await Clipboard.setStringAsync(url);
     haptics.notifySuccess();
