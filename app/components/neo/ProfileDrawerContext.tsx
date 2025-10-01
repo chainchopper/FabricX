@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 
 type ProfileDrawerCtx = {
   open: boolean;
-  open: () => void;
+  openDrawer: () => void;
   close: () => void;
   toggle: () => void;
 };
@@ -11,12 +11,21 @@ const Ctx = createContext<ProfileDrawerCtx | null>(null);
 
 export function ProfileDrawerProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const value = useMemo(() => ({
-    open,
-    open: () => setOpen(true),
-    close: () => setOpen(false),
-    toggle: () => setOpen(v => !v),
-  }), [open]);
+
+  const openDrawer = useCallback(() => setOpen(true), []);
+  const close = useCallback(() => setOpen(false), []);
+  const toggle = useCallback(() => setOpen((v) => !v), []);
+
+  const value = useMemo<ProfileDrawerCtx>(
+    () => ({
+      open,
+      openDrawer,
+      close,
+      toggle,
+    }),
+    [open, openDrawer, close, toggle]
+  );
+
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
