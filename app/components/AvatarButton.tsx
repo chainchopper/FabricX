@@ -16,8 +16,8 @@ export default function AvatarButton() {
       style={{
         position: "absolute",
         top: 12,
-        left: 12,
-        zIndex: 56,
+        left: 0,
+        zIndex: 60,
       }}
     >
       <Pressable

@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Image, Pressable, Text, View } from "react-native";
+import { Animated, Easing, Text, View } from "react-native";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 
 type Ctx = {
@@ -37,9 +37,9 @@ export function useUserDrawer() {
 }
 
 export default function UserDrawer() {
-  const { open, toggleDrawer, closeDrawer } = useUserDrawer();
-  // Drawer width 360; visible tab 48 → closed offset = -312
-  const CLOSED_X = -312;
+  const { open, closeDrawer } = useUserDrawer();
+  // Drawer width 360; closed offset fully off-screen = -360
+  const CLOSED_X = -360;
   const slideX = useRef(new Animated.Value(CLOSED_X)).current;
 
   useEffect(() => {
@@ -88,46 +88,15 @@ export default function UserDrawer() {
             <Text style={{ color: "#9ca3af", marginTop: 4 }}>Status: Online</Text>
           </View>
 
-          <Pressable
-            onPress={closeDrawer}
-            style={{ alignSelf: "flex-start", marginTop: 8, borderColor: "rgba(148,163,184,0.35)", borderWidth: 1, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }}
-          >
-            <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Close</Text>
-          </Pressable>
+          <View style={{ alignSelf: "flex-start", marginTop: 8, borderColor: "rgba(148,163,184,0.35)", borderWidth: 1, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 }}>
+            <Text onPress={closeDrawer} style={{ color: "#e5e7eb", fontWeight: "700" }}>Close</Text>
+          </View>
         </View>
 
         <View style={{ position: "absolute", bottom: 12, left: 14 }}>
           <Text style={{ color: "#a3e635", fontSize: 12 }}>Powered by Nirvana</Text>
         </View>
       </View>
-
-      {/* Attached edge tab (avatar) that sticks out and slides with drawer */}
-      <Pressable
-        onPress={toggleDrawer}
-        style={{
-          position: "absolute",
-          top: 12,
-          right: -48,
-          width: 48,
-          height: 48,
-          borderTopRightRadius: 12,
-          borderBottomRightRadius: 12,
-          backgroundColor: "rgba(2,8,23,0.65)",
-          borderColor: "rgba(34,211,238,0.45)",
-          borderLeftWidth: 0,
-          borderRightWidth: 1,
-          borderTopWidth: 1,
-          borderBottomWidth: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.35,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 4 },
-        }}
-      >
-        <Image source={require("../../logo.png")} style={{ width: 28, height: 28, borderRadius: 6 }} />
-      </Pressable>
     </Animated.View>
   );
 }

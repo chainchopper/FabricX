@@ -15,9 +15,9 @@ export default function LockerButton() {
     <View
       style={{
         position: "absolute",
-        top: 12 + 48 + 8, // stacked below the avatar
-        left: 12,
-        zIndex: 56,
+        top: 12 + 48 + 8,
+        left: 0,
+        zIndex: 60,
       }}
     >
       <Pressable

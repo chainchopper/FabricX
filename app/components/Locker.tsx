@@ -43,9 +43,9 @@ export function useLocker() {
 }
 
 export default function Locker() {
-  const { open, toggleLocker, closeLocker } = useLocker();
+  const { open, closeLocker } = useLocker();
   const { open: openOverlay } = useOverlays();
-  const CLOSED_X = -312;
+  const CLOSED_X = -360;
   const slideX = useRef(new Animated.Value(CLOSED_X)).current;
 
   useEffect(() => {
@@ -74,6 +74,11 @@ export default function Locker() {
     </Pressable>
   );
 
+  const openAndFocus = (type: Parameters<typeof openOverlay>[0]) => {
+    closeLocker();
+    openOverlay(type);
+  };
+
   return (
     <Animated.View
       style={{
@@ -87,7 +92,6 @@ export default function Locker() {
       }}
       pointerEvents="box-none"
     >
-      {/* Drawer panel */}
       <View
         style={{
           position: "absolute",
@@ -105,20 +109,17 @@ export default function Locker() {
         <Text style={{ color: "white", fontWeight: "800", marginBottom: 12 }}>Locker</Text>
         <Text style={{ color: "#93c5fd", marginBottom: 10 }}>Quick actions and controls.</Text>
 
-        {/* Quick actions */}
         <View style={{ marginTop: 6 }}>
-          <Action label="Dashboard" onPress={() => openOverlay("dashboard")} />
-          <Action label="Plugins" onPress={() => openOverlay("plugins")} />
-          <Action label="Profile" onPress={() => openOverlay("profile")} />
-          <Action label="Studio" onPress={() => openOverlay("studio")} />
-          <Action label="Diagnostics" onPress={() => openOverlay("diagnostics")} />
-          <Action label="Credits" onPress={() => openOverlay("credits")} />
+          <Action label="Dashboard" onPress={() => openAndFocus("dashboard")} />
+          <Action label="Plugins" onPress={() => openAndFocus("plugins")} />
+          <Action label="Profile" onPress={() => openAndFocus("profile")} />
+          <Action label="Studio" onPress={() => openAndFocus("studio")} />
+          <Action label="Diagnostics" onPress={() => openAndFocus("diagnostics")} />
+          <Action label="Credits" onPress={() => openAndFocus("credits")} />
         </View>
 
-        {/* Separator */}
         <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 10 }} />
 
-        {/* Experiences section */}
         <View style={{ gap: 10 }}>
           <ExperienceSwitch />
           <ExperienceControls />
@@ -127,50 +128,7 @@ export default function Locker() {
         <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "rgba(148,163,184,0.25)", paddingTop: 12 }}>
           <Text style={{ color: "#a3e635", fontSize: 12 }}>Powered by Nirvana</Text>
         </View>
-
-        <Pressable
-          onPress={closeLocker}
-          style={{
-            marginTop: 10,
-            borderColor: "rgba(148,163,184,0.35)",
-            borderWidth: 1,
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 10,
-            alignSelf: "flex-start",
-          }}
-        >
-          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Close</Text>
-        </Pressable>
       </View>
-
-      {/* Attached edge tab (≡) positioned below avatar tab; sticks out and slides with drawer */}
-      <Pressable
-        onPress={toggleLocker}
-        style={{
-          position: "absolute",
-          top: 12 + 48 + 8,
-          right: -48,
-          width: 48,
-          height: 48,
-          borderTopRightRadius: 12,
-          borderBottomRightRadius: 12,
-          backgroundColor: "rgba(2,8,23,0.65)",
-          borderColor: "rgba(34,211,238,0.45)",
-          borderLeftWidth: 0,
-          borderRightWidth: 1,
-          borderTopWidth: 1,
-          borderBottomWidth: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.35,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 4 },
-        }}
-      >
-        <Text style={{ color: "#22d3ee", fontWeight: "800", fontSize: 18 }}>≡</Text>
-      </Pressable>
     </Animated.View>
   );
 }

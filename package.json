@@ -18,13 +18,13 @@
     "@react-three/fiber": "^9.3.0",
     "@react-three/postprocessing": "^3.0.4",
     "@types/three": "^0.180.0",
-    "expo": "^54.0.10",
+    "expo": "~54.0.11",
     "expo-asset": "^12.0.9",
     "expo-clipboard": "~8.0.7",
     "expo-constants": "~18.0.9",
     "expo-haptics": "~15.0.7",
     "expo-linking": "~8.0.8",
-    "expo-router": "~6.0.8",
+    "expo-router": "~6.0.9",
     "postprocessing": "^6.37.8",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -39,11 +39,11 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
-    "@types/react": "~19.0.10",
+    "@types/react": "~19.1.10",
     "eslint": "^9.0.0",
-    "metro": "^0.82.0",
-    "metro-config": "^0.82.0",
-    "metro-resolver": "^0.82.0",
-    "typescript": "~5.8.3"
+    "metro": "^0.83.1",
+    "metro-config": "^0.83.1",
+    "metro-resolver": "^0.83.1",
+    "typescript": "~5.9.2"
   }
 }
