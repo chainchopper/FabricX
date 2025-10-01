@@ -100,8 +100,13 @@ export default function FabricDiagnostics() {
       </Text>
 
       <Text style={{ color: "#e5e7eb" }}>
-        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}{typeof (rt as any).latencyMs === "number" ? ` • latency: ${Math.round((rt as any).latencyMs)}ms` : ""}
+        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}{typeof rt.latencyMs === "number" ? ` • latency: ${Math.round(rt.latencyMs)}ms` : ""}
       </Text>
+      {rt.peerIds && rt.peerIds.length > 0 ? (
+        <Text style={{ color: "#9ca3af", fontSize: 12 }}>
+          Peers: {rt.peerIds.join(", ")}
+        </Text>
+      ) : null}
       <Text style={{ color: "#93c5fd" }}>Room: {roomId}</Text>
 
       <Text style={{ color: "#e5e7eb" }}>

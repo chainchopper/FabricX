@@ -66,6 +66,12 @@ export default function Locker() {
     }).start();
   }, [open, slideX]);
 
+  useEffect(() => {
+    if (open && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("fabric:shockwave", { detail: { x: 0.06, y: 0.22, strength: 0.9 } }));
+    }
+  }, [open]);
+
   const Action = ({ label, onPress }: { label: string; onPress: () => void }) => (
     <Pressable
       onPress={onPress}

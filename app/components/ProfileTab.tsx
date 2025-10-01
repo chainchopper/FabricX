@@ -11,13 +11,16 @@ export default function ProfileTab() {
   const audio = useAudioCues();
 
   const glow = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(1)).current;
 
   const animateGlow = (to: number) => {
-    Animated.timing(glow, {
-      toValue: to,
-      duration: 180,
-      useNativeDriver: false,
-    }).start();
+    Animated.timing(glow, { toValue: to, duration: 180, useNativeDriver: false }).start();
+  };
+  const pressIn = () => {
+    Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, friction: 7, tension: 120 }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 7, tension: 120 }).start();
   };
 
   const bgColor = glow.interpolate({
@@ -33,20 +36,12 @@ export default function ProfileTab() {
   const onPress = () => {
     haptics.impactLight();
     audio.click();
-    // Particle burst near the tab edge
     eventBus.emitTap(0.02, 0.05);
     toggleProfile();
   };
 
   return (
-    <View
-      style={{
-        position: "absolute",
-        top: 12,
-        left: 0,
-        zIndex: 60,
-      }}
-    >
+    <View style={{ position: "absolute", top: 12, left: 0, zIndex: 60 }}>
       <Animated.View
         style={{
           borderTopRightRadius: 12,
@@ -61,18 +56,20 @@ export default function ProfileTab() {
           shadowOpacity: 0.35,
           shadowRadius: 10,
           shadowOffset: { width: 0, height: 4 },
+          transform: [{ scale }],
         }}
       >
         <Pressable
           onPress={onPress}
-          onPressIn={() => animateGlow(1)}
-          onPressOut={() => animateGlow(0)}
-          style={{
-            width: 48,
-            height: 48,
-            alignItems: "center",
-            justifyContent: "center",
+          onPressIn={() => {
+            animateGlow(1);
+            pressIn();
           }}
+          onPressOut={() => {
+            animateGlow(0);
+            pressOut();
+          }}
+          style={{ width: 48, height: 48, alignItems: "center", justifyContent: "center" }}
         >
           <Text style={{ color: "#22d3ee", fontWeight: "800" }}>👤</Text>
         </Pressable>

@@ -38,7 +38,6 @@ export function useUserDrawer() {
 
 export default function UserDrawer() {
   const { open, closeDrawer } = useUserDrawer();
-  // Drawer width 360; closed offset fully off-screen = -360
   const CLOSED_X = -360;
   const slideX = useRef(new Animated.Value(CLOSED_X)).current;
 
@@ -50,6 +49,12 @@ export default function UserDrawer() {
       useNativeDriver: true,
     }).start();
   }, [open, slideX]);
+
+  useEffect(() => {
+    if (open && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("fabric:shockwave", { detail: { x: 0.05, y: 0.12, strength: 1.0 } }));
+    }
+  }, [open]);
 
   return (
     <Animated.View

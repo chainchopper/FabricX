@@ -19,7 +19,9 @@ export function useWebRTC(roomId: string) {
   const msgHandlers = useRef<Set<MessageHandler>>(new Set());
   const signalRef = useRef<BroadcastChannel | null>(null);
 
-  const peersCount = Object.values(peers).filter((p) => p.ready).length;
+  const peerArr = Object.values(peers);
+  const peersCount = peerArr.filter((p) => p.ready).length;
+  const peerIds = peerArr.filter((p) => p.ready).map((p) => p.id);
   const active = peersCount > 0;
 
   const notifyMessage = (payload: unknown, from: string) => {
@@ -36,6 +38,27 @@ export function useWebRTC(roomId: string) {
       const { [id]: _, ...rest } = prev;
       return rest;
     });
+  };
+
+  const wireChannel = (peer: Peer) => {
+    if (!peer.dc) return;
+    peer.dc.onopen = () => {
+      peer.ready = true;
+      setPeers((prev) => ({ ...prev, [peer.id]: { ...peer } }));
+    };
+    peer.dc.onclose = () => {
+      peer.ready = false;
+      setPeers((prev) => ({ ...prev, [peer.id]: { ...peer } }));
+    };
+    peer.dc.onmessage = (ev) => {
+      let data: unknown = ev.data;
+      try {
+        data = JSON.parse(ev.data);
+      } catch {
+        // keep raw
+      }
+      notifyMessage(data, peer.id);
+    };
   };
 
   const createPeer = (otherId: string, asCaller: boolean) => {
@@ -92,27 +115,6 @@ export function useWebRTC(roomId: string) {
     return peer;
   };
 
-  const wireChannel = (peer: Peer) => {
-    if (!peer.dc) return;
-    peer.dc.onopen = () => {
-      peer.ready = true;
-      setPeers((prev) => ({ ...prev, [peer.id]: { ...peer } }));
-    };
-    peer.dc.onclose = () => {
-      peer.ready = false;
-      setPeers((prev) => ({ ...prev, [peer.id]: { ...peer } }));
-    };
-    peer.dc.onmessage = (ev) => {
-      let data: unknown = ev.data;
-      try {
-        data = JSON.parse(ev.data);
-      } catch {
-        // keep as raw if not JSON
-      }
-      notifyMessage(data, peer.id);
-    };
-  };
-
   useEffect(() => {
     if (!("BroadcastChannel" in window)) return;
 
@@ -150,18 +152,15 @@ export function useWebRTC(roomId: string) {
           try {
             await peer.pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
           } catch {
-            // ignore invalid candidate
+            // ignore invalid
           }
         }
       }
     };
 
     signal.onmessage = onSignal;
-
-    // announce presence
     signal.postMessage({ t: "hello", roomId, from: peerId });
 
-    // Re-announce listener
     const onReannounce = (e: Event) => {
       const wanted = (e as CustomEvent).detail as string | undefined;
       if (wanted && wanted !== roomId) return;
@@ -196,5 +195,5 @@ export function useWebRTC(roomId: string) {
     };
   };
 
-  return { peerId, active, peersCount, send, onMessage };
+  return { peerId, active, peersCount, peerIds, send, onMessage };
 }

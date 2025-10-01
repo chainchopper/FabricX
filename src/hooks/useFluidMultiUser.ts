@@ -28,9 +28,10 @@ export function useFluidMultiUser(roomId: string) {
         transport: webrtc.active ? "webrtc" : "broadcast",
         peers: webrtc.active ? webrtc.peersCount : 0,
         latencyMs: latency ?? avgLatencyRef.current,
+        peerIds: webrtc.active ? webrtc.peerIds : [],
       });
     },
-    [webrtc.active, webrtc.peersCount]
+    [webrtc.active, webrtc.peersCount, webrtc.peerIds]
   );
 
   const postViaCurrent = useCallback(
@@ -71,16 +72,13 @@ export function useFluidMultiUser(roomId: string) {
           }, 1000);
         }
       } else if (msg?.type === "fabric-ping") {
-        // Respond to pings
         const pong: TransportMsg = { type: "fabric-pong", seq: msg.seq, t: msg.t };
         bc.postMessage(pong);
       } else if (msg?.type === "fabric-pong") {
-        // Compute RTT for this pong
         const start = pendingRef.current.get(msg.seq);
         if (typeof start === "number") {
           pendingRef.current.delete(msg.seq);
           const rtt = performance.now() - start;
-          // EMA to smooth
           avgLatencyRef.current =
             avgLatencyRef.current === undefined
               ? rtt
@@ -136,7 +134,6 @@ export function useFluidMultiUser(roomId: string) {
       window.clearInterval(pingTimerRef.current);
       pingTimerRef.current = null;
     }
-    // Start pinging if either transport is available
     const canSend = webrtc.active || !!bcRef.current;
     if (!canSend) return;
 
@@ -146,7 +143,6 @@ export function useFluidMultiUser(roomId: string) {
       pendingRef.current.set(seq, now);
       const ping: TransportMsg = { type: "fabric-ping", seq, t: now };
       postViaCurrent(ping);
-      // timeout stale pings after 5s
       window.setTimeout(() => pendingRef.current.delete(seq), 5000);
     }, 2000) as unknown as number;
 
