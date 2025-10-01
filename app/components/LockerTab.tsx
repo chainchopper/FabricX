@@ -6,11 +6,22 @@ import { useAudioCues } from "../hooks/useAudioCues";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 
 export default function LockerTab() {
-  const { open, openLocker } = useLocker();
+  const { open, openLocker, closeLocker } = useLocker();
   const haptics = useHaptics();
   const audio = useAudioCues();
 
-  if (open) return null;
+  const handlePress = () => {
+    haptics.impactLight();
+    audio.click();
+    if (open) {
+      // Toggle off if already open
+      closeLocker();
+      return;
+    }
+    // Ensure user drawer is closed, then open locker
+    drawerEvents.emitCloseUserDrawer();
+    openLocker();
+  };
 
   return (
     <View
@@ -23,13 +34,7 @@ export default function LockerTab() {
       }}
     >
       <Pressable
-        onPress={() => {
-          // Close profile drawer if open, then open locker
-          drawerEvents.emitCloseUserDrawer();
-          haptics.impactLight();
-          audio.click();
-          openLocker();
-        }}
+        onPress={handlePress}
         style={{
           width: 48,
           height: 48,
