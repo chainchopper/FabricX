@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { useLocker } from "./Locker";
 import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
+import { drawerEvents } from "../../shared/utils/drawerEvents";
 
 export default function LockerTab() {
   const { open, openLocker } = useLocker();
@@ -17,11 +18,13 @@ export default function LockerTab() {
         position: "absolute",
         top: 12,
         right: 0,
-        zIndex: 56,
+        zIndex: 60,
       }}
     >
       <Pressable
         onPress={() => {
+          // Close profile drawer if open, then open locker
+          drawerEvents.emitCloseUserDrawer();
           haptics.impactLight();
           audio.click();
           openLocker();
