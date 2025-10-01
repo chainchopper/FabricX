@@ -7,6 +7,7 @@ import ExperienceHUD from "./ExperienceHUD";
 import { useOverlays } from "../context/OverlayContext";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { eventBus } from "../../shared/utils/eventBus";
+import ConnectionBadge from "./ConnectionBadge";
 
 export default function GlobalFabricBackground() {
   const { close } = useOverlays();
@@ -34,6 +35,7 @@ export default function GlobalFabricBackground() {
         <ExperienceRenderer />
         <ExperienceHUD />
         <ARStatus />
+        <ConnectionBadge />
       </View>
     );
   }

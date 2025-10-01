@@ -57,6 +57,14 @@ export default function FabricDiagnostics() {
     toast.show("Experience config reset");
   };
 
+  const reannouncePeers = () => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("fabric:webrtc-reannounce"));
+      haptics.impactLight();
+      toast.show("Re-announced presence");
+    }
+  };
+
   return (
     <View
       style={{
@@ -76,9 +84,7 @@ export default function FabricDiagnostics() {
 
       {/* Realtime transport */}
       <Text style={{ color: "#e5e7eb" }}>
-        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}
-        {rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}
-        {typeof rt.latencyMs === "number" ? ` • latency: ${Math.round(rt.latencyMs)}ms` : ""}
+        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}{typeof rt.latencyMs === "number" ? ` • latency: ${Math.round(rt.latencyMs)}ms` : ""}
       </Text>
 
       <Text style={{ color: "#e5e7eb" }}>
@@ -120,6 +126,13 @@ export default function FabricDiagnostics() {
           style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(234,179,8,0.7)", backgroundColor: "rgba(234,179,8,0.15)" }}
         >
           <Text style={{ color: "#fde047", fontWeight: "700" }}>Reset Config</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={reannouncePeers}
+          style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,211,238,0.6)" }}
+        >
+          <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Re-announce Peers</Text>
         </Pressable>
 
         <Pressable

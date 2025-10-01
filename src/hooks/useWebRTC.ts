@@ -107,7 +107,7 @@ export function useWebRTC(roomId: string) {
       try {
         data = JSON.parse(ev.data);
       } catch {
-        // keep as-is if not JSON
+        // keep as raw if not JSON
       }
       notifyMessage(data, peer.id);
     };
@@ -150,7 +150,7 @@ export function useWebRTC(roomId: string) {
           try {
             await peer.pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
           } catch {
-            // ignore
+            // ignore invalid candidate
           }
         }
       }
@@ -161,7 +161,16 @@ export function useWebRTC(roomId: string) {
     // announce presence
     signal.postMessage({ t: "hello", roomId, from: peerId });
 
+    // Re-announce listener
+    const onReannounce = (e: Event) => {
+      const wanted = (e as CustomEvent).detail as string | undefined;
+      if (wanted && wanted !== roomId) return;
+      signalRef.current?.postMessage({ t: "hello", roomId, from: peerId });
+    };
+    window.addEventListener("fabric:webrtc-reannounce", onReannounce as EventListener);
+
     return () => {
+      window.removeEventListener("fabric:webrtc-reannounce", onReannounce as EventListener);
       signal.close();
       Object.values(peers).forEach((p) => {
         try { p.dc?.close(); } catch {}
@@ -182,7 +191,6 @@ export function useWebRTC(roomId: string) {
 
   const onMessage = (handler: MessageHandler): (() => void) => {
     msgHandlers.current.add(handler);
-    // Return a void cleanup (not boolean)
     return () => {
       msgHandlers.current.delete(handler);
     };
