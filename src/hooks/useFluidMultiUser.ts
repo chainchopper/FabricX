@@ -3,6 +3,11 @@ import { FluidInteraction } from "../types/fluid";
 import { useWebRTC } from "./useWebRTC";
 import { setRealtimeStatus } from "../../shared/utils/realtimeStatus";
 
+type TransportMsg =
+  | { type: "fluid-interaction"; data: FluidInteraction }
+  | { type: "fabric-ping"; seq: number; t: number }
+  | { type: "fabric-pong"; seq: number; t: number };
+
 export function useFluidMultiUser(roomId: string) {
   const [remoteInteractions, setRemote] = useState<FluidInteraction[]>([]);
   const userId = useMemo(() => `user-${Math.random().toString(36).slice(2, 8)}`, []);
@@ -11,6 +16,34 @@ export function useFluidMultiUser(roomId: string) {
   // Try WebRTC first
   const webrtc = useWebRTC(roomId);
 
+  // Latency measurement
+  const pingSeqRef = useRef(0);
+  const pendingRef = useRef<Map<number, number>>(new Map());
+  const pingTimerRef = useRef<number | null>(null);
+  const avgLatencyRef = useRef<number | undefined>(undefined);
+
+  const updateStatus = useCallback(
+    (latency?: number) => {
+      setRealtimeStatus({
+        transport: webrtc.active ? "webrtc" : "broadcast",
+        peers: webrtc.active ? webrtc.peersCount : 0,
+        latencyMs: latency ?? avgLatencyRef.current,
+      });
+    },
+    [webrtc.active, webrtc.peersCount]
+  );
+
+  const postViaCurrent = useCallback(
+    (msg: TransportMsg) => {
+      if (webrtc.active) {
+        webrtc.send(msg);
+      } else if (bcRef.current) {
+        bcRef.current.postMessage(msg);
+      }
+    },
+    [webrtc]
+  );
+
   // Setup BroadcastChannel fallback only when WebRTC is not active
   useEffect(() => {
     if (webrtc.active) {
@@ -18,46 +51,112 @@ export function useFluidMultiUser(roomId: string) {
         bcRef.current.close();
         bcRef.current = null;
       }
-      setRealtimeStatus({ transport: "webrtc", peers: webrtc.peersCount });
+      updateStatus();
       return;
     }
     if (!("BroadcastChannel" in window)) {
-      setRealtimeStatus({ transport: "broadcast", peers: 0 });
+      updateStatus();
       return;
     }
+
     const bc = new BroadcastChannel(`fabric-fluid-${roomId}`);
     bc.onmessage = (ev: MessageEvent) => {
-      const msg = ev.data as { type: string; data: FluidInteraction };
-      if (msg?.type === "fluid-interaction" && msg.data.userId !== userId) {
-        setRemote((prev) => [...prev, msg.data]);
-        setTimeout(() => {
-          setRemote((prev) => prev.filter((i) => i.timestamp !== msg.data.timestamp));
-        }, 1000);
+      const msg = ev.data as TransportMsg;
+
+      if (msg?.type === "fluid-interaction") {
+        if (msg.data.userId !== userId) {
+          setRemote((prev) => [...prev, msg.data]);
+          setTimeout(() => {
+            setRemote((prev) => prev.filter((i) => i.timestamp !== msg.data.timestamp));
+          }, 1000);
+        }
+      } else if (msg?.type === "fabric-ping") {
+        // Respond to pings
+        const pong: TransportMsg = { type: "fabric-pong", seq: msg.seq, t: msg.t };
+        bc.postMessage(pong);
+      } else if (msg?.type === "fabric-pong") {
+        // Compute RTT for this pong
+        const start = pendingRef.current.get(msg.seq);
+        if (typeof start === "number") {
+          pendingRef.current.delete(msg.seq);
+          const rtt = performance.now() - start;
+          // EMA to smooth
+          avgLatencyRef.current =
+            avgLatencyRef.current === undefined
+              ? rtt
+              : avgLatencyRef.current * 0.7 + rtt * 0.3;
+          updateStatus(avgLatencyRef.current);
+        }
       }
     };
     bcRef.current = bc;
-    setRealtimeStatus({ transport: "broadcast", peers: 0 });
+    updateStatus();
+
     return () => {
       bc.close();
       bcRef.current = null;
     };
-  }, [roomId, userId, webrtc.active, webrtc.peersCount]);
+  }, [roomId, userId, webrtc.active, updateStatus]);
 
-  // Wire WebRTC onMessage to interactions stream
+  // Wire WebRTC onMessage to interactions and ping/pong
   useEffect(() => {
     if (!webrtc.active) return;
     const off = webrtc.onMessage((payload) => {
-      const msg = payload as { type: string; data: FluidInteraction };
-      if (msg?.type === "fluid-interaction" && msg.data.userId !== userId) {
-        setRemote((prev) => [...prev, msg.data]);
-        setTimeout(() => {
-          setRemote((prev) => prev.filter((i) => i.timestamp !== msg.data.timestamp));
-        }, 1000);
+      const msg = payload as TransportMsg;
+      if (msg?.type === "fluid-interaction") {
+        if (msg.data.userId !== userId) {
+          setRemote((prev) => [...prev, msg.data]);
+          setTimeout(() => {
+            setRemote((prev) => prev.filter((i) => i.timestamp !== msg.data.timestamp));
+          }, 1000);
+        }
+      } else if (msg?.type === "fabric-ping") {
+        const pong: TransportMsg = { type: "fabric-pong", seq: msg.seq, t: msg.t };
+        webrtc.send(pong);
+      } else if (msg?.type === "fabric-pong") {
+        const start = pendingRef.current.get(msg.seq);
+        if (typeof start === "number") {
+          pendingRef.current.delete(msg.seq);
+          const rtt = performance.now() - start;
+          avgLatencyRef.current =
+            avgLatencyRef.current === undefined
+              ? rtt
+              : avgLatencyRef.current * 0.7 + rtt * 0.3;
+          updateStatus(avgLatencyRef.current);
+        }
       }
     });
-    // Return the unsubscribe function directly (Effect cleanup type-safe)
+    updateStatus();
     return off;
-  }, [webrtc, userId]);
+  }, [webrtc, userId, updateStatus]);
+
+  // Start/stop ping loop whenever transport availability changes
+  useEffect(() => {
+    if (pingTimerRef.current) {
+      window.clearInterval(pingTimerRef.current);
+      pingTimerRef.current = null;
+    }
+    // Start pinging if either transport is available
+    const canSend = webrtc.active || !!bcRef.current;
+    if (!canSend) return;
+
+    pingTimerRef.current = window.setInterval(() => {
+      const seq = ++pingSeqRef.current;
+      const now = performance.now();
+      pendingRef.current.set(seq, now);
+      const ping: TransportMsg = { type: "fabric-ping", seq, t: now };
+      postViaCurrent(ping);
+      // timeout stale pings after 5s
+      window.setTimeout(() => pendingRef.current.delete(seq), 5000);
+    }, 2000) as unknown as number;
+
+    return () => {
+      if (pingTimerRef.current) {
+        window.clearInterval(pingTimerRef.current);
+        pingTimerRef.current = null;
+      }
+    };
+  }, [webrtc.active, bcRef.current, postViaCurrent]);
 
   const sendInteraction = useCallback(
     (interaction: Omit<FluidInteraction, "userId" | "timestamp">) => {
@@ -67,18 +166,15 @@ export function useFluidMultiUser(roomId: string) {
         timestamp: Date.now(),
       };
 
-      if (webrtc.active) {
-        webrtc.send({ type: "fluid-interaction", data: full });
-      } else if (bcRef.current) {
-        bcRef.current.postMessage({ type: "fluid-interaction", data: full });
-      }
+      const msg: TransportMsg = { type: "fluid-interaction", data: full };
+      postViaCurrent(msg);
 
       if (navigator.vibrate && interaction.pressure > 0.7) {
         navigator.vibrate([50, 30, 50]);
       }
       return full;
     },
-    [userId, webrtc]
+    [userId, postViaCurrent]
   );
 
   return { userId, remoteInteractions, sendInteraction };

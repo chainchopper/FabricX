@@ -45,6 +45,7 @@ export default function FabricDiagnostics() {
   const wantsAROrCamera =
     !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
 
+  // MIDI quick status (web)
   const { activeNotes } = Platform.OS === "web" ? useMIDI() : { activeNotes: [] as string[] };
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
   const midiNoteCount = Array.isArray(activeNotes) ? activeNotes.length : 0;
@@ -75,7 +76,9 @@ export default function FabricDiagnostics() {
 
       {/* Realtime transport */}
       <Text style={{ color: "#e5e7eb" }}>
-        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}{rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}
+        Realtime: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"}
+        {rt.transport === "webrtc" ? ` • peers: ${rt.peers}` : ""}
+        {typeof rt.latencyMs === "number" ? ` • latency: ${Math.round(rt.latencyMs)}ms` : ""}
       </Text>
 
       <Text style={{ color: "#e5e7eb" }}>
