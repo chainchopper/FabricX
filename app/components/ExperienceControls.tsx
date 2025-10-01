@@ -11,6 +11,8 @@ function slugRoom(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "main";
 }
 
+type MidiCurve = "soft" | "linear" | "hard";
+
 export default function ExperienceControls() {
   const { state, updateConfig } = useExperience();
   const { activeExperience, experienceConfig } = state;
@@ -40,7 +42,6 @@ export default function ExperienceControls() {
 
   const isFluid = activeExperience.id === "default-fluid";
   const isCamera = !!activeExperience.capabilities.camera || !!activeExperience.capabilities.ar;
-  const isCameraEffects = activeExperience.id === "camera-effects";
   const isARPiano = activeExperience.id === "ar-piano";
 
   const setFluidQuality = (q: "low" | "medium" | "high" | "auto") => {
@@ -73,7 +74,7 @@ export default function ExperienceControls() {
     toast.show("Experience reset");
   };
 
-  // Audio volume quick controls (0.5, 0.7, 0.9)
+  // Audio quick volume
   const currentVol = Number(experienceConfig.common?.audioVolume ?? 0.7);
   const setAudioVolume = (v: number) => {
     updateConfig({ common: { ...experienceConfig.common, audioVolume: v } });
@@ -81,7 +82,7 @@ export default function ExperienceControls() {
     toast.show(`Audio volume: ${Math.round(v * 100)}%`);
   };
 
-  // Particles: quick density presets (0.4, 0.6, 0.9)
+  // Particles density
   const currentDensity = Number(experienceConfig.common?.particleDensity ?? 0.6);
   const setParticleDensity = (v: number) => {
     updateConfig({ common: { ...experienceConfig.common, particleDensity: v } });
@@ -92,6 +93,8 @@ export default function ExperienceControls() {
   // MIDI controls (AR Piano)
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
   const midiIntensity = Number((experienceConfig.specific as any)?.midiIntensity ?? 1);
+  const midiCurve = ((experienceConfig.specific as any)?.midiCurve as MidiCurve) || "linear";
+
   const setMidiEnabled = (v: boolean) => {
     updateConfig({ specific: { ...experienceConfig.specific, midiEnabled: v } });
     haptics.impactLight();
@@ -102,6 +105,11 @@ export default function ExperienceControls() {
     haptics.impactLight();
     toast.show(`MIDI intensity: ${v.toFixed(2)}`);
   };
+  const setMidiCurve = (c: MidiCurve) => {
+    updateConfig({ specific: { ...experienceConfig.specific, midiCurve: c } });
+    haptics.impactLight();
+    toast.show(`MIDI curve: ${c}`);
+  };
 
   const applyRoom = () => {
     const id = slugRoom(roomDraft);
@@ -109,7 +117,6 @@ export default function ExperienceControls() {
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const loc = new URL(window.location.href);
       loc.searchParams.set("room", id);
-      // keep existing exp param
       loc.searchParams.set("exp", activeExperience.id);
       window.history.replaceState({}, "", loc.toString());
       window.dispatchEvent(new CustomEvent("fabric:webrtc-reannounce", { detail: id }));
@@ -373,6 +380,28 @@ export default function ExperienceControls() {
                 >
                   <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
                     Intensity {v}
+                  </Text>
+                </Pressable>
+              );
+            })}
+
+            {(["soft", "linear", "hard"] as MidiCurve[]).map((c) => {
+              const active = midiCurve === c;
+              return (
+                <Pressable
+                  key={c}
+                  onPress={() => setMidiCurve(c)}
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                  }}
+                >
+                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                    Curve {c}
                   </Text>
                 </Pressable>
               );

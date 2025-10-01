@@ -207,16 +207,21 @@ export default function FabricWeb3D() {
     return isFinite(v) ? v : 1;
   }, [experienceConfig]);
 
+  const midiCurve = useMemo(() => {
+    const s = experienceConfig.specific as Record<string, unknown> | undefined;
+    const c = (s?.midiCurve as "soft" | "linear" | "hard" | undefined) ?? "linear";
+    return c;
+  }, [experienceConfig]);
+
   const roomId = useMemo(() => {
     const s = experienceConfig.specific as Record<string, unknown> | undefined;
     const r = (s?.roomId as string | undefined) || "main";
     return r;
   }, [experienceConfig]);
 
-  // Always call; respect enable + intensity + room
-  useMIDIFluid(roomId, !!midiEnabled, midiIntensity);
+  // Always call; respect enable + intensity + room + curve
+  useMIDIFluid(roomId, !!midiEnabled, midiIntensity, midiCurve);
 
-  // Particle density follows ExperienceConfig.common.particleDensity (0..1), with subtle per-experience tweak.
   const densityScale = useMemo(() => {
     const base = clamp(Number(experienceConfig.common?.particleDensity ?? 0.6), 0.25, 1.5);
     if (!activeExperience) return base;

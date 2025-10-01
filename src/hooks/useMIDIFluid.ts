@@ -4,6 +4,7 @@ import { useFluidMultiUser } from "./useFluidMultiUser";
 import { eventBus } from "../../shared/utils/eventBus";
 
 type RGB = { r: number; g: number; b: number };
+type MidiCurve = "soft" | "linear" | "hard";
 
 function hsvToRgb(h: number, s: number, v: number): RGB {
   const i = Math.floor(h * 6);
@@ -32,12 +33,20 @@ function noteNameToNumber(note: string): number {
   return (octave + 1) * 12 + idx;
 }
 
+function applyCurve(v: number, curve: MidiCurve): number {
+  const x = Math.max(0, Math.min(1, v));
+  if (curve === "soft") return Math.sqrt(x);
+  if (curve === "hard") return x * x;
+  return x;
+}
+
 /**
  * useMIDIFluid
- * Always call this hook; pass enabled=false to disable processing without changing hook order.
- * intensityScale softly scales force/pressure (0.4..1.6 sensible).
+ * - enabled: enable/disable dispatch
+ * - intensityScale: overall multiplier (0.4..1.6 sensible)
+ * - curve: 'soft'|'linear'|'hard' mapping of MIDI velocity → pressure/force
  */
-export function useMIDIFluid(roomId: string = "default", enabled: boolean = true, intensityScale: number = 1) {
+export function useMIDIFluid(roomId: string = "default", enabled: boolean = true, intensityScale: number = 1, curve: MidiCurve = "linear") {
   const { activeNotes, noteVelocities } = useMIDI();
   const { sendInteraction } = useFluidMultiUser(roomId);
   const streamsRef = useRef<Map<NoteName, number>>(new Map());
@@ -45,7 +54,6 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
   const currentNotes = useMemo(() => new Set<NoteName>(activeNotes), [activeNotes]);
 
   useEffect(() => {
-    // If disabled, cancel any running streams and bail
     if (!enabled) {
       for (const id of streamsRef.current.values()) {
         window.cancelAnimationFrame(id);
@@ -56,19 +64,21 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
 
     const running = streamsRef.current;
 
-    // Start streams for new notes
     for (const note of currentNotes) {
       if (!running.has(note)) {
         const start = performance.now();
-        const duration = 420; // ms
+        const duration = 420;
         const noteNum = noteNameToNumber(note);
         const x = (noteNum % 12) / 12;
-        const vel = Math.max(0.05, Math.min(1, (noteVelocities[note] ?? 0.5) * Math.max(0.25, Math.min(1.6, intensityScale))));
+        const vRaw = noteVelocities[note] ?? 0.5;
+        const vCurved = applyCurve(vRaw, curve);
+        const vel = Math.max(0.05, Math.min(1, vCurved * Math.max(0.25, Math.min(1.6, intensityScale))));
         const hue = ((noteNum * 30) % 360) / 360;
         const color = hsvToRgb(hue, 0.85, Math.max(0.4, vel));
+
         const id = window.requestAnimationFrame(function loop(ts) {
           const t = Math.min(1, (ts - start) / duration);
-          const y = 0.15 + t * 0.7; // stream upward
+          const y = 0.15 + t * 0.7;
           eventBus.emitDrag(x, y);
           sendInteraction({
             position: { x, y },
@@ -87,7 +97,6 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
       }
     }
 
-    // Stop streams for released notes
     for (const [n, rafId] of Array.from(streamsRef.current.entries())) {
       if (!currentNotes.has(n)) {
         window.cancelAnimationFrame(rafId);
@@ -96,11 +105,10 @@ export function useMIDIFluid(roomId: string = "default", enabled: boolean = true
     }
 
     return () => {
-      // Cleanup when deps change or unmount
       for (const id of streamsRef.current.values()) window.cancelAnimationFrame(id);
       streamsRef.current.clear();
     };
-  }, [currentNotes, noteVelocities, sendInteraction, enabled, intensityScale]);
+  }, [currentNotes, noteVelocities, sendInteraction, enabled, intensityScale, curve]);
 
   return { activeNotes, noteVelocities };
 }

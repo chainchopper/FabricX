@@ -13,6 +13,7 @@ import OverlayRoot from "./components/overlays/OverlayRoot";
 import { UserDrawerProvider } from "./components/UserDrawer";
 import UserDrawer from "./components/UserDrawer";
 import TabsRail from "./components/TabsRail";
+import { MenuControllerProvider } from "./components/MenuController";
 
 export default function RootLayout() {
   return (
@@ -24,23 +25,25 @@ export default function RootLayout() {
               <OverlayProvider>
                 <UserDrawerProvider>
                   <LockerProvider>
-                    <View style={{ flex: 1 }}>
-                      {/* Fabric is the main event: persistent and always-on */}
-                      <GlobalFabricBackground />
+                    <MenuControllerProvider>
+                      <View style={{ flex: 1 }}>
+                        {/* Fabric is the main event: persistent and always-on */}
+                        <GlobalFabricBackground />
 
-                      {/* Foreground routes */}
-                      <View style={{ flex: 1, zIndex: 10 }}>
-                        <Stack screenOptions={{ headerShown: false }} />
+                        {/* Foreground routes */}
+                        <View style={{ flex: 1, zIndex: 10 }}>
+                          <Stack screenOptions={{ headerShown: false }} />
+                        </View>
+
+                        {/* Edge tabs rail: above routes, below overlays/drawers */}
+                        <TabsRail />
+
+                        {/* Overlays and Drawers (highest layer) */}
+                        <OverlayRoot />
+                        <UserDrawer />
+                        <Locker />
                       </View>
-
-                      {/* Edge tabs rail: above routes, below overlays/drawers */}
-                      <TabsRail />
-
-                      {/* Overlays and Drawers (highest layer) */}
-                      <OverlayRoot />
-                      <UserDrawer />
-                      <Locker />
-                    </View>
+                    </MenuControllerProvider>
                   </LockerProvider>
                 </UserDrawerProvider>
               </OverlayProvider>

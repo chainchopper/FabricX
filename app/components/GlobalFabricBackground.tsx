@@ -8,6 +8,7 @@ import { useOverlays } from "../context/OverlayContext";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { eventBus } from "../../shared/utils/eventBus";
 import ConnectionBadge from "./ConnectionBadge";
+import ConnectionToasts from "./ConnectionToasts";
 
 export default function GlobalFabricBackground() {
   const { close } = useOverlays();
@@ -36,6 +37,7 @@ export default function GlobalFabricBackground() {
         <ExperienceHUD />
         <ARStatus />
         <ConnectionBadge />
+        <ConnectionToasts />
       </View>
     );
   }
@@ -51,6 +53,7 @@ export default function GlobalFabricBackground() {
       }}
     >
       <FabricCanvas fullScreen />
+      <ConnectionToasts />
     </View>
   );
 }

@@ -4,6 +4,11 @@ import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { useOverlays } from "../context/OverlayContext";
 import ExperienceSwitch from "./ExperienceSwitch";
 import ExperienceControls from "./ExperienceControls";
+import { useExperience } from "../context/ExperienceContext";
+import * as Clipboard from "expo-clipboard";
+import { useHaptics } from "../hooks/useHaptics";
+import { useToast } from "./Toast";
+import { buildInviteUrl } from "../utils/invite";
 
 type LockerCtx = {
   open: boolean;
@@ -45,6 +50,10 @@ export function useLocker() {
 export default function Locker() {
   const { open } = useLocker();
   const { open: openOverlay } = useOverlays();
+  const { state } = useExperience();
+  const haptics = useHaptics();
+  const toast = useToast();
+
   const CLOSED_X = -360;
   const slideX = useRef(new Animated.Value(CLOSED_X)).current;
 
@@ -74,9 +83,17 @@ export default function Locker() {
     </Pressable>
   );
 
-  // NOTE: Do NOT close the locker here; keeping it open ensures TabsRail stays pushed while locker is open.
   const openAndFocus = (type: Parameters<typeof openOverlay>[0]) => {
     openOverlay(type);
+  };
+
+  const copyInvite = async () => {
+    const expId = state.activeExperience?.id;
+    const roomId = String(((state.experienceConfig.specific as any)?.roomId as string) || "main");
+    const url = buildInviteUrl(roomId, expId);
+    await Clipboard.setStringAsync(url);
+    haptics.notifySuccess();
+    toast.show("Invite link copied");
   };
 
   return (
@@ -116,6 +133,7 @@ export default function Locker() {
           <Action label="Studio" onPress={() => openAndFocus("studio")} />
           <Action label="Diagnostics" onPress={() => openAndFocus("diagnostics")} />
           <Action label="Credits" onPress={() => openAndFocus("credits")} />
+          <Action label="Copy Invite" onPress={() => void copyInvite()} />
         </View>
 
         <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 10 }} />
