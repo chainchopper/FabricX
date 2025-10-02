@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef } from "react";
+import React, { Suspense, lazy, useEffect, useRef } from "react";
 import { Platform, View, Animated, Easing } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useAR } from "../../contexts/ARContext";
@@ -6,7 +6,6 @@ import WebFluidBackground from "../../../app/components/WebFluidBackground";
 import Ambience from "../audio/Ambience";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
-const FabricWebGPULazy = lazy(() => import("../fabric/WebGPUFabric"));
 
 declare global {
   interface Window {
@@ -48,12 +47,6 @@ export default function ExperienceRenderer() {
   if (Platform.OS !== "web") return null;
 
   const bgColor = (experienceConfig?.common?.backgroundColor as string) || "transparent";
-  const renderMode = (experienceConfig?.common as any)?.renderMode ?? "default";
-
-  const useWebGPU =
-    Platform.OS === "web" &&
-    activeExperience?.id === "default-fluid" &&
-    renderMode === "default";
 
   return (
     <View
@@ -71,10 +64,6 @@ export default function ExperienceRenderer() {
       {wantsAROrCamera ? (
         <Suspense fallback={null}>
           <FabricWeb3DLazy />
-        </Suspense>
-      ) : useWebGPU ? (
-        <Suspense fallback={null}>
-          <FabricWebGPULazy />
         </Suspense>
       ) : (
         <WebFluidBackground />

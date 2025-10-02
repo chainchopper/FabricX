@@ -2,12 +2,12 @@ import React from "react";
 import { Platform, View, Text } from "react-native";
 import BackToFabric from "./components/BackToFabric";
 
-let WebGPUTest: React.ComponentType | null = null;
+let WebGPUFabric: React.ComponentType | null = null;
 
 if (typeof window !== "undefined" && Platform.OS === "web") {
   // Lazy import to keep native safe
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  WebGPUTest = require("../src/components/gpu/WebGPUTest").default as React.ComponentType;
+  WebGPUFabric = require("../src/components/fabric/WebGPUFabric").default as React.ComponentType;
 }
 
 export default function FluidGPUPage() {
@@ -21,12 +21,12 @@ export default function FluidGPUPage() {
           </Text>
         ) : (
           <Text style={{ color: "white", opacity: 0.7, marginBottom: 8 }}>
-            WebGPU Fluid Test — animated GPU clear as a sanity check
+            WebGPU Fluid Test — compute pass + splats (demo only)
           </Text>
         )}
       </View>
 
-      {Platform.OS === "web" && WebGPUTest ? (
+      {Platform.OS === "web" && WebGPUFabric ? (
         <View
           style={{
             position: "absolute",
@@ -34,8 +34,7 @@ export default function FluidGPUPage() {
             zIndex: 0,
           }}
         >
-          {/* DOM canvas lives inside this web component */}
-          <WebGPUTest />
+          <WebGPUFabric />
         </View>
       ) : null}
     </View>
