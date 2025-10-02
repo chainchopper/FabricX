@@ -297,7 +297,7 @@ export default function WebGPUFabric({ width, height }: Props) {
       };
     })();
 
-    return () => {
+  return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (host && canvasRef.current) {
         try { host.removeChild(canvasRef.current); } catch {}
