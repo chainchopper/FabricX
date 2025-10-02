@@ -13,6 +13,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@expo/metro-runtime": "^6.1.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^7.1.17",
     "@react-three/fiber": "^9.3.0",
@@ -45,5 +46,11 @@
     "metro-config": "^0.83.3",
     "metro-resolver": "^0.83.3",
     "typescript": "~5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "glob": "^10.3.12",
+      "rimraf": "^5.0.5"
+    }
   }
 }
