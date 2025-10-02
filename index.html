@@ -36,47 +36,49 @@
 
     <script>
       (function () {
-        // 1) Sanitize console strings and Error stacks containing "<anonymous>"
+        // Replace "<anonymous>" in strings and error stacks
+        function scrubAnonymous(input) {
+          try {
+            if (typeof input === 'string') return input.replace(/<anonymous>/g, 'anonymous');
+            if (input && typeof input === 'object') {
+              if (typeof input.stack === 'string') {
+                input.stack = input.stack.replace(/<anonymous>/g, 'anonymous');
+              }
+              if (typeof input.file === 'string') {
+                input.file = input.file.replace(/<anonymous>/g, 'anonymous');
+              }
+            }
+          } catch (_) {}
+          return input;
+        }
+
+        // 1) Console guard: sanitize args before Metro picks them up
         try {
           var origError = console.error, origWarn = console.warn;
-          function sanitizeArg(arg) {
-            try {
-              if (typeof arg === 'string') {
-                return arg.replace(/<anonymous>/g, 'anonymous');
-              }
-              if (arg && typeof arg === 'object') {
-                var stack = arg.stack && typeof arg.stack === 'string' ? arg.stack.replace(/<anonymous>/g, 'anonymous') : '';
-                if (stack) {
-                  var name = arg.name || 'Error';
-                  var msg = arg.message || '';
-                  return name + ': ' + msg + (stack ? '\\n' + stack : '');
-                }
-              }
-            } catch (e) {}
-            return arg;
-          }
           console.error = function () {
-            var args = Array.prototype.map.call(arguments, sanitizeArg);
+            var args = Array.prototype.map.call(arguments, function (a) {
+              if (a instanceof Error) {
+                var msg = (a.name || 'Error') + ': ' + (a.message || '');
+                var stack = (a.stack || '').replace(/<anonymous>/g, 'anonymous');
+                return stack ? (msg + '\\n' + stack) : msg;
+              }
+              return scrubAnonymous(a);
+            });
             return origError.apply(console, args);
           };
           console.warn = function () {
-            var args = Array.prototype.map.call(arguments, sanitizeArg);
+            var args = Array.prototype.map.call(arguments, scrubAnonymous);
             return origWarn.apply(console, args);
           };
           window.addEventListener('error', function (e) {
-            if (e && e.error && typeof e.error.stack === 'string') {
-              try { e.error.stack = e.error.stack.replace(/<anonymous>/g, 'anonymous'); } catch (_e) {}
-            }
+            if (e && e.error) scrubAnonymous(e.error);
           });
           window.addEventListener('unhandledrejection', function (e) {
-            var r = e && e.reason;
-            if (r && typeof r.stack === 'string') {
-              try { r.stack = r.stack.replace(/<anonymous>/g, 'anonymous'); } catch (_e) {}
-            }
+            if (e && e.reason) scrubAnonymous(e.reason);
           });
-        } catch (_e) {}
+        } catch (_) {}
 
-        // 2) Intercept symbolication POST → scrub stack frames' file "<anonymous>"
+        // 2) Fetch interceptor: scrub /symbolicate payload
         try {
           var origFetch = window.fetch;
           window.fetch = async function(input, init) {
@@ -87,22 +89,64 @@
                   var payload = JSON.parse(init.body);
                   if (payload && Array.isArray(payload.stack)) {
                     payload.stack = payload.stack.map(function (f) {
-                      if (f && typeof f.file === 'string' && f.file.indexOf('<anonymous>') !== -1) {
-                        return Object.assign({}, f, { file: f.file.replace(/<anonymous>/g, 'anonymous') });
-                      }
+                      if (f && typeof f.file === 'string') f.file = f.file.replace(/<anonymous>/g, 'anonymous');
+                      if (f && typeof f.methodName === 'string') f.methodName = f.methodName.replace(/<anonymous>/g, 'anonymous');
                       return f;
                     });
                     var newInit = Object.assign({}, init, { body: JSON.stringify(payload) });
                     return origFetch(input, newInit);
                   }
-                } catch (_e) {
-                  // fall through to original fetch
-                }
+                } catch (_) {}
               }
-            } catch (_outer) {}
+            } catch (_) {}
             return origFetch(input, init);
           };
-        } catch (_e2) {}
+        } catch (_) {}
+
+        // 3) XHR interceptor: scrub /symbolicate payload
+        try {
+          var OrigXHR = window.XMLHttpRequest;
+          function PatchedXHR() {
+            var xhr = new OrigXHR();
+            var _url = '';
+            var _method = '';
+            var _headers = {};
+            var _send = xhr.send;
+
+            xhr.open = function(method, url) {
+              _method = method || '';
+              _url = url || '';
+              return OrigXHR.prototype.open.apply(xhr, arguments);
+            };
+
+            xhr.setRequestHeader = function(key, value) {
+              _headers[key.toLowerCase()] = value;
+              return OrigXHR.prototype.setRequestHeader.apply(xhr, arguments);
+            };
+
+            xhr.send = function(body) {
+              try {
+                if (_url && _url.indexOf('/symbolicate') !== -1 && typeof body === 'string') {
+                  try {
+                    var payload = JSON.parse(body);
+                    if (payload && Array.isArray(payload.stack)) {
+                      payload.stack = payload.stack.map(function (f) {
+                        if (f && typeof f.file === 'string') f.file = f.file.replace(/<anonymous>/g, 'anonymous');
+                        if (f && typeof f.methodName === 'string') f.methodName = f.methodName.replace(/<anonymous>/g, 'anonymous');
+                        return f;
+                      });
+                      body = JSON.stringify(payload);
+                    }
+                  } catch (_) {}
+                }
+              } catch (_) {}
+              return _send.call(xhr, body);
+            };
+
+            return xhr;
+          }
+          window.XMLHttpRequest = PatchedXHR;
+        } catch (_) {}
       })();
     </script>
   </head>
