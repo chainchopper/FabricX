@@ -44,6 +44,51 @@
       /* WebGL canvas interaction friendliness */
       canvas { touch-action: none; }
     </style>
+
+    <!-- Early sanitizer: prevent Metro from opening a literal "<anonymous>" path via symbolication -->
+    <script>
+      (function () {
+        try {
+          var origError = console.error, origWarn = console.warn;
+          function sanitizeArg(arg) {
+            try {
+              if (typeof arg === 'string') {
+                return arg.replace(/<anonymous>/g, 'anonymous');
+              }
+              if (arg && typeof arg === 'object') {
+                // Error-like object with stack
+                var stack = arg.stack && typeof arg.stack === 'string' ? arg.stack.replace(/<anonymous>/g, 'anonymous') : '';
+                if (stack) {
+                  var name = arg.name || 'Error';
+                  var msg = arg.message || '';
+                  return name + ': ' + msg + (stack ? '\\n' + stack : '');
+                }
+              }
+            } catch (e) { /* ignore */ }
+            return arg;
+          }
+          console.error = function () {
+            var args = Array.prototype.map.call(arguments, sanitizeArg);
+            return origError.apply(console, args);
+          };
+          console.warn = function () {
+            var args = Array.prototype.map.call(arguments, sanitizeArg);
+            return origWarn.apply(console, args);
+          };
+          window.addEventListener('error', function (e) {
+            if (e && e.error && typeof e.error.stack === 'string') {
+              try { e.error.stack = e.error.stack.replace(/<anonymous>/g, 'anonymous'); } catch (_e) {}
+            }
+          });
+          window.addEventListener('unhandledrejection', function (e) {
+            var r = e && e.reason;
+            if (r && typeof r.stack === 'string') {
+              try { r.stack = r.stack.replace(/<anonymous>/g, 'anonymous'); } catch (_e) {}
+            }
+          });
+        } catch (_e) { /* ignore */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
