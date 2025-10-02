@@ -3,11 +3,11 @@ import { WebGPUContext } from "../../gpu/webgpu-context";
 
 const computeWGSL = `
 struct Params {
-  pointer: vec2<f32>;     // 8
-  radius: f32;            // 12
-  time: f32;              // 16
-  resolution: vec2<f32>;  // 24
-  _pad: vec2<f32>;        // 32
+  pointer: vec2<f32>;
+  radius: f32;
+  time: f32;
+  resolution: vec2<f32>;
+  _pad: vec2<f32>;
 };
 @group(0) @binding(0) var dyeOut : texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(1) var<uniform> params : Params;
@@ -19,7 +19,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) / res;
 
-  // Base animated background (simple gradient + subtle time ripple)
   let t = params.time * 0.25;
   let g = uv.y;
   var base = vec3<f32>(0.03, 0.08, 0.15) + vec3<f32>(0.1, 0.6, 0.74) * (g * 0.22);
@@ -29,7 +28,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     sin(12.0 * (uv.x * 0.5 + uv.y * 0.75) + t * 0.8)
   );
 
-  // Splat: bright circle at pointer
   let d = distance(uv, params.pointer);
   let r = params.radius;
   let splat = smoothstep(r, 0.0, d);
@@ -79,10 +77,7 @@ fn fs(i: VSOut) -> @location(0) vec4<f32> {
 }
 `;
 
-type Props = {
-  width?: number;
-  height?: number;
-};
+type Props = { width?: number; height?: number };
 
 export default function WebGPUFabric({ width, height }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -105,7 +100,7 @@ export default function WebGPUFabric({ width, height }: Props) {
   const pointerRef = useRef<[number, number]>([0.5, 0.5]);
   const radiusRef = useRef<number>(0.0);
   const [ready, setReady] = useState(false);
-  const [failed, setFailed] = useState<null | string>(null);
+  const [failed, setFailed] = useState<string | null>(null);
 
   const ensureDye = (device: GPUDevice, w: number, h: number, format: GPUTextureFormat) => {
     if (dyeTexRef.current) dyeTexRef.current.destroy();
@@ -119,7 +114,9 @@ export default function WebGPUFabric({ width, height }: Props) {
   };
 
   useEffect(() => {
-    if (!hostRef.current) return;
+    const host = hostRef.current;
+    if (!host) return;
+
     const canvas = document.createElement("canvas");
     canvas.style.width = "100%";
     canvas.style.height = "100%";
@@ -128,7 +125,7 @@ export default function WebGPUFabric({ width, height }: Props) {
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
     }
-    hostRef.current.appendChild(canvas);
+    host.appendChild(canvas);
     canvasRef.current = canvas;
 
     const ctx = new WebGPUContext();
@@ -154,23 +151,16 @@ export default function WebGPUFabric({ width, height }: Props) {
 
       try {
         const cModule = device.createShaderModule({ code: computeWGSL });
-        // TS fix: use getCompilationInfo instead of compilationInfo
         if (typeof (cModule as any).getCompilationInfo === "function") {
-          const cInfo = await (cModule as GPUShaderModule).getCompilationInfo();
-          if (cInfo && cInfo.messages && cInfo.messages.length) {
-            const errs = cInfo.messages.filter((m: GPUCompilationMessage) => m.type === "error");
-            if (errs.length) {
-              // eslint-disable-next-line no-console
-              console.warn("WGSL compute errors:", errs.map((m: GPUCompilationMessage) => m.message).join("\n"));
-            }
-          }
+          const info = await (cModule as GPUShaderModule).getCompilationInfo();
+          const errs = info?.messages?.filter((m: GPUCompilationMessage) => m.type === "error") ?? [];
+          if (errs.length) console.warn("WGSL compute errors:", errs.map((m) => m.message).join("\n"));
         }
         computePipelineRef.current = device.createComputePipeline({
           layout: "auto",
           compute: { module: cModule, entryPoint: "main" },
         });
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.warn("Compute pipeline failed:", e);
         setFailed("Compute pipeline failed");
         return;
@@ -179,14 +169,9 @@ export default function WebGPUFabric({ width, height }: Props) {
       try {
         const rModule = device.createShaderModule({ code: renderWGSL });
         if (typeof (rModule as any).getCompilationInfo === "function") {
-          const rInfo = await (rModule as GPUShaderModule).getCompilationInfo();
-          if (rInfo && rInfo.messages && rInfo.messages.length) {
-            const errs = rInfo.messages.filter((m: GPUCompilationMessage) => m.type === "error");
-            if (errs.length) {
-              // eslint-disable-next-line no-console
-              console.warn("WGSL render errors:", errs.map((m: GPUCompilationMessage) => m.message).join("\n"));
-            }
-          }
+          const info = await (rModule as GPUShaderModule).getCompilationInfo();
+          const errs = info?.messages?.filter((m: GPUCompilationMessage) => m.type === "error") ?? [];
+          if (errs.length) console.warn("WGSL render errors:", errs.map((m) => m.message).join("\n"));
         }
         renderPipelineRef.current = device.createRenderPipeline({
           layout: "auto",
@@ -195,7 +180,6 @@ export default function WebGPUFabric({ width, height }: Props) {
           primitive: { topology: "triangle-list" },
         });
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.warn("Render pipeline failed:", e);
         setFailed("Render pipeline failed");
         return;
@@ -226,7 +210,7 @@ export default function WebGPUFabric({ width, height }: Props) {
         ],
       });
 
-      const resizeObs = new ResizeObserver(() => {
+      const ro = new ResizeObserver(() => {
         ctx.configure();
         const cw = canvas.width;
         const ch = canvas.height;
@@ -246,7 +230,9 @@ export default function WebGPUFabric({ width, height }: Props) {
           ],
         });
       });
-      resizeObs.observe(hostRef.current!);
+      if (hostRef.current) {
+        ro.observe(hostRef.current);
+      }
 
       const loop = () => {
         const device = deviceRef.current;
@@ -259,16 +245,14 @@ export default function WebGPUFabric({ width, height }: Props) {
         const cw = canvas.width;
         const ch = canvas.height;
 
-        // Update uniforms
         const time = performance.now() / 1000;
-        const p = pointerRef.current;
+        const [px, py] = pointerRef.current;
         const r = radiusRef.current;
-        const data = new Float32Array([p[0], p[1], r, time, cw, ch, 0, 0]);
+        const data = new Float32Array([px, py, r, time, cw, ch, 0, 0]);
         device.queue.writeBuffer(paramsBufRef.current, 0, data.buffer);
 
         const encoder = device.createCommandEncoder();
 
-        // Compute
         {
           const pass = encoder.beginComputePass();
           pass.setPipeline(computePipelineRef.current);
@@ -276,17 +260,15 @@ export default function WebGPUFabric({ width, height }: Props) {
           pass.dispatchWorkgroups(Math.ceil(cw / 8), Math.ceil(ch / 8));
           pass.end();
         }
-
-        // Render
         {
           const view = context.getCurrentTexture().createView();
-          const renderPass = encoder.beginRenderPass({
+          const pass = encoder.beginRenderPass({
             colorAttachments: [{ view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
           });
-          renderPass.setPipeline(renderPipelineRef.current);
-          renderPass.setBindGroup(0, renderBGRef.current);
-          renderPass.draw(6, 1, 0, 0);
-          renderPass.end();
+          pass.setPipeline(renderPipelineRef.current);
+          pass.setBindGroup(0, renderBGRef.current);
+          pass.draw(6, 1, 0, 0);
+          pass.end();
         }
 
         device.queue.submit([encoder.finish()]);
@@ -309,7 +291,7 @@ export default function WebGPUFabric({ width, height }: Props) {
       canvas.addEventListener("pointerdown", onMove);
 
       return () => {
-        resizeObs.disconnect();
+        ro.disconnect();
         canvas.removeEventListener("pointermove", onMove);
         canvas.removeEventListener("pointerdown", onMove);
       };
@@ -317,8 +299,8 @@ export default function WebGPUFabric({ width, height }: Props) {
 
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (hostRef.current && canvasRef.current) {
-        try { hostRef.current.removeChild(canvasRef.current); } catch {}
+      if (host && canvasRef.current) {
+        try { host.removeChild(canvasRef.current); } catch {}
       }
       dyeTexRef.current?.destroy();
       dyeTexRef.current = null;
@@ -333,10 +315,7 @@ export default function WebGPUFabric({ width, height }: Props) {
   }, [width, height]);
 
   return (
-    <div
-      ref={hostRef}
-      style={{ position: "absolute", inset: 0, background: "transparent" }}
-    >
+    <div ref={hostRef} style={{ position: "absolute", inset: 0, background: "transparent" }}>
       <div
         style={{
           position: "absolute",

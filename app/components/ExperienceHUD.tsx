@@ -6,15 +6,18 @@ import { useMIDI } from "../../src/hooks/useMIDI";
 
 export default function ExperienceHUD() {
   if (Platform.OS !== "web") return null;
+
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
   const { isARCameraActive } = useAR();
 
   if (!activeExperience) return null;
 
-  const isARPiano = activeExperience.id === "ar-piano";
+  // Always call hooks (web-only component)
+  const midi = useMIDI();
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
-  const { activeNotes } = isARPiano ? useMIDI() : { activeNotes: [] as string[] };
+  const isARPiano = activeExperience.id === "ar-piano";
+  const activeNotes = isARPiano && midiEnabled ? midi.activeNotes : [];
 
   return (
     <View
