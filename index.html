@@ -8,27 +8,19 @@
     />
     <title>Fabric — Multi‑Sensory Interactive Platform (Fanalogy)</title>
 
-    <!-- Favicon -->
     <link rel="icon" href="/logo.png" type="image/png" />
     <link rel="apple-touch-icon" href="/logo.png" />
-
-    <!-- Theme color (Fanalogy cyan/blue energy) -->
     <meta name="theme-color" content="#22d3ee" />
-
-    <!-- Open Graph -->
     <meta property="og:title" content="Fabric — Multi‑Sensory Interactive Platform" />
     <meta property="og:description" content="Weave reality together. A game‑like, minimal‑chrome space with synchronized visuals, haptics, and audio. Powered by Nirvana." />
     <meta property="og:image" content="/logo.png" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="/" />
-
-    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="Fabric — Multi‑Sensory Interactive Platform" />
     <meta name="twitter:description" content="Weave reality together. Game‑like canvas, synchronized cues, minimal chrome. Powered by Nirvana." />
     <meta name="twitter:image" content="/logo.png" />
 
-    <!-- Full-viewport sizing and transparent background so Fabric stays visible -->
     <style>
       html, body, #root {
         height: 100%;
@@ -38,16 +30,13 @@
         background: transparent;
         overscroll-behavior: none;
       }
-      /* Make sure nothing adds unexpected scrollbars over the canvas */
       body { overflow: hidden; }
-
-      /* WebGL canvas interaction friendliness */
       canvas { touch-action: none; }
     </style>
 
-    <!-- Early sanitizer: prevent Metro from opening a literal "<anonymous>" path via symbolication -->
     <script>
       (function () {
+        // 1) Sanitize console strings and Error stacks containing "<anonymous>"
         try {
           var origError = console.error, origWarn = console.warn;
           function sanitizeArg(arg) {
@@ -56,7 +45,6 @@
                 return arg.replace(/<anonymous>/g, 'anonymous');
               }
               if (arg && typeof arg === 'object') {
-                // Error-like object with stack
                 var stack = arg.stack && typeof arg.stack === 'string' ? arg.stack.replace(/<anonymous>/g, 'anonymous') : '';
                 if (stack) {
                   var name = arg.name || 'Error';
@@ -64,7 +52,7 @@
                   return name + ': ' + msg + (stack ? '\\n' + stack : '');
                 }
               }
-            } catch (e) { /* ignore */ }
+            } catch (e) {}
             return arg;
           }
           console.error = function () {
@@ -86,7 +74,35 @@
               try { r.stack = r.stack.replace(/<anonymous>/g, 'anonymous'); } catch (_e) {}
             }
           });
-        } catch (_e) { /* ignore */ }
+        } catch (_e) {}
+
+        // 2) Intercept symbolication POST → scrub stack frames' file "<anonymous>"
+        try {
+          var origFetch = window.fetch;
+          window.fetch = async function(input, init) {
+            try {
+              var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
+              if (url && url.indexOf('/symbolicate') !== -1 && init && typeof init.body === 'string') {
+                try {
+                  var payload = JSON.parse(init.body);
+                  if (payload && Array.isArray(payload.stack)) {
+                    payload.stack = payload.stack.map(function (f) {
+                      if (f && typeof f.file === 'string' && f.file.indexOf('<anonymous>') !== -1) {
+                        return Object.assign({}, f, { file: f.file.replace(/<anonymous>/g, 'anonymous') });
+                      }
+                      return f;
+                    });
+                    var newInit = Object.assign({}, init, { body: JSON.stringify(payload) });
+                    return origFetch(input, newInit);
+                  }
+                } catch (_e) {
+                  // fall through to original fetch
+                }
+              }
+            } catch (_outer) {}
+            return origFetch(input, init);
+          };
+        } catch (_e2) {}
       })();
     </script>
   </head>
