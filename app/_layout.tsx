@@ -42,6 +42,9 @@ import WalletDrawer from "./components/neo/WalletDrawer";
 import FriendsDrawer from "./components/neo/FriendsDrawer";
 import SettingsDrawer from "./components/neo/SettingsDrawer";
 
+// LogBox/Metro symbolication sanitizer (web-only)
+import LogboxSanitizer from "./components/LogboxSanitizer";
+
 export default function RootLayout() {
   return (
     <ToastProvider>
@@ -53,6 +56,8 @@ export default function RootLayout() {
                 <UserDrawerProvider>
                   <LockerProvider>
                     <NewDrawersProvider>
+                      {/* Sanitize console errors to prevent Metro's <anonymous> ENOENT spam */}
+                      <LogboxSanitizer />
                       <View style={{ flex: 1 }}>
                         {/* Fabric is the main event: persistent and always-on */}
                         <GlobalFabricBackground />
