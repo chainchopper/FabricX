@@ -80,7 +80,7 @@ fn fs(i: VSOut) -> @location(0) vec4<f32> {
 `;
 
 type Props = {
-  width?: number; // optional fixed size; otherwise fits parent
+  width?: number;
   height?: number;
 };
 
@@ -105,6 +105,7 @@ export default function WebGPUFabric({ width, height }: Props) {
   const pointerRef = useRef<[number, number]>([0.5, 0.5]);
   const radiusRef = useRef<number>(0.0);
   const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState<null | string>(null);
 
   const ensureDye = (device: GPUDevice, w: number, h: number, format: GPUTextureFormat) => {
     if (dyeTexRef.current) dyeTexRef.current.destroy();
@@ -139,56 +140,78 @@ export default function WebGPUFabric({ width, height }: Props) {
       const ok = await ctx.initialize(canvas);
       if (!mounted) return;
       if (!ok) {
-        // eslint-disable-next-line no-console
-        console.warn("WebGPU unavailable in WebGPUFabric");
+        setFailed("WebGPU unavailable");
         return;
       }
 
-      const device = ctx.getDevice() as GPUDevice;
+      const device = ctx.getDevice() as GPUDevice | null;
       const format = ctx.getFormat() as GPUTextureFormat;
+      if (!device) {
+        setFailed("No GPU device");
+        return;
+      }
       deviceRef.current = device;
 
-      // Pipelines
-      const cModule = device.createShaderModule({ code: computeWGSL });
-      const computePipeline = device.createComputePipeline({
-        layout: "auto",
-        compute: { module: cModule, entryPoint: "main" },
-      });
-      computePipelineRef.current = computePipeline;
+      try {
+        const cModule = device.createShaderModule({ code: computeWGSL });
+        // TS fix: use getCompilationInfo instead of compilationInfo
+        if (typeof (cModule as any).getCompilationInfo === "function") {
+          const cInfo = await (cModule as GPUShaderModule).getCompilationInfo();
+          if (cInfo && cInfo.messages && cInfo.messages.length) {
+            const errs = cInfo.messages.filter((m: GPUCompilationMessage) => m.type === "error");
+            if (errs.length) {
+              // eslint-disable-next-line no-console
+              console.warn("WGSL compute errors:", errs.map((m: GPUCompilationMessage) => m.message).join("\n"));
+            }
+          }
+        }
+        computePipelineRef.current = device.createComputePipeline({
+          layout: "auto",
+          compute: { module: cModule, entryPoint: "main" },
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Compute pipeline failed:", e);
+        setFailed("Compute pipeline failed");
+        return;
+      }
 
-      const rModule = device.createShaderModule({ code: renderWGSL });
-      const renderPipeline = device.createRenderPipeline({
-        layout: "auto",
-        vertex: { module: rModule, entryPoint: "vs" },
-        fragment: {
-          module: rModule,
-          entryPoint: "fs",
-          targets: [{ format }],
-        },
-        primitive: { topology: "triangle-list" },
-      });
-      renderPipelineRef.current = renderPipeline;
+      try {
+        const rModule = device.createShaderModule({ code: renderWGSL });
+        if (typeof (rModule as any).getCompilationInfo === "function") {
+          const rInfo = await (rModule as GPUShaderModule).getCompilationInfo();
+          if (rInfo && rInfo.messages && rInfo.messages.length) {
+            const errs = rInfo.messages.filter((m: GPUCompilationMessage) => m.type === "error");
+            if (errs.length) {
+              // eslint-disable-next-line no-console
+              console.warn("WGSL render errors:", errs.map((m: GPUCompilationMessage) => m.message).join("\n"));
+            }
+          }
+        }
+        renderPipelineRef.current = device.createRenderPipeline({
+          layout: "auto",
+          vertex: { module: rModule, entryPoint: "vs" },
+          fragment: { module: rModule, entryPoint: "fs", targets: [{ format }] },
+          primitive: { topology: "triangle-list" },
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Render pipeline failed:", e);
+        setFailed("Render pipeline failed");
+        return;
+      }
 
-      // Resources
       const dpr = window.devicePixelRatio || 1;
       const w = Math.max(1, Math.floor((canvas.clientWidth || window.innerWidth) * dpr));
       const h = Math.max(1, Math.floor((canvas.clientHeight || window.innerHeight) * dpr));
       ensureDye(device, w, h, "rgba8unorm" as GPUTextureFormat);
 
-      samplerRef.current = device.createSampler({
-        magFilter: "linear",
-        minFilter: "linear",
-      });
+      samplerRef.current = device.createSampler({ magFilter: "linear", minFilter: "linear" });
 
-      // Uniform buffer for compute params (32 bytes, see WGSL struct)
-      paramsBufRef.current = device.createBuffer({
-        size: 32,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+      paramsBufRef.current = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-      // Bind groups
       computeBGRef.current = device.createBindGroup({
-        layout: computePipeline.getBindGroupLayout(0),
+        layout: computePipelineRef.current!.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: (dyeViewRef.current as GPUTextureView) },
           { binding: 1, resource: { buffer: paramsBufRef.current! } },
@@ -196,29 +219,27 @@ export default function WebGPUFabric({ width, height }: Props) {
       });
 
       renderBGRef.current = device.createBindGroup({
-        layout: renderPipeline.getBindGroupLayout(0),
+        layout: renderPipelineRef.current!.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: (dyeViewRef.current as GPUTextureView) },
           { binding: 1, resource: samplerRef.current! },
         ],
       });
 
-      // Resize observer
       const resizeObs = new ResizeObserver(() => {
         ctx.configure();
         const cw = canvas.width;
         const ch = canvas.height;
         ensureDye(device, cw, ch, "rgba8unorm" as GPUTextureFormat);
-        // Rebuild bind groups with new view
         computeBGRef.current = device.createBindGroup({
-          layout: computePipeline.getBindGroupLayout(0),
+          layout: computePipelineRef.current!.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: (dyeViewRef.current as GPUTextureView) },
             { binding: 1, resource: { buffer: paramsBufRef.current! } },
           ],
         });
         renderBGRef.current = device.createBindGroup({
-          layout: renderPipeline.getBindGroupLayout(0),
+          layout: renderPipelineRef.current!.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: (dyeViewRef.current as GPUTextureView) },
             { binding: 1, resource: samplerRef.current! },
@@ -227,10 +248,13 @@ export default function WebGPUFabric({ width, height }: Props) {
       });
       resizeObs.observe(hostRef.current!);
 
-      // Loop
       const loop = () => {
-        const device = deviceRef.current!;
+        const device = deviceRef.current;
         const context = ctx.getContext();
+        if (!device || !context || !computePipelineRef.current || !renderPipelineRef.current || !paramsBufRef.current || !computeBGRef.current || !renderBGRef.current) {
+          rafRef.current = requestAnimationFrame(loop);
+          return;
+        }
 
         const cw = canvas.width;
         const ch = canvas.height;
@@ -239,42 +263,34 @@ export default function WebGPUFabric({ width, height }: Props) {
         const time = performance.now() / 1000;
         const p = pointerRef.current;
         const r = radiusRef.current;
-        const data = new Float32Array([
-          p[0], p[1],    // pointer
-          r, time,      // radius, time
-          cw, ch,       // resolution
-          0, 0,         // pad
-        ]);
-        device.queue.writeBuffer(paramsBufRef.current!, 0, data.buffer);
+        const data = new Float32Array([p[0], p[1], r, time, cw, ch, 0, 0]);
+        device.queue.writeBuffer(paramsBufRef.current, 0, data.buffer);
 
         const encoder = device.createCommandEncoder();
 
-        // Compute pass: write dye texture
+        // Compute
         {
           const pass = encoder.beginComputePass();
-          pass.setPipeline(computePipelineRef.current!);
-          pass.setBindGroup(0, computeBGRef.current!);
+          pass.setPipeline(computePipelineRef.current);
+          pass.setBindGroup(0, computeBGRef.current);
           pass.dispatchWorkgroups(Math.ceil(cw / 8), Math.ceil(ch / 8));
           pass.end();
         }
 
-        // Render pass: display dye
+        // Render
         {
           const view = context.getCurrentTexture().createView();
           const renderPass = encoder.beginRenderPass({
-            colorAttachments: [
-              { view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] },
-            ],
+            colorAttachments: [{ view, loadOp: "clear", storeOp: "store", clearValue: [0, 0, 0, 1] }],
           });
-          renderPass.setPipeline(renderPipelineRef.current!);
-          renderPass.setBindGroup(0, renderBGRef.current!);
+          renderPass.setPipeline(renderPipelineRef.current);
+          renderPass.setBindGroup(0, renderBGRef.current);
           renderPass.draw(6, 1, 0, 0);
           renderPass.end();
         }
 
         device.queue.submit([encoder.finish()]);
 
-        // Decay radius
         radiusRef.current = Math.max(0, r * 0.92);
         rafRef.current = requestAnimationFrame(loop);
       };
@@ -282,7 +298,6 @@ export default function WebGPUFabric({ width, height }: Props) {
       rafRef.current = requestAnimationFrame(loop);
       setReady(true);
 
-      // Pointer handling (splat)
       const onMove = (e: PointerEvent) => {
         const rect = canvas.getBoundingClientRect();
         const x = (e.clientX - rect.left) / rect.width;
@@ -320,11 +335,7 @@ export default function WebGPUFabric({ width, height }: Props) {
   return (
     <div
       ref={hostRef}
-      style={{
-        position: "absolute",
-        inset: 0,
-        background: "transparent",
-      }}
+      style={{ position: "absolute", inset: 0, background: "transparent" }}
     >
       <div
         style={{
@@ -332,14 +343,14 @@ export default function WebGPUFabric({ width, height }: Props) {
           top: 12,
           right: 12,
           background: "rgba(2,8,23,0.7)",
-          border: "1px solid rgba(34,211,238,0.6)",
+          border: `1px solid ${failed ? "rgba(234,179,8,0.6)" : "rgba(34,211,238,0.6)"}`,
           padding: "6px 10px",
           borderRadius: 10,
           color: "#e5e7eb",
           fontWeight: 700,
         }}
       >
-        WebGPU {ready ? "Active" : "Initializing..."}
+        {failed ? `WebGPU error: ${failed}` : `WebGPU ${ready ? "Active" : "Initializing..."}`}
       </div>
     </div>
   );

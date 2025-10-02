@@ -11,7 +11,6 @@ export class WebGPUContext {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nav: any = typeof navigator !== "undefined" ? navigator : null;
     if (!nav || !nav.gpu) {
-      // eslint-disable-next-line no-console
       console.warn("WebGPU not supported (navigator.gpu missing)");
       return false;
     }
@@ -19,7 +18,6 @@ export class WebGPUContext {
     try {
       this.adapter = await nav.gpu.requestAdapter();
       if (!this.adapter) {
-        // eslint-disable-next-line no-console
         console.warn("WebGPU: no adapter found");
         return false;
       }
@@ -36,7 +34,6 @@ export class WebGPUContext {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ctx = (canvas.getContext("webgpu") as any) || null;
       if (!ctx) {
-        // eslint-disable-next-line no-console
         console.warn("WebGPU: webgpu context unavailable");
         return false;
       }
@@ -45,7 +42,6 @@ export class WebGPUContext {
       this.configure();
       return true;
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error("WebGPU initialization error:", err);
       return false;
     }
@@ -68,12 +64,10 @@ export class WebGPUContext {
   }
 
   getDevice(): any {
-    if (!this.device) throw new Error("WebGPU device not ready");
     return this.device;
   }
 
   getContext(): any {
-    if (!this.context) throw new Error("WebGPU context not ready");
     return this.context;
   }
 
