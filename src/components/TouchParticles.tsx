@@ -2,10 +2,27 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { eventBus, InputEvent } from "../../shared/utils/eventBus";
+import { getAudioReactive, subscribeAudioReactive } from "../shared/utils/audioReactive";
+import { useExperience } from "../contexts/ExperienceContext";
 
 export default function TouchParticles({ densityScale = 1 }: { densityScale?: number }) {
   const pointsRef = useRef<THREE.Points | null>(null);
   const pausedRef = useRef<boolean>(false);
+
+  // Read audio-reactive config from experience
+  const { state } = useExperience();
+  const s = (state.experienceConfig.specific as Record<string, unknown>) || {};
+  const audioParticleEnabled = Boolean((s?.audioParticleEnabled as boolean) ?? true);
+  const audioParticleIntensity = Number.isFinite(s?.audioParticleIntensity) ? Number(s?.audioParticleIntensity) : 1;
+
+  // Track current audio levels (reactive)
+  const audioRef = useRef(getAudioReactive());
+  useEffect(() => {
+    const unsub = subscribeAudioReactive((next) => {
+      audioRef.current = next;
+    });
+    return () => unsub();
+  }, []);
 
   const env = useMemo(() => {
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
@@ -126,10 +143,26 @@ export default function TouchParticles({ densityScale = 1 }: { densityScale?: nu
     colorAttr.needsUpdate = true;
   };
 
+  // Beat-triggered bursts at center for extra sparkle
+  const lastBeatRef = useRef(0);
+  useEffect(() => {
+    if (!audioParticleEnabled) return;
+    const unsub = subscribeAudioReactive((s) => {
+      // Rising edge near peak triggers a burst at center
+      if (s.beat > 0.9 && lastBeatRef.current < 0.4) {
+        const k = Math.max(0.6, Math.min(1.6, audioParticleIntensity));
+        spawnBurst(0.5, 0.5, 1.2 * k);
+      }
+      lastBeatRef.current = s.beat;
+    });
+    return () => unsub();
+  }, [audioParticleEnabled, audioParticleIntensity]); // intensity controls burst strength
+
+  // Fabric input events → bursts
   useEffect(() => {
     const unsub = eventBus.on((e: InputEvent) => {
-      const strength = e.type === "long-press" ? 1.2 : e.type === "tap" ? 0.8 : 0.35;
-      spawnBurst(e.x, e.y, strength);
+      const base = e.type === "long-press" ? 1.2 : e.type === "tap" ? 0.8 : 0.35;
+      spawnBurst(e.x, e.y, base);
     });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,7 +183,9 @@ export default function TouchParticles({ densityScale = 1 }: { densityScale?: nu
     const lifetimes = lifeAttr.array as Float32Array;
     const colors = colorAttr.array as Float32Array;
 
-    const drag = 0.96;
+    const reactivity = audioParticleEnabled ? Math.max(0.4, Math.min(1.8, audioParticleIntensity)) : 0.0;
+    const energy = audioRef.current.energy; // 0..1
+    const drag = 0.96 - 0.15 * (reactivity > 0 ? energy * 0.5 : 0); // lower drag when energy high
     const gravity = -0.18;
 
     for (let i = 0; i < lifetimes.length; i++) {
@@ -161,12 +196,20 @@ export default function TouchParticles({ densityScale = 1 }: { densityScale?: nu
         positions[i3 + 1] += velocities[i3 + 1] * dt;
         positions[i3 + 2] += velocities[i3 + 2] * dt;
 
+        // Add small jitter with energy for shimmer
+        if (reactivity > 0) {
+          const j = (Math.random() - 0.5) * 0.04 * energy * reactivity;
+          velocities[i3 + 0] += j * 0.2;
+          velocities[i3 + 1] += j * 0.2;
+        }
+
         velocities[i3 + 0] *= drag;
         velocities[i3 + 1] = velocities[i3 + 1] * drag + gravity * dt * 0.2;
         velocities[i3 + 2] *= drag;
 
         lifetimes[i] -= dt;
 
+        // Soft fade
         colors[i3 + 0] *= 0.985;
         colors[i3 + 1] *= 0.985;
         colors[i3 + 2] *= 0.985;

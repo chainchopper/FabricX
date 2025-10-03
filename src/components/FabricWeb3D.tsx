@@ -19,8 +19,10 @@ const vertexShader = `
   uniform vec2 uPointer;
   uniform float uPulse;
   uniform float uBoost;
-  uniform float uAudio; // 0..1 audio energy
-  uniform float uBeat;  // 0..1 beat pulse
+  uniform float uAudio;
+  uniform float uBeat;
+  uniform float uAudioAmp;
+  uniform float uBeatAmp;
 
   float ripple(vec2 p, vec2 c, float t) {
     float d = distance(p, c);
@@ -31,8 +33,8 @@ const vertexShader = `
     vUv = uv;
     vec3 pos = position;
 
-    float audioAmp = mix(0.0, 0.04, clamp(uAudio, 0.0, 1.0));
-    float beatAmp = uBeat * 0.08;
+    float audioAmp = mix(0.0, 0.04 * uAudioAmp, clamp(uAudio, 0.0, 1.0));
+    float beatAmp = uBeat * (0.08 * uBeatAmp);
 
     float r = ripple(vUv, uPointer, uTime) * (0.06 + uPulse * 0.08 * uBoost + beatAmp);
     float wave = sin((position.x + position.y) * 2.0 + uTime * 0.7) * (0.02 + audioAmp);
@@ -55,6 +57,8 @@ const fragmentShader = `
   uniform float uBoost;
   uniform float uAudio;
   uniform float uBeat;
+  uniform float uAudioAmp;
+  uniform float uBeatAmp;
 
   vec3 baseColor(vec2 uv) {
     vec3 c1 = vec3(0.03, 0.07, 0.15);
@@ -68,9 +72,8 @@ const fragmentShader = `
     float ripple = sin(12.0 * d - uTime * 2.5) * exp(-3.0 * d);
     float glow = smoothstep(0.22, 0.0, d) * (0.5 + uPulse * 0.9 * uBoost);
 
-    // Audio boosts glow slightly and adds cyan tint
-    float audioGlow = clamp(uAudio, 0.0, 1.0) * 0.35;
-    float beatGlow = uBeat * 0.5;
+    float audioGlow = clamp(uAudio, 0.0, 1.0) * (0.35 * uAudioAmp);
+    float beatGlow = uBeat * (0.5 * uBeatAmp);
 
     vec3 col = baseColor(vUv);
     col += vec3(0.0, 0.5, 0.7) * ripple * 0.25;
@@ -99,14 +102,19 @@ function LiquidSurface() {
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
 
+  const s = (experienceConfig.specific as Record<string, unknown>) || {};
+  const beatRipplesEnabled = Boolean((s?.audioBeatRipples as boolean) ?? true);
+  const beatRippleIntensity = Number.isFinite(s?.audioBeatRippleIntensity) ? Number(s?.audioBeatRippleIntensity) : 1;
+  const audioParticleIntensity = Number.isFinite(s?.audioParticleIntensity) ? Number(s?.audioParticleIntensity) : 1;
+
   const uBoost = useMemo(() => {
     if (!activeExperience) return 1;
     if (activeExperience.id === "camera-effects") {
-      const v = Number((experienceConfig.specific as any)?.filterIntensity ?? 0.7);
+      const v = Number((s?.filterIntensity as number) ?? 0.7);
       return Math.max(0.4, Math.min(1.5, v + 0.3));
     }
     return 1;
-  }, [activeExperience, experienceConfig]);
+  }, [activeExperience, s]);
 
   const segments = useMemo(() => {
     const fq = (experienceConfig.specific as Record<string, unknown> | undefined)?.["fluidQuality"] as
@@ -135,15 +143,19 @@ function LiquidSurface() {
       uBoost: { value: uBoost },
       uAudio: { value: 0 },
       uBeat: { value: 0 },
+      uAudioAmp: { value: Math.max(0.5, Math.min(2.0, audioParticleIntensity)) },
+      uBeatAmp: { value: Math.max(0.5, Math.min(2.0, beatRippleIntensity)) },
     }),
-    [uBoost]
+    [uBoost, audioParticleIntensity, beatRippleIntensity]
   );
 
   useEffect(() => {
     if (materialRef.current) {
       materialRef.current.uniforms.uBoost.value = uBoost;
+      materialRef.current.uniforms.uAudioAmp.value = Math.max(0.5, Math.min(2.0, audioParticleIntensity));
+      materialRef.current.uniforms.uBeatAmp.value = Math.max(0.5, Math.min(2.0, beatRippleIntensity));
     }
-  }, [uBoost]);
+  }, [uBoost, audioParticleIntensity, beatRippleIntensity]);
 
   // Touch input mapping
   useEffect(() => {
@@ -162,14 +174,26 @@ function LiquidSurface() {
   }, []);
 
   // Audio reactive subscription
+  const lastBeatRef = useRef(0);
   useEffect(() => {
     const unsub = subscribeAudioReactive((s) => {
       if (!materialRef.current) return;
       materialRef.current.uniforms.uAudio.value = s.energy;
       materialRef.current.uniforms.uBeat.value = s.beat;
+
+      if (beatRipplesEnabled) {
+        // Beat spike → inject a pulse (adds to touch pulses)
+        if (s.beat > 0.9 && lastBeatRef.current < 0.4) {
+          materialRef.current.uniforms.uPulse.value = Math.min(
+            1,
+            materialRef.current.uniforms.uPulse.value + 0.7 * Math.max(0.5, Math.min(2, beatRippleIntensity))
+          );
+        }
+      }
+      lastBeatRef.current = s.beat;
     });
     return () => unsub();
-  }, []);
+  }, [beatRipplesEnabled, beatRippleIntensity]);
 
   useFrame((_, delta) => {
     if (!materialRef.current) return;

@@ -21,7 +21,7 @@ export default function ExperienceHUD() {
   const activeNotes = isARPiano && midiEnabled ? midi.activeNotes : [];
 
   const audioReactiveEnabled = Boolean((experienceConfig.specific as any)?.audioReactiveEnabled ?? false);
-  const audioLevel = getAudioReactive().energy;
+  const audio = getAudioReactive();
 
   return (
     <View
@@ -56,8 +56,23 @@ export default function ExperienceHUD() {
       {audioReactiveEnabled ? (
         <View style={{ marginTop: 6 }}>
           <Text style={{ color: "#22d3ee", fontSize: 11, marginBottom: 2 }}>Mic Reactive</Text>
-          <View style={{ width: 120, height: 6, borderRadius: 6, backgroundColor: "rgba(148,163,184,0.35)", overflow: "hidden" }}>
-            <View style={{ width: `${Math.round(Math.min(1, Math.max(0, audioLevel)) * 100)}%`, height: "100%", backgroundColor: "#22d3ee" }} />
+          <View style={{ width: 140, height: 6, borderRadius: 6, backgroundColor: "rgba(148,163,184,0.35)", overflow: "hidden", marginBottom: 6 }}>
+            <View style={{ width: `${Math.round(Math.min(1, Math.max(0, audio.energy)) * 100)}%`, height: "100%", backgroundColor: "#22d3ee" }} />
+          </View>
+          {/* Bass/Mid/Treble */}
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            {[
+              { label: "B", value: audio.bass, color: "#60a5fa" },
+              { label: "M", value: audio.mid, color: "#34d399" },
+              { label: "T", value: audio.treble, color: "#f472b6" },
+            ].map((b) => (
+              <View key={b.label} style={{ alignItems: "center" }}>
+                <View style={{ width: 36, height: 6, borderRadius: 6, backgroundColor: "rgba(148,163,184,0.35)", overflow: "hidden" }}>
+                  <View style={{ width: `${Math.round(Math.min(1, Math.max(0, b.value)) * 100)}%`, height: "100%", backgroundColor: b.color as string }} />
+                </View>
+                <Text style={{ color: "#9ca3af", fontSize: 10, marginTop: 2 }}>{b.label}</Text>
+              </View>
+            ))}
           </View>
         </View>
       ) : null}

@@ -207,6 +207,33 @@ export default function ExperienceControls() {
     toast.show(`Mic sensitivity: ${v.toFixed(1)}x`);
   };
 
+  // New: Beat ripples + particle reactivity toggles / intensities
+  const beatRipples = Boolean((s?.audioBeatRipples as boolean) ?? true);
+  const beatRippleIntensity = Number.isFinite(s?.audioBeatRippleIntensity) ? Number(s?.audioBeatRippleIntensity) : 1;
+  const setBeatRipples = (v: boolean) => {
+    updateConfig({ specific: { ...experienceConfig.specific, audioBeatRipples: v } });
+    haptics.impactLight();
+    toast.show(`Beat ripples ${v ? "enabled" : "disabled"}`);
+  };
+  const setBeatRippleIntensity = (v: number) => {
+    updateConfig({ specific: { ...experienceConfig.specific, audioBeatRippleIntensity: v } });
+    haptics.impactLight();
+    toast.show(`Beat ripples: ${v.toFixed(1)}x`);
+  };
+
+  const audioParticleEnabled = Boolean((s?.audioParticleEnabled as boolean) ?? true);
+  const audioParticleIntensity = Number.isFinite(s?.audioParticleIntensity) ? Number(s?.audioParticleIntensity) : 1;
+  const setAudioParticleEnabled = (v: boolean) => {
+    updateConfig({ specific: { ...experienceConfig.specific, audioParticleEnabled: v } });
+    haptics.impactLight();
+    toast.show(`Particle reactivity ${v ? "enabled" : "disabled"}`);
+  };
+  const setAudioParticleIntensity = (v: number) => {
+    updateConfig({ specific: { ...experienceConfig.specific, audioParticleIntensity: v } });
+    haptics.impactLight();
+    toast.show(`Particle reactivity: ${v.toFixed(1)}x`);
+  };
+
   return (
     <View
       style={{
@@ -490,7 +517,76 @@ export default function ExperienceControls() {
               );
             })}
           </View>
-          <Text style={{ color: "#9ca3af", fontSize: 11 }}>Uses your mic only on this page; no data leaves the browser.</Text>
+
+          {/* Beat ripples */}
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            <Pressable
+              onPress={() => setBeatRipples(!beatRipples)}
+              style={{
+                paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                borderColor: beatRipples ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
+                backgroundColor: beatRipples ? "rgba(16,185,129,0.18)" : "transparent",
+              }}
+            >
+              <Text style={{ color: beatRipples ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                Beat Ripples: {beatRipples ? "On" : "Off"}
+              </Text>
+            </Pressable>
+            {[0.7, 1.0, 1.4].map((v) => {
+              const active = Math.abs((beatRippleIntensity ?? 1) - v) < 0.001;
+              return (
+                <Pressable
+                  key={v}
+                  onPress={() => setBeatRippleIntensity(v)}
+                  style={{
+                    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                  }}
+                >
+                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                    Ripple {v}x
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Particle reactivity */}
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            <Pressable
+              onPress={() => setAudioParticleEnabled(!audioParticleEnabled)}
+              style={{
+                paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                borderColor: audioParticleEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
+                backgroundColor: audioParticleEnabled ? "rgba(16,185,129,0.18)" : "transparent",
+              }}
+            >
+              <Text style={{ color: audioParticleEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                Particles: {audioParticleEnabled ? "Reactive" : "Static"}
+              </Text>
+            </Pressable>
+            {[0.7, 1.0, 1.4].map((v) => {
+              const active = Math.abs((audioParticleIntensity ?? 1) - v) < 0.001;
+              return (
+                <Pressable
+                  key={v}
+                  onPress={() => setAudioParticleIntensity(v)}
+                  style={{
+                    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                  }}
+                >
+                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                    React {v}x
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={{ color: "#9ca3af", fontSize: 11, marginTop: 6 }}>Mic stays in-browser; no audio leaves the device.</Text>
         </View>
       ) : null}
 

@@ -7,6 +7,7 @@ import { useToast } from "./Toast";
 import { useMIDI } from "../../src/hooks/useMIDI";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../shared/utils/realtimeStatus";
 import * as Clipboard from "expo-clipboard";
+import { getAudioReactive } from "../../src/shared/utils/audioReactive";
 
 declare global {
   interface Window {
@@ -82,6 +83,9 @@ export default function FabricDiagnostics() {
     toast.show("Invite link copied");
   };
 
+  const audio = getAudioReactive();
+  const audioEnabled = Boolean((experienceConfig.specific as any)?.audioReactiveEnabled ?? false);
+
   return (
     <View
       style={{
@@ -117,6 +121,11 @@ export default function FabricDiagnostics() {
       </Text>
       <Text style={{ color: isARCameraActive ? "#34d399" : "#9ca3af" }}>
         AR Camera Active: {isARCameraActive ? "Yes" : "No"}
+      </Text>
+
+      {/* Audio-reactive status */}
+      <Text style={{ color: audioEnabled ? "#34d399" : "#9ca3af" }}>
+        Mic Reactive: {audioEnabled ? "On" : "Off"}{audioEnabled ? ` • Energy ${Math.round(audio.energy * 100)}%` : ""}
       </Text>
 
       {activeExperience?.id === "ar-piano" ? (
