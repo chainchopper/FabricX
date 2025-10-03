@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { View, Text, Pressable, TextInput, Platform } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useHaptics } from "../hooks/useHaptics";
@@ -6,6 +6,7 @@ import { useToast } from "./Toast";
 import { useAR } from "../context/ARContext";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
+import { useAudioReactive } from "../../src/hooks/useAudioReactive";
 
 function slugRoom(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "main";
@@ -36,12 +37,11 @@ export default function ExperienceControls() {
     toast.show(mode === "default" ? "Rendering: Default (recommended)" : "Rendering: Compatibility");
   };
 
-  // Ambience controls (default-fluid only, web)
   const isDefaultFluid = activeExperience.id === "default-fluid";
   const s = experienceConfig.specific as any;
 
+  // Ambience
   const ambienceEnabled = Boolean(s?.ambienceEnabled ?? false);
-  // Preset names (Web Audio generated; no files required)
   const trackList = ["ambience", "A4", "C5"];
   const ambienceName = String(s?.ambienceFile ?? "ambience");
 
@@ -122,7 +122,7 @@ export default function ExperienceControls() {
   const setMidiIntensity = (v: number) => {
     updateConfig({ specific: { ...experienceConfig.specific, midiIntensity: v } });
     haptics.impactLight();
-    toast.show(`MIDI intensity: ${v.toFixed(2)}`);
+    toast.show(`MIDI intensity: ${v}`);
   };
   const setMidiCurve = (c: MidiCurve) => {
     updateConfig({ specific: { ...experienceConfig.specific, midiCurve: c } });
@@ -140,6 +140,7 @@ export default function ExperienceControls() {
     toast.show(m === "chromatic" ? "Hue: Chromatic" : "Hue: Fifths");
   };
 
+  // Realtime room controls
   const applyRoom = () => {
     const id = slugRoom(roomDraft);
     updateConfig({ specific: { ...experienceConfig.specific, roomId: id } });
@@ -170,6 +171,42 @@ export default function ExperienceControls() {
     toast.show("Invite link copied");
   };
 
+  // Audio Reactive (web-only)
+  const audioReactiveEnabled = Boolean((s?.audioReactiveEnabled as boolean) ?? false);
+  const audioReactiveSensitivity = Number.isFinite(s?.audioReactiveSensitivity) ? Number(s?.audioReactiveSensitivity) : 1;
+  const { enable: enableAR, disable: disableAR, setSensitivity } = useAudioReactive();
+
+  const toggleAudioReactive = async () => {
+    const next = !audioReactiveEnabled;
+    updateConfig({ specific: { ...experienceConfig.specific, audioReactiveEnabled: next, audioReactiveSensitivity } });
+    if (Platform.OS === "web") {
+      if (next) {
+        const ok = await enableAR(audioReactiveSensitivity);
+        if (ok) {
+          haptics.notifySuccess();
+          toast.show("Mic reactivity enabled");
+        } else {
+          haptics.notifyWarning();
+          toast.show("Mic permission blocked");
+        }
+      } else {
+        disableAR();
+        haptics.impactLight();
+        toast.show("Mic reactivity disabled");
+      }
+    } else {
+      haptics.impactLight();
+      toast.show("Mic reactivity is web-only");
+    }
+  };
+
+  const setAudioReactiveSens = (v: number) => {
+    updateConfig({ specific: { ...experienceConfig.specific, audioReactiveSensitivity: v } });
+    setSensitivity(v);
+    haptics.impactLight();
+    toast.show(`Mic sensitivity: ${v.toFixed(1)}x`);
+  };
+
   return (
     <View
       style={{
@@ -184,7 +221,7 @@ export default function ExperienceControls() {
       <Text style={{ color: "white", fontWeight: "800" }}>Experience Controls</Text>
       <Text style={{ color: "#93c5fd" }}>{activeExperience.name}</Text>
 
-      {/* Rendering Mode */}
+      {/* Rendering */}
       {activeExperience.id === "default-fluid" ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Rendering</Text>
@@ -303,7 +340,7 @@ export default function ExperienceControls() {
         </View>
       </View>
 
-      {/* Audio quick volume */}
+      {/* Audio Volume */}
       <View style={{ gap: 6 }}>
         <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Audio</Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -331,7 +368,7 @@ export default function ExperienceControls() {
         </View>
       </View>
 
-      {/* Particles density */}
+      {/* Particles */}
       <View style={{ gap: 6 }}>
         <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Particles</Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -359,7 +396,7 @@ export default function ExperienceControls() {
         </View>
       </View>
 
-      {/* Default Fluid controls */}
+      {/* Fluid Quality */}
       {isFluid ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Fluid Quality</Text>
@@ -389,7 +426,7 @@ export default function ExperienceControls() {
         </View>
       ) : null}
 
-      {/* Camera / AR toggle */}
+      {/* Camera */}
       {isCamera ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Camera</Text>
@@ -413,165 +450,47 @@ export default function ExperienceControls() {
         </View>
       ) : null}
 
-      {/* Realtime room controls */}
-      <View style={{ gap: 6 }}>
-        <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Realtime</Text>
-        <Text style={{ color: "#93c5fd", fontSize: 12 }}>Room</Text>
-        <TextInput
-          value={roomDraft}
-          onChangeText={setRoomDraft}
-          placeholder="room id"
-          placeholderTextColor="#6b7280"
-          style={{
-            backgroundColor: "#111827",
-            borderWidth: 1,
-            borderColor: "rgba(148,163,184,0.35)",
-            borderRadius: 10,
-            color: "white",
-            paddingHorizontal: 10,
-            paddingVertical: 10,
-          }}
-        />
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <Pressable
-            onPress={applyRoom}
-            style={{
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "rgba(34,211,238,0.6)",
-              backgroundColor: "rgba(2,132,199,0.18)",
-            }}
-          >
-            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Apply</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => void copyInvite()}
-            style={{
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "rgba(34,211,238,0.6)",
-            }}
-          >
-            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Copy Invite</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* AR Piano - MIDI controls */}
-      {isARPiano ? (
+      {/* Audio Reactivity (web-only) */}
+      {isDefaultFluid && Platform.OS === "web" ? (
         <View style={{ gap: 6 }}>
-          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>MIDI</Text>
+          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Mic Reactivity</Text>
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
             <Pressable
-              onPress={() => setMidiEnabled(!midiEnabled)}
+              onPress={() => void toggleAudioReactive()}
               style={{
                 paddingVertical: 8,
                 paddingHorizontal: 12,
                 borderRadius: 10,
                 borderWidth: 1,
-                borderColor: midiEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.4)",
-                backgroundColor: midiEnabled ? "rgba(16,185,129,0.18)" : "transparent",
+                borderColor: audioReactiveEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.4)",
+                backgroundColor: audioReactiveEnabled ? "rgba(16,185,129,0.18)" : "transparent",
               }}
             >
-              <Text style={{ color: midiEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                Notes → Fabric: {midiEnabled ? "On" : "Off"}
+              <Text style={{ color: audioReactiveEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                {audioReactiveEnabled ? "On" : "Off"}
               </Text>
             </Pressable>
 
-            {[0.6, 1.0, 1.4].map((v) => {
-              const active = Math.abs((midiIntensity ?? 1) - v) < 0.001;
+            {[0.7, 1.0, 1.4].map((v) => {
+              const active = Math.abs((audioReactiveSensitivity ?? 1) - v) < 0.001;
               return (
                 <Pressable
                   key={v}
-                  onPress={() => setMidiIntensity(v)}
+                  onPress={() => setAudioReactiveSens(v)}
                   style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 10,
-                    borderWidth: 1,
+                    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
                     borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
                     backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
                   }}
                 >
                   <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                    Intensity {v}
+                    Sens {v}x
                   </Text>
                 </Pressable>
               );
             })}
-
-            {(["soft", "linear", "hard"] as MidiCurve[]).map((c) => {
-              const active = midiCurve === c;
-              return (
-                <Pressable
-                  key={c}
-                  onPress={() => setMidiCurve(c)}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
-                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
-                  }}
-                >
-                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>Curve {c}</Text>
-                </Pressable>
-              );
-            })}
-
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-              {[-12, -7, -5, 0, 5, 7, 12].map((t) => {
-                const active = midiTranspose === t;
-                return (
-                  <Pressable
-                    key={t}
-                    onPress={() => setMidiTranspose(t)}
-                    style={{
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
-                      backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
-                    }}
-                  >
-                    <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                      {t >= 0 ? `+${t}` : `${t}`}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-              {(["chromatic", "fifths"] as HueMap[]).map((m) => {
-                const active = midiHueMap === m;
-                return (
-                  <Pressable
-                    key={m}
-                    onPress={() => setMidiHueMap(m)}
-                    style={{
-                      paddingVertical: 6,
-                      paddingHorizontal: 10,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
-                      backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
-                    }}
-                  >
-                    <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                      {m === "chromatic" ? "Hue: Chromatic" : "Hue: Fifths"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
           </View>
+          <Text style={{ color: "#9ca3af", fontSize: 11 }}>Uses your mic only on this page; no data leaves the browser.</Text>
         </View>
       ) : null}
 

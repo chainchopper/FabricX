@@ -11,6 +11,7 @@ import PianoOverlay from "./piano/PianoOverlay";
 import { useMIDIFluid } from "../hooks/useMIDIFluid";
 import ToneEngine from "./audio/ToneEngine";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
+import { getAudioReactive, subscribeAudioReactive } from "../shared/utils/audioReactive";
 
 const vertexShader = `
   varying vec2 vUv;
@@ -18,6 +19,8 @@ const vertexShader = `
   uniform vec2 uPointer;
   uniform float uPulse;
   uniform float uBoost;
+  uniform float uAudio; // 0..1 audio energy
+  uniform float uBeat;  // 0..1 beat pulse
 
   float ripple(vec2 p, vec2 c, float t) {
     float d = distance(p, c);
@@ -28,8 +31,11 @@ const vertexShader = `
     vUv = uv;
     vec3 pos = position;
 
-    float r = ripple(vUv, uPointer, uTime) * (0.06 + uPulse * 0.08 * uBoost);
-    float wave = sin((position.x + position.y) * 2.0 + uTime * 0.7) * 0.02;
+    float audioAmp = mix(0.0, 0.04, clamp(uAudio, 0.0, 1.0));
+    float beatAmp = uBeat * 0.08;
+
+    float r = ripple(vUv, uPointer, uTime) * (0.06 + uPulse * 0.08 * uBoost + beatAmp);
+    float wave = sin((position.x + position.y) * 2.0 + uTime * 0.7) * (0.02 + audioAmp);
 
     pos.z += r + wave;
 
@@ -47,6 +53,8 @@ const fragmentShader = `
   uniform vec2 uPointer;
   uniform float uPulse;
   uniform float uBoost;
+  uniform float uAudio;
+  uniform float uBeat;
 
   vec3 baseColor(vec2 uv) {
     vec3 c1 = vec3(0.03, 0.07, 0.15);
@@ -60,9 +68,13 @@ const fragmentShader = `
     float ripple = sin(12.0 * d - uTime * 2.5) * exp(-3.0 * d);
     float glow = smoothstep(0.22, 0.0, d) * (0.5 + uPulse * 0.9 * uBoost);
 
+    // Audio boosts glow slightly and adds cyan tint
+    float audioGlow = clamp(uAudio, 0.0, 1.0) * 0.35;
+    float beatGlow = uBeat * 0.5;
+
     vec3 col = baseColor(vUv);
     col += vec3(0.0, 0.5, 0.7) * ripple * 0.25;
-    col += vec3(0.15, 0.85, 0.95) * glow * 0.35;
+    col += vec3(0.15, 0.85, 0.95) * (glow + audioGlow + beatGlow) * 0.35;
 
     float vx = vUv.x * (1.0 - vUv.x);
     float vy = vUv.y * (1.0 - vUv.y);
@@ -121,6 +133,8 @@ function LiquidSurface() {
       uPointer: { value: new THREE.Vector2(0.5, 0.5) },
       uPulse: { value: 0 },
       uBoost: { value: uBoost },
+      uAudio: { value: 0 },
+      uBeat: { value: 0 },
     }),
     [uBoost]
   );
@@ -131,6 +145,7 @@ function LiquidSurface() {
     }
   }, [uBoost]);
 
+  // Touch input mapping
   useEffect(() => {
     const sub = eventBus.on((e: InputEvent) => {
       if (!materialRef.current) return;
@@ -144,6 +159,16 @@ function LiquidSurface() {
       else if (e.type === "drag") u.uPulse.value = Math.min(1, u.uPulse.value + 0.2);
     });
     return () => sub();
+  }, []);
+
+  // Audio reactive subscription
+  useEffect(() => {
+    const unsub = subscribeAudioReactive((s) => {
+      if (!materialRef.current) return;
+      materialRef.current.uniforms.uAudio.value = s.energy;
+      materialRef.current.uniforms.uBeat.value = s.beat;
+    });
+    return () => unsub();
   }, []);
 
   useFrame((_, delta) => {
