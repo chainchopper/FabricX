@@ -16,7 +16,7 @@ type MidiCurve = "soft" | "linear" | "hard";
 type HueMap = "chromatic" | "fifths";
 
 export default function ExperienceControls() {
-  // Always call hooks in stable order
+  // Hooks first (stable order)
   const { state, updateConfig } = useExperience();
   const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
   const { enable: enableAR, disable: disableAR, setSensitivity } = useAudioReactive();
@@ -31,10 +31,7 @@ export default function ExperienceControls() {
     return (s?.roomId as string) || "main";
   });
 
-  // If no active experience, render nothing (but hooks above already ran)
-  if (!activeExperience) {
-    return null;
-  }
+  if (!activeExperience) return null;
 
   // Rendering mode
   const renderMode = (experienceConfig.common as any)?.renderMode ?? "default";
@@ -47,7 +44,7 @@ export default function ExperienceControls() {
   const isDefaultFluid = activeExperience.id === "default-fluid";
   const s = experienceConfig.specific as any;
 
-  // Ambience
+  // Ambience (Web Audio)
   const ambienceEnabled = Boolean(s?.ambienceEnabled ?? false);
   const trackList = ["ambience", "A4", "C5"];
   const ambienceName = String(s?.ambienceFile ?? "ambience");
@@ -61,6 +58,34 @@ export default function ExperienceControls() {
     updateConfig({ specific: { ...experienceConfig.specific, ambienceFile: name } });
     haptics.impactLight();
     toast.show(`Ambience track: ${name}`);
+  };
+
+  // Generative Music (Tone.js)
+  const musicEnabled = Boolean((s?.musicEnabled as boolean) ?? false);
+  const musicTempo = Number.isFinite(s?.musicTempo) ? Number(s?.musicTempo) : 100;
+  const musicScale = (s?.musicScale as string) || "ionian";
+  const musicPattern = (s?.musicPattern as string) || "up";
+
+  const setMusicEnabled = (v: boolean) => {
+    updateConfig({ specific: { ...experienceConfig.specific, musicEnabled: v } });
+    haptics.impactLight();
+    toast.show(`Generative music ${v ? "enabled" : "disabled"}`);
+  };
+  const setMusicTempo = (bpm: number) => {
+    const clamped = Math.max(40, Math.min(180, Math.round(bpm)));
+    updateConfig({ specific: { ...experienceConfig.specific, musicTempo: clamped } });
+    haptics.impactLight();
+    toast.show(`Tempo: ${clamped} BPM`);
+  };
+  const setMusicScale = (name: string) => {
+    updateConfig({ specific: { ...experienceConfig.specific, musicScale: name } });
+    haptics.impactLight();
+    toast.show(`Scale: ${name}`);
+  };
+  const setMusicPattern = (name: string) => {
+    updateConfig({ specific: { ...experienceConfig.specific, musicPattern: name } });
+    haptics.impactLight();
+    toast.show(`Pattern: ${name}`);
   };
 
   // Fluid/camera checks
@@ -178,68 +203,6 @@ export default function ExperienceControls() {
     toast.show("Invite link copied");
   };
 
-  // Audio Reactive (web-only controller is already hooked; now drive config)
-  const audioReactiveEnabled = Boolean((s?.audioReactiveEnabled as boolean) ?? false);
-  const audioReactiveSensitivity = Number.isFinite(s?.audioReactiveSensitivity) ? Number(s?.audioReactiveSensitivity) : 1;
-
-  const toggleAudioReactive = async () => {
-    const next = !audioReactiveEnabled;
-    updateConfig({ specific: { ...experienceConfig.specific, audioReactiveEnabled: next, audioReactiveSensitivity } });
-    if (Platform.OS === "web") {
-      if (next) {
-        const ok = await enableAR(audioReactiveSensitivity);
-        if (ok) {
-          haptics.notifySuccess();
-          toast.show("Mic reactivity enabled");
-        } else {
-          haptics.notifyWarning();
-          toast.show("Mic permission blocked");
-        }
-      } else {
-        disableAR();
-        haptics.impactLight();
-        toast.show("Mic reactivity disabled");
-      }
-    } else {
-      haptics.impactLight();
-      toast.show("Mic reactivity is web-only");
-    }
-  };
-
-  const setAudioReactiveSens = (v: number) => {
-    updateConfig({ specific: { ...experienceConfig.specific, audioReactiveSensitivity: v } });
-    setSensitivity(v);
-    haptics.impactLight();
-    toast.show(`Mic sensitivity: ${v.toFixed(1)}x`);
-  };
-
-  // Beat ripples + particle reactivity toggles / intensities
-  const beatRipples = Boolean((s?.audioBeatRipples as boolean) ?? true);
-  const beatRippleIntensity = Number.isFinite(s?.audioBeatRippleIntensity) ? Number(s?.audioBeatRippleIntensity) : 1;
-  const setBeatRipples = (v: boolean) => {
-    updateConfig({ specific: { ...experienceConfig.specific, audioBeatRipples: v } });
-    haptics.impactLight();
-    toast.show(`Beat ripples ${v ? "enabled" : "disabled"}`);
-  };
-  const setBeatRippleIntensity = (v: number) => {
-    updateConfig({ specific: { ...experienceConfig.specific, audioBeatRippleIntensity: v } });
-    haptics.impactLight();
-    toast.show(`Beat ripples: ${v.toFixed(1)}x`);
-  };
-
-  const audioParticleEnabled = Boolean((s?.audioParticleEnabled as boolean) ?? true);
-  const audioParticleIntensity = Number.isFinite(s?.audioParticleIntensity) ? Number(s?.audioParticleIntensity) : 1;
-  const setAudioParticleEnabled = (v: boolean) => {
-    updateConfig({ specific: { ...experienceConfig.specific, audioParticleEnabled: v } });
-    haptics.impactLight();
-    toast.show(`Particle reactivity ${v ? "enabled" : "disabled"}`);
-  };
-  const setAudioParticleIntensity = (v: number) => {
-    updateConfig({ specific: { ...experienceConfig.specific, audioParticleIntensity: v } });
-    haptics.impactLight();
-    toast.show(`Particle reactivity: ${v.toFixed(1)}x`);
-  };
-
   return (
     <View
       style={{
@@ -287,7 +250,7 @@ export default function ExperienceControls() {
         </View>
       ) : null}
 
-      {/* Ambience */}
+      {/* Ambience (Web Audio) */}
       {isDefaultFluid && Platform.OS === "web" ? (
         <View style={{ gap: 6 }}>
           <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Ambience</Text>
@@ -330,9 +293,82 @@ export default function ExperienceControls() {
               );
             })}
           </View>
-          <Text style={{ color: "#9ca3af", fontSize: 11 }}>
-            Generated with Web Audio — no downloads required.
-          </Text>
+
+          {/* Generative Music (Tone.js) */}
+          <View style={{ marginTop: 10, gap: 6 }}>
+            <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Generative Music</Text>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              <Pressable
+                onPress={() => setMusicEnabled(!musicEnabled)}
+                style={{
+                  paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                  borderColor: musicEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
+                  backgroundColor: musicEnabled ? "rgba(16,185,129,0.18)" : "transparent",
+                }}
+              >
+                <Text style={{ color: musicEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                  {musicEnabled ? "On" : "Off"}
+                </Text>
+              </Pressable>
+
+              {[80, 100, 120].map((b) => {
+                const active = musicTempo === b;
+                return (
+                  <Pressable
+                    key={b}
+                    onPress={() => setMusicTempo(b)}
+                    style={{
+                      paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                      borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                      backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                    }}
+                  >
+                    <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                      {b} BPM
+                    </Text>
+                  </Pressable>
+                );
+              })}
+
+              {["ionian", "dorian", "mixolydian", "minor"].map((name) => {
+                const active = musicScale === name;
+                return (
+                  <Pressable
+                    key={name}
+                    onPress={() => setMusicScale(name)}
+                    style={{
+                      paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                      borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                      backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                    }}
+                  >
+                    <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                      {name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+
+              {["up", "random", "triad"].map((name) => {
+                const active = musicPattern === name;
+                return (
+                  <Pressable
+                    key={name}
+                    onPress={() => setMusicPattern(name)}
+                    style={{
+                      paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+                      borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                      backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
+                    }}
+                  >
+                    <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                      {name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
         </View>
       ) : null}
 
@@ -483,118 +519,7 @@ export default function ExperienceControls() {
         </View>
       ) : null}
 
-      {/* Audio Reactivity (web-only) */}
-      {isDefaultFluid && Platform.OS === "web" ? (
-        <View style={{ gap: 6 }}>
-          <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>Mic Reactivity</Text>
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-            <Pressable
-              onPress={() => void toggleAudioReactive()}
-              style={{
-                paddingVertical: 8,
-                paddingHorizontal: 12,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: audioReactiveEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.4)",
-                backgroundColor: audioReactiveEnabled ? "rgba(16,185,129,0.18)" : "transparent",
-              }}
-            >
-              <Text style={{ color: audioReactiveEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                {audioReactiveEnabled ? "On" : "Off"}
-              </Text>
-            </Pressable>
-
-            {[0.7, 1.0, 1.4].map((v) => {
-              const active = Math.abs((audioReactiveSensitivity ?? 1) - v) < 0.001;
-              return (
-                <Pressable
-                  key={v}
-                  onPress={() => setAudioReactiveSens(v)}
-                  style={{
-                    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
-                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
-                  }}
-                >
-                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                    Sens {v}x
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Beat ripples */}
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-            <Pressable
-              onPress={() => setBeatRipples(!Boolean(s?.audioBeatRipples ?? true))}
-              style={{
-                paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-                borderColor: (s?.audioBeatRipples ?? true) ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
-                backgroundColor: (s?.audioBeatRipples ?? true) ? "rgba(16,185,129,0.18)" : "transparent",
-              }}
-            >
-              <Text style={{ color: (s?.audioBeatRipples ?? true) ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                Beat Ripples: {(s?.audioBeatRipples ?? true) ? "On" : "Off"}
-              </Text>
-            </Pressable>
-            {[0.7, 1.0, 1.4].map((v) => {
-              const active = Math.abs(((s?.audioBeatRippleIntensity ?? 1) as number) - v) < 0.001;
-              return (
-                <Pressable
-                  key={v}
-                  onPress={() => setBeatRippleIntensity(v)}
-                  style={{
-                    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
-                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
-                  }}
-                >
-                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                    Ripple {v}x
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Particle reactivity */}
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-            <Pressable
-              onPress={() => setAudioParticleEnabled(!Boolean(s?.audioParticleEnabled ?? true))}
-              style={{
-                paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-                borderColor: (s?.audioParticleEnabled ?? true) ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
-                backgroundColor: (s?.audioParticleEnabled ?? true) ? "rgba(16,185,129,0.18)" : "transparent",
-              }}
-            >
-              <Text style={{ color: (s?.audioParticleEnabled ?? true) ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                Particles: {(s?.audioParticleEnabled ?? true) ? "Reactive" : "Static"}
-              </Text>
-            </Pressable>
-            {[0.7, 1.0, 1.4].map((v) => {
-              const active = Math.abs(((s?.audioParticleIntensity ?? 1) as number) - v) < 0.001;
-              return (
-                <Pressable
-                  key={v}
-                  onPress={() => setAudioParticleIntensity(v)}
-                  style={{
-                    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-                    borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
-                    backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
-                  }}
-                >
-                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
-                    React {v}x
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={{ color: "#9ca3af", fontSize: 11, marginTop: 6 }}>Mic stays in-browser; no audio leaves the device.</Text>
-        </View>
-      ) : null}
+      {/* Mic Reactivity + Generative music are above */}
 
       <View style={{ height: 1, backgroundColor: "rgba(148,163,184,0.25)", marginVertical: 6 }} />
       <Pressable

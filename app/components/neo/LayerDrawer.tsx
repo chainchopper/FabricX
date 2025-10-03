@@ -6,6 +6,7 @@ import { useHaptics } from "../../hooks/useHaptics";
 import { useToast } from "../Toast";
 import { confirmAction } from "../../utils/confirm";
 import { useNewDrawers } from "./NewDrawersContext";
+import { startCanvasRecording, type Recorder } from "../../../src/utils/recorder";
 
 export default function LayerDrawer() {
   const { state, switchExperience } = useExperience();
@@ -20,6 +21,10 @@ export default function LayerDrawer() {
   // Realtime preview (low res) via dataURL updated while open
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+
+  // Recording
+  const recRef = useRef<Recorder | null>(null);
+  const [recActive, setRecActive] = useState<boolean>(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -89,6 +94,40 @@ export default function LayerDrawer() {
     } catch {
       toast.show("Snapshot failed");
     }
+  };
+
+  const startRecording = () => {
+    if (Platform.OS !== "web") {
+      toast.show("Recording is web-only for now");
+      return;
+    }
+    if (recActive) {
+      toast.show("Recording is already active");
+      return;
+    }
+    const main = document.getElementById("fabric-canvas") as HTMLCanvasElement | null;
+    if (!main) {
+      toast.show("Canvas not ready");
+      return;
+    }
+    const rec = startCanvasRecording(main, 60);
+    if (!rec) {
+      toast.show("Recording not supported");
+      return;
+    }
+    recRef.current = rec;
+    setRecActive(true);
+    haptics.impactLight();
+    toast.show("Recording started");
+  };
+
+  const stopRecording = async () => {
+    if (!recActive || !recRef.current) return;
+    await recRef.current.stop();
+    recRef.current = null;
+    setRecActive(false);
+    haptics.notifySuccess();
+    toast.show("Recording saved");
   };
 
   return (
@@ -171,7 +210,7 @@ export default function LayerDrawer() {
         </View>
 
         {/* Quick Actions */}
-        <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Pressable
             onPress={saveSnapshot}
             style={{
@@ -185,6 +224,38 @@ export default function LayerDrawer() {
           >
             <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Save Snapshot</Text>
           </Pressable>
+
+          {Platform.OS === "web" ? (
+            !recActive ? (
+              <Pressable
+                onPress={startRecording}
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: "rgba(234,88,12,0.7)",
+                  backgroundColor: "rgba(234,88,12,0.18)",
+                }}
+              >
+                <Text style={{ color: "#fb923c", fontWeight: "700" }}>Start Recording</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => void stopRecording()}
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: "rgba(34,197,94,0.7)",
+                  backgroundColor: "rgba(16,185,129,0.18)",
+                }}
+              >
+                <Text style={{ color: "#34d399", fontWeight: "700" }}>Stop Recording</Text>
+              </Pressable>
+            )
+          ) : null}
         </View>
 
         {/* Layers list */}

@@ -4,6 +4,7 @@ import { useExperience } from "../../contexts/ExperienceContext";
 import { useAR } from "../../contexts/ARContext";
 import WebFluidBackground from "../../../app/components/WebFluidBackground";
 import Ambience from "../audio/Ambience";
+import AutoComposer from "../audio/AutoComposer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 
@@ -47,6 +48,8 @@ export default function ExperienceRenderer() {
   if (Platform.OS !== "web") return null;
 
   const bgColor = (experienceConfig?.common?.backgroundColor as string) || "transparent";
+  const s = (experienceConfig.specific as Record<string, unknown>) || {};
+  const musicEnabled = Boolean((s.musicEnabled as boolean) ?? false);
 
   return (
     <View
@@ -60,6 +63,8 @@ export default function ExperienceRenderer() {
     >
       {/* Ambient audio (web-only) */}
       <Ambience />
+      {/* Generative composer (web-only) */}
+      {musicEnabled ? <AutoComposer /> : null}
 
       {wantsAROrCamera ? (
         <Suspense fallback={null}>
