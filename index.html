@@ -36,108 +36,204 @@
 
     <script>
       (function () {
-        // Replace "<anonymous>" in strings and error stacks
-        function scrubAnonymous(input) {
+        // --- Utilities -------------------------------------------------------
+        function scrubStr(s) {
           try {
-            if (typeof input === 'string') return input.replace(/<anonymous>/g, 'anonymous');
-            if (input && typeof input === 'object') {
-              if (typeof input.stack === 'string') {
-                input.stack = input.stack.replace(/<anonymous>/g, 'anonymous');
-              }
-              if (typeof input.file === 'string') {
-                input.file = input.file.replace(/<anonymous>/g, 'anonymous');
-              }
-            }
-          } catch (_) {}
-          return input;
+            return String(s).replace(/<anonymous>/g, 'anonymous');
+          } catch (_) { return s; }
         }
 
-        // 1) Console guard: sanitize args before Metro picks them up
+        function scrubErrorLike(obj) {
+          try {
+            if (!obj || typeof obj !== 'object') return obj;
+            if (typeof obj.message === 'string') obj.message = scrubStr(obj.message);
+            if (typeof obj.stack === 'string') obj.stack = scrubStr(obj.stack);
+            if (typeof obj.file === 'string') obj.file = scrubStr(obj.file);
+            if (typeof obj.fileName === 'string') obj.fileName = scrubStr(obj.fileName);
+            if (typeof obj.methodName === 'string') obj.methodName = scrubStr(obj.methodName);
+            return obj;
+          } catch (_) { return obj; }
+        }
+
+        function scrubPayload(payload) {
+          try {
+            // Typical /symbolicate payload has { stack: Frame[] }
+            if (payload && Array.isArray(payload.stack)) {
+              payload.stack = payload.stack.map(function (f) {
+                if (!f || typeof f !== 'object') return f;
+                if (typeof f.file === 'string') f.file = scrubStr(f.file);
+                if (typeof f.methodName === 'string') f.methodName = scrubStr(f.methodName);
+                if (typeof f.stack === 'string') f.stack = scrubStr(f.stack);
+                if (typeof f.message === 'string') f.message = scrubStr(f.message);
+                if (typeof f.fileName === 'string') f.fileName = scrubStr(f.fileName);
+                return f;
+              });
+            } else {
+              // fallback: try common fields
+              scrubErrorLike(payload);
+            }
+          } catch (_) {}
+          return payload;
+        }
+
+        async function readBodyAsText(body) {
+          try {
+            if (typeof body === 'string') return body;
+            if (body == null) return null;
+            if (body instanceof Blob) return await body.text();
+            // Request/ReadableStream: try to build a Request and read it
+            if (typeof body === 'object') {
+              try {
+                if (body.text && typeof body.text === 'function') {
+                  return await body.text();
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+          return null;
+        }
+
+        function buildInitFromRequest(req, overrideBody) {
+          const headers = {};
+          try { req.headers && req.headers.forEach && req.headers.forEach((v,k)=>{headers[k]=v}); } catch(_) {}
+          return {
+            method: req.method || 'POST',
+            headers,
+            body: overrideBody != null ? overrideBody : undefined,
+            mode: req.mode,
+            credentials: req.credentials,
+            cache: req.cache,
+            redirect: req.redirect,
+            referrer: req.referrer,
+            referrerPolicy: req.referrerPolicy,
+            integrity: req.integrity,
+            keepalive: req.keepalive
+          };
+        }
+
+        // --- Console/Error sanitization -------------------------------------
         try {
           var origError = console.error, origWarn = console.warn;
           console.error = function () {
             var args = Array.prototype.map.call(arguments, function (a) {
               if (a instanceof Error) {
+                scrubErrorLike(a);
                 var msg = (a.name || 'Error') + ': ' + (a.message || '');
-                var stack = (a.stack || '').replace(/<anonymous>/g, 'anonymous');
-                return stack ? (msg + '\\n' + stack) : msg;
+                return (a.stack ? scrubStr(msg + '\n' + a.stack) : scrubStr(msg));
               }
-              return scrubAnonymous(a);
+              if (typeof a === 'string') return scrubStr(a);
+              if (a && typeof a === 'object') return scrubErrorLike(a);
+              return a;
             });
             return origError.apply(console, args);
           };
           console.warn = function () {
-            var args = Array.prototype.map.call(arguments, scrubAnonymous);
+            var args = Array.prototype.map.call(arguments, function (a) {
+              if (typeof a === 'string') return scrubStr(a);
+              if (a && typeof a === 'object') return scrubErrorLike(a);
+              return a;
+            });
             return origWarn.apply(console, args);
           };
+
           window.addEventListener('error', function (e) {
-            if (e && e.error) scrubAnonymous(e.error);
+            try {
+              if (e && e.error) scrubErrorLike(e.error);
+              if (e && typeof e.message === 'string') e.message = scrubStr(e.message);
+              if (e && typeof e.filename === 'string') e.filename = scrubStr(e.filename);
+            } catch (_) {}
           });
           window.addEventListener('unhandledrejection', function (e) {
-            if (e && e.reason) scrubAnonymous(e.reason);
+            try {
+              if (e && e.reason) scrubErrorLike(e.reason);
+            } catch (_) {}
           });
         } catch (_) {}
 
-        // 2) Fetch interceptor: scrub /symbolicate payload
+        // --- Fetch interceptor: sanitize /symbolicate bodies -----------------
         try {
-          var origFetch = window.fetch;
+          var _origFetch = window.fetch;
           window.fetch = async function(input, init) {
             try {
-              var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
-              if (url && url.indexOf('/symbolicate') !== -1 && init && typeof init.body === 'string') {
+              var url = '';
+              if (typeof input === 'string') url = input;
+              else if (input && typeof input === 'object' && input.url) url = input.url;
+
+              var isSymbolicate = url.indexOf('/symbolicate') !== -1;
+
+              if (!isSymbolicate) {
+                return _origFetch(input, init);
+              }
+
+              // Determine body
+              var bodyText = null;
+              if (init && 'body' in init) {
+                bodyText = await readBodyAsText(init.body);
+              } else if (input && typeof input === 'object' && input.body) {
+                // Request object
                 try {
-                  var payload = JSON.parse(init.body);
-                  if (payload && Array.isArray(payload.stack)) {
-                    payload.stack = payload.stack.map(function (f) {
-                      if (f && typeof f.file === 'string') f.file = f.file.replace(/<anonymous>/g, 'anonymous');
-                      if (f && typeof f.methodName === 'string') f.methodName = f.methodName.replace(/<anonymous>/g, 'anonymous');
-                      return f;
-                    });
-                    var newInit = Object.assign({}, init, { body: JSON.stringify(payload) });
-                    return origFetch(input, newInit);
-                  }
+                  var cloned = input.clone();
+                  bodyText = await cloned.text();
                 } catch (_) {}
               }
-            } catch (_) {}
-            return origFetch(input, init);
+
+              if (bodyText) {
+                try {
+                  var payload = JSON.parse(bodyText);
+                  scrubPayload(payload);
+                  var newBody = JSON.stringify(payload);
+
+                  if (typeof input === 'string') {
+                    var newInit = Object.assign({}, init || {}, { body: newBody });
+                    return _origFetch(input, newInit);
+                  } else {
+                    var reqInit = buildInitFromRequest(input, newBody);
+                    return _origFetch(url, reqInit);
+                  }
+                } catch (_) {
+                  // fallthrough on parse errors
+                }
+              }
+
+              // No readable body or parsing failed: best-effort passthrough
+              return _origFetch(input, init);
+            } catch (_) {
+              return _origFetch(input, init);
+            }
           };
         } catch (_) {}
 
-        // 3) XHR interceptor: scrub /symbolicate payload
+        // --- XHR interceptor: sanitize /symbolicate bodies -------------------
         try {
-          var OrigXHR = window.XMLHttpRequest;
+          var XHR = window.XMLHttpRequest;
           function PatchedXHR() {
-            var xhr = new OrigXHR();
+            var xhr = new XHR();
             var _url = '';
-            var _method = '';
-            var _headers = {};
             var _send = xhr.send;
 
             xhr.open = function(method, url) {
-              _method = method || '';
               _url = url || '';
-              return OrigXHR.prototype.open.apply(xhr, arguments);
-            };
-
-            xhr.setRequestHeader = function(key, value) {
-              _headers[key.toLowerCase()] = value;
-              return OrigXHR.prototype.setRequestHeader.apply(xhr, arguments);
+              return XHR.prototype.open.apply(xhr, arguments);
             };
 
             xhr.send = function(body) {
               try {
-                if (_url && _url.indexOf('/symbolicate') !== -1 && typeof body === 'string') {
-                  try {
-                    var payload = JSON.parse(body);
-                    if (payload && Array.isArray(payload.stack)) {
-                      payload.stack = payload.stack.map(function (f) {
-                        if (f && typeof f.file === 'string') f.file = f.file.replace(/<anonymous>/g, 'anonymous');
-                        if (f && typeof f.methodName === 'string') f.methodName = f.methodName.replace(/<anonymous>/g, 'anonymous');
-                        return f;
-                      });
+                if (_url && _url.indexOf('/symbolicate') !== -1) {
+                  var text = body;
+                  // handle FormData/Blob minimalistically
+                  if (body && typeof body !== 'string') {
+                    // try to stringify if JSON-like
+                    try { text = JSON.stringify(body); } catch (_) {}
+                  }
+                  if (typeof text === 'string') {
+                    try {
+                      var payload = JSON.parse(text);
+                      scrubPayload(payload);
                       body = JSON.stringify(payload);
+                    } catch (_) {
+                      // non-JSON body; leave as-is
                     }
-                  } catch (_) {}
+                  }
                 }
               } catch (_) {}
               return _send.call(xhr, body);
