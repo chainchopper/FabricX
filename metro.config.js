@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require("@expo/metro-config");
+const { parse } = require("url");
 
 module.exports = (function () {
   const config = getDefaultConfig(__dirname);
@@ -17,9 +18,9 @@ module.exports = (function () {
   config.server.enhanceMiddleware = (middleware /* , server */) => {
     return (req, res, next) => {
       try {
-        const url = (req.url || "").toString();
-        if (req.method === "POST" && url.endsWith("/symbolicate")) {
-          // Collect body
+        const urlObj = parse(String(req.url || ""), true);
+        const pathname = String(urlObj.pathname || "");
+        if (req.method === "POST" && pathname.endsWith("/symbolicate")) {
           let raw = "";
           req.on("data", (chunk) => {
             raw += chunk;
@@ -37,27 +38,18 @@ module.exports = (function () {
               const sanitized = stack
                 .filter((f) => f && typeof f === "object")
                 .map((f) => {
-                  const file =
-                    typeof f.file === "string"
-                      ? f.file.replace(/<anonymous>/g, "anonymous")
-                      : f.file;
-                  const methodName =
-                    typeof f.methodName === "string"
-                      ? f.methodName.replace(/<anonymous>/g, "anonymous")
-                      : f.methodName;
-                  // Keep other fields, but ensure numbers are sane
-                  const lineNumber =
-                    typeof f.lineNumber === "number" && isFinite(f.lineNumber)
-                      ? f.lineNumber
-                      : 0;
-                  const column =
-                    typeof f.column === "number" && isFinite(f.column)
-                      ? f.column
-                      : 0;
-                  return { ...f, file, methodName, lineNumber, column };
+                  const safe = { ...f };
+                  if (typeof safe.file === "string") safe.file = safe.file.replace(/<anonymous>/g, "anonymous");
+                  if (typeof safe.fileName === "string") safe.fileName = safe.fileName.replace(/<anonymous>/g, "anonymous");
+                  if (typeof safe.methodName === "string") safe.methodName = safe.methodName.replace(/<anonymous>/g, "anonymous");
+                  if (typeof safe.stack === "string") safe.stack = safe.stack.replace(/<anonymous>/g, "anonymous");
+                  if (typeof safe.message === "string") safe.message = safe.message.replace(/<anonymous>/g, "anonymous");
+                  safe.lineNumber = typeof safe.lineNumber === "number" && isFinite(safe.lineNumber) ? safe.lineNumber : 0;
+                  safe.column = typeof safe.column === "number" && isFinite(safe.column) ? safe.column : 0;
+                  return safe;
                 });
 
-              // Respond with a shape Metro clients accept, without code frames
+              // Return a minimal valid response; no code frames to force Metro to avoid fs reads
               const response = { stack: sanitized, codeFrame: null };
               res.statusCode = 200;
               res.setHeader("Content-Type", "application/json");
