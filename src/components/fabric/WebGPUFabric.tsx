@@ -153,8 +153,8 @@ export default function WebGPUFabric({ width, height }: Props) {
         const cModule = device.createShaderModule({ code: computeWGSL });
         if (typeof (cModule as any).getCompilationInfo === "function") {
           const info = await (cModule as GPUShaderModule).getCompilationInfo();
-          const errs = info?.messages?.filter((m: GPUCompilationMessage) => m.type === "error") ?? [];
-          if (errs.length) console.warn("WGSL compute errors:", errs.map((m) => m.message).join("\n"));
+          const errs = (info?.messages ?? []).filter((m: any) => m.type === "error");
+          if (errs.length) console.warn("WGSL compute errors:", errs.map((m: any) => m.message).join("\n"));
         }
         computePipelineRef.current = device.createComputePipeline({
           layout: "auto",
@@ -170,8 +170,8 @@ export default function WebGPUFabric({ width, height }: Props) {
         const rModule = device.createShaderModule({ code: renderWGSL });
         if (typeof (rModule as any).getCompilationInfo === "function") {
           const info = await (rModule as GPUShaderModule).getCompilationInfo();
-          const errs = info?.messages?.filter((m: GPUCompilationMessage) => m.type === "error") ?? [];
-          if (errs.length) console.warn("WGSL render errors:", errs.map((m) => m.message).join("\n"));
+          const errs = (info?.messages ?? []).filter((m: any) => m.type === "error");
+          if (errs.length) console.warn("WGSL render errors:", errs.map((m: any) => m.message).join("\n"));
         }
         renderPipelineRef.current = device.createRenderPipeline({
           layout: "auto",
@@ -297,7 +297,7 @@ export default function WebGPUFabric({ width, height }: Props) {
       };
     })();
 
-  return () => {
+    return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (host && canvasRef.current) {
         try { host.removeChild(canvasRef.current); } catch {}

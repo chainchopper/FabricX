@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, TextInput, Platform } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useHaptics } from "../hooks/useHaptics";
@@ -6,7 +6,6 @@ import { useToast } from "./Toast";
 import { useAR } from "../context/ARContext";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
-import { loadTracks } from "../../src/components/audio/tracks";
 
 function slugRoom(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "main";
@@ -42,24 +41,9 @@ export default function ExperienceControls() {
   const s = experienceConfig.specific as any;
 
   const ambienceEnabled = Boolean(s?.ambienceEnabled ?? false);
-  // Store name only (e.g., "ambience", "A4", "C5")
+  // Preset names (Web Audio generated; no files required)
+  const trackList = ["ambience", "A4", "C5"];
   const ambienceName = String(s?.ambienceFile ?? "ambience");
-  const [trackList, setTrackList] = useState<string[]>(["ambience"]);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const tracks = await loadTracks();
-        if (alive) setTrackList(tracks.map((t) => t.name));
-      } catch {
-        if (alive) setTrackList(["ambience"]);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const toggleAmbience = () => {
     updateConfig({ specific: { ...experienceConfig.specific, ambienceEnabled: !ambienceEnabled } });
@@ -277,7 +261,7 @@ export default function ExperienceControls() {
             })}
           </View>
           <Text style={{ color: "#9ca3af", fontSize: 11 }}>
-            Tracks are bundled locally; no network needed.
+            Generated with Web Audio — no downloads required.
           </Text>
         </View>
       ) : null}

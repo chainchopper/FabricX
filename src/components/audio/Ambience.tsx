@@ -1,86 +1,115 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
-import { loadTracks } from "./tracks";
+
+type Preset = "ambience" | "A4" | "C5";
 
 export default function Ambience() {
   if (Platform.OS !== "web") return null;
 
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
-  const isDefaultFluid = activeExperience?.id === "default-fluid";
 
-  // Read toggles/names from config; default track is "ambience"
+  const isDefaultFluid = activeExperience?.id === "default-fluid";
   const s = (experienceConfig.specific as Record<string, unknown>) || {};
   const enabled = Boolean((s.ambienceEnabled as boolean) ?? false);
-  const chosenName = String((s.ambienceFile as string) || "ambience");
+  const chosenName = String((s.ambienceFile as string) || "ambience") as Preset;
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const oscRef = useRef<OscillatorNode | null>(null);
+  const lfoRef = useRef<OscillatorNode | null>(null);
+  const lfoGainRef = useRef<GainNode | null>(null);
   const rafRef = useRef<number | null>(null);
 
-  // mount / cleanup
+  const ensureCtx = () => {
+    if (!ctxRef.current) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const AC: typeof AudioContext | undefined = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AC) return null;
+      ctxRef.current = new AC();
+    }
+    return ctxRef.current;
+  };
+
+  const targetForPreset = (p: Preset) => {
+    if (p === "A4") return { baseFreq: 440, type: "triangle" as OscillatorType, lfoHz: 0.2, lfoDepth: 4 };
+    if (p === "C5") return { baseFreq: 523.25, type: "sine" as OscillatorType, lfoHz: 0.25, lfoDepth: 5 };
+    return { baseFreq: 155, type: "sine" as OscillatorType, lfoHz: 0.12, lfoDepth: 18 };
+  };
+
   useEffect(() => {
     if (!isDefaultFluid) return;
-    let cancelled = false;
-    const el = new Audio();
-    el.loop = false;
-    el.preload = "auto";
-    el.volume = 0;
-    audioRef.current = el;
 
-    const start = async () => {
-      try {
-        const tracks = await loadTracks();
-        const current = tracks.find((t) => t.name === chosenName) ?? tracks[0];
-        if (!current) return;
-        el.src = current.uri;
+    const ctx = ensureCtx();
+    if (!ctx) return;
 
-        if (enabled) {
-          await el.play().catch(() => {});
-        }
-        const loop = () => {
-          if (cancelled || !audioRef.current) return;
-          const a = audioRef.current;
-          const maxVol = 0.72;
+    if (!gainRef.current) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.connect(ctx.destination);
+      gainRef.current = g;
+    }
 
-          // Fade up/down depending on enabled
-          if (enabled) {
-            a.volume = Math.min(maxVol, a.volume + 0.01);
-          } else {
-            a.volume = Math.max(0, a.volume - 0.02);
-            if (a.volume === 0 && !a.paused) a.pause();
-          }
+    const { baseFreq, type, lfoHz, lfoDepth } = targetForPreset(chosenName);
 
-          // If near end, fade and restart (soft loop)
-          const remain = isFinite(a.duration) && a.duration > 0 ? a.duration - a.currentTime : 9999;
-          if (remain < 1.5 && enabled) {
-            a.volume = Math.max(0, a.volume - 0.02);
-            if (remain <= 0.05) {
-              a.currentTime = 0;
-              if (a.paused) void a.play().catch(() => {});
-            }
-          }
-          rafRef.current = requestAnimationFrame(loop);
-        };
-        rafRef.current = requestAnimationFrame(loop);
-      } catch {
-        // ignore
-      }
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = baseFreq;
+
+    const lfo = ctx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = lfoHz;
+
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = lfoDepth;
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    osc.connect(gainRef.current!);
+
+    oscRef.current = osc;
+    lfoRef.current = lfo;
+    lfoGainRef.current = lfoGain;
+
+    try { osc.start(); } catch {}
+    try { lfo.start(); } catch {}
+
+    const loop = () => {
+      if (!gainRef.current) return;
+      const current = gainRef.current.gain.value;
+      const target = enabled ? 0.35 : 0.0;
+      const next = current + (target - current) * 0.04;
+      gainRef.current.gain.value = Math.max(0, Math.min(0.72, next));
+      rafRef.current = requestAnimationFrame(loop);
     };
-    void start();
+    rafRef.current = requestAnimationFrame(loop);
+
+    if (enabled) {
+      void ctx.resume().catch(() => {});
+    }
 
     return () => {
-      cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (audioRef.current) {
-        try {
-          audioRef.current.pause();
-        } catch {}
-        audioRef.current.src = "";
-      }
-      audioRef.current = null;
+      rafRef.current = null;
+
+      try { lfo.stop(); } catch {}
+      try { osc.stop(); } catch {}
+
+      try { lfo.disconnect(); } catch {}
+      try { lfoGain.disconnect(); } catch {}
+      try { osc.disconnect(); } catch {}
+
+      lfoRef.current = null;
+      lfoGainRef.current = null;
+      oscRef.current = null;
     };
-  }, [isDefaultFluid, chosenName, enabled]);
+  }, [isDefaultFluid, enabled, chosenName]);
+
+  // Keep AudioContext alive across unmounts for user-gesture unlock persistence
+  useEffect(() => {
+    return () => {};
+  }, []);
 
   return null;
 }
