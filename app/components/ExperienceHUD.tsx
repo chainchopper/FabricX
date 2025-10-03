@@ -6,18 +6,19 @@ import { useMIDI } from "../../src/hooks/useMIDI";
 import { getAudioReactive } from "../../src/shared/utils/audioReactive";
 
 export default function ExperienceHUD() {
+  // Platform const guard is safe; never changes across renders
   if (Platform.OS !== "web") return null;
 
+  // Call hooks unconditionally and in stable order
   const { state } = useExperience();
-  const { activeExperience, experienceConfig } = state;
   const { isARCameraActive } = useAR();
-
-  if (!activeExperience) return null;
-
-  // Always call hooks (web-only component)
   const midi = useMIDI();
+
+  const activeExperience = state.activeExperience;
+  const experienceConfig = state.experienceConfig;
+
+  const isARPiano = activeExperience?.id === "ar-piano";
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
-  const isARPiano = activeExperience.id === "ar-piano";
   const activeNotes = isARPiano && midiEnabled ? midi.activeNotes : [];
 
   const audioReactiveEnabled = Boolean((experienceConfig.specific as any)?.audioReactiveEnabled ?? false);
@@ -41,9 +42,11 @@ export default function ExperienceHUD() {
       }}
     >
       <Text style={{ color: "#e5e7eb", fontWeight: "800" }}>
-        {activeExperience.name}
+        {activeExperience?.name ?? "—"}
       </Text>
-      <Text style={{ color: "#93c5fd", fontSize: 11 }}>{activeExperience.type}</Text>
+      <Text style={{ color: "#93c5fd", fontSize: 11 }}>
+        {activeExperience?.type ?? "no-experience"}
+      </Text>
       {isARCameraActive ? (
         <Text style={{ color: "#34d399", fontSize: 11, marginTop: 2 }}>AR On</Text>
       ) : null}
@@ -52,14 +55,12 @@ export default function ExperienceHUD() {
           MIDI {midiEnabled ? "On" : "Off"}{midiEnabled ? ` • ${activeNotes.length} notes` : ""}
         </Text>
       ) : null}
-      {/* Audio reactivity chip */}
       {audioReactiveEnabled ? (
         <View style={{ marginTop: 6 }}>
           <Text style={{ color: "#22d3ee", fontSize: 11, marginBottom: 2 }}>Mic Reactive</Text>
           <View style={{ width: 140, height: 6, borderRadius: 6, backgroundColor: "rgba(148,163,184,0.35)", overflow: "hidden", marginBottom: 6 }}>
             <View style={{ width: `${Math.round(Math.min(1, Math.max(0, audio.energy)) * 100)}%`, height: "100%", backgroundColor: "#22d3ee" }} />
           </View>
-          {/* Bass/Mid/Treble */}
           <View style={{ flexDirection: "row", gap: 6 }}>
             {[
               { label: "B", value: audio.bass, color: "#60a5fa" },

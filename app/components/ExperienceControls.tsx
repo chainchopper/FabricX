@@ -16,18 +16,25 @@ type MidiCurve = "soft" | "linear" | "hard";
 type HueMap = "chromatic" | "fifths";
 
 export default function ExperienceControls() {
+  // Always call hooks in stable order
   const { state, updateConfig } = useExperience();
-  const { activeExperience, experienceConfig } = state;
+  const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
+  const { enable: enableAR, disable: disableAR, setSensitivity } = useAudioReactive();
   const haptics = useHaptics();
   const toast = useToast();
-  const { isARCameraActive, enableARCamera, disableARCamera } = useAR();
+
+  const activeExperience = state.activeExperience;
+  const experienceConfig = state.experienceConfig;
 
   const [roomDraft, setRoomDraft] = useState<string>(() => {
     const s = experienceConfig.specific as any;
     return (s?.roomId as string) || "main";
   });
 
-  if (!activeExperience) return null;
+  // If no active experience, render nothing (but hooks above already ran)
+  if (!activeExperience) {
+    return null;
+  }
 
   // Rendering mode
   const renderMode = (experienceConfig.common as any)?.renderMode ?? "default";
@@ -171,10 +178,9 @@ export default function ExperienceControls() {
     toast.show("Invite link copied");
   };
 
-  // Audio Reactive (web-only)
+  // Audio Reactive (web-only controller is already hooked; now drive config)
   const audioReactiveEnabled = Boolean((s?.audioReactiveEnabled as boolean) ?? false);
   const audioReactiveSensitivity = Number.isFinite(s?.audioReactiveSensitivity) ? Number(s?.audioReactiveSensitivity) : 1;
-  const { enable: enableAR, disable: disableAR, setSensitivity } = useAudioReactive();
 
   const toggleAudioReactive = async () => {
     const next = !audioReactiveEnabled;
@@ -207,7 +213,7 @@ export default function ExperienceControls() {
     toast.show(`Mic sensitivity: ${v.toFixed(1)}x`);
   };
 
-  // New: Beat ripples + particle reactivity toggles / intensities
+  // Beat ripples + particle reactivity toggles / intensities
   const beatRipples = Boolean((s?.audioBeatRipples as boolean) ?? true);
   const beatRippleIntensity = Number.isFinite(s?.audioBeatRippleIntensity) ? Number(s?.audioBeatRippleIntensity) : 1;
   const setBeatRipples = (v: boolean) => {
@@ -521,19 +527,19 @@ export default function ExperienceControls() {
           {/* Beat ripples */}
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
             <Pressable
-              onPress={() => setBeatRipples(!beatRipples)}
+              onPress={() => setBeatRipples(!Boolean(s?.audioBeatRipples ?? true))}
               style={{
                 paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-                borderColor: beatRipples ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
-                backgroundColor: beatRipples ? "rgba(16,185,129,0.18)" : "transparent",
+                borderColor: (s?.audioBeatRipples ?? true) ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
+                backgroundColor: (s?.audioBeatRipples ?? true) ? "rgba(16,185,129,0.18)" : "transparent",
               }}
             >
-              <Text style={{ color: beatRipples ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                Beat Ripples: {beatRipples ? "On" : "Off"}
+              <Text style={{ color: (s?.audioBeatRipples ?? true) ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                Beat Ripples: {(s?.audioBeatRipples ?? true) ? "On" : "Off"}
               </Text>
             </Pressable>
             {[0.7, 1.0, 1.4].map((v) => {
-              const active = Math.abs((beatRippleIntensity ?? 1) - v) < 0.001;
+              const active = Math.abs(((s?.audioBeatRippleIntensity ?? 1) as number) - v) < 0.001;
               return (
                 <Pressable
                   key={v}
@@ -555,19 +561,19 @@ export default function ExperienceControls() {
           {/* Particle reactivity */}
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
             <Pressable
-              onPress={() => setAudioParticleEnabled(!audioParticleEnabled)}
+              onPress={() => setAudioParticleEnabled(!Boolean(s?.audioParticleEnabled ?? true))}
               style={{
                 paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
-                borderColor: audioParticleEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
-                backgroundColor: audioParticleEnabled ? "rgba(16,185,129,0.18)" : "transparent",
+                borderColor: (s?.audioParticleEnabled ?? true) ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
+                backgroundColor: (s?.audioParticleEnabled ?? true) ? "rgba(16,185,129,0.18)" : "transparent",
               }}
             >
-              <Text style={{ color: audioParticleEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                Particles: {audioParticleEnabled ? "Reactive" : "Static"}
+              <Text style={{ color: (s?.audioParticleEnabled ?? true) ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                Particles: {(s?.audioParticleEnabled ?? true) ? "Reactive" : "Static"}
               </Text>
             </Pressable>
             {[0.7, 1.0, 1.4].map((v) => {
-              const active = Math.abs((audioParticleIntensity ?? 1) - v) < 0.001;
+              const active = Math.abs(((s?.audioParticleIntensity ?? 1) as number) - v) < 0.001;
               return (
                 <Pressable
                   key={v}
