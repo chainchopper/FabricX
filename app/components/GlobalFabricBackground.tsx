@@ -9,6 +9,7 @@ import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { eventBus } from "../../shared/utils/eventBus";
 import ConnectionBadge from "./ConnectionBadge";
 import ConnectionToasts from "./ConnectionToasts";
+import FPSMeter from "./FPSMeter";
 
 export default function GlobalFabricBackground() {
   const { close } = useOverlays();
@@ -40,6 +41,7 @@ export default function GlobalFabricBackground() {
         <ExperienceHUD />
         <ARStatus />
         <ConnectionBadge />
+        <FPSMeter />
         <ConnectionToasts />
       </View>
     );

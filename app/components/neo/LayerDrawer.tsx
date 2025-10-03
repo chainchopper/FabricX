@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Image, Pressable, Text, View } from "react-native";
+import { Animated, Easing, Image, Pressable, Text, View, Platform } from "react-native";
 import { useExperience } from "../../context/ExperienceContext";
 import LayerControls from "../LayerControls";
 import { useHaptics } from "../../hooks/useHaptics";
@@ -64,6 +64,31 @@ export default function LayerDrawer() {
     await switchExperience(id);
     haptics.notifySuccess();
     toast.show(`Switched to ${name}`);
+  };
+
+  const saveSnapshot = () => {
+    if (Platform.OS !== "web") {
+      toast.show("Snapshots are web-only for now");
+      return;
+    }
+    const main = document.getElementById("fabric-canvas") as HTMLCanvasElement | null;
+    if (!main) {
+      toast.show("Canvas not ready");
+      return;
+    }
+    try {
+      const url = main.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fabric-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      haptics.notifySuccess();
+      toast.show("Snapshot saved");
+    } catch {
+      toast.show("Snapshot failed");
+    }
   };
 
   return (
@@ -143,6 +168,23 @@ export default function LayerDrawer() {
               <Text style={{ color: "#9ca3af" }}>Preview loading…</Text>
             )}
           </View>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+          <Pressable
+            onPress={saveSnapshot}
+            style={{
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "rgba(34,211,238,0.6)",
+              backgroundColor: "rgba(2,132,199,0.18)",
+            }}
+          >
+            <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Save Snapshot</Text>
+          </Pressable>
         </View>
 
         {/* Layers list */}
