@@ -6,6 +6,7 @@ import { useToast } from "./Toast";
 import { useAR } from "../context/ARContext";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
+import { loadTracks } from "../../src/components/audio/tracks";
 
 function slugRoom(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "main";
@@ -41,24 +42,23 @@ export default function ExperienceControls() {
   const s = experienceConfig.specific as any;
 
   const ambienceEnabled = Boolean(s?.ambienceEnabled ?? false);
-  const ambienceFile = String(s?.ambienceFile ?? "ambience.mp3");
-  const [trackList, setTrackList] = useState<string[]>(["ambience.mp3"]);
+  // Store name only (e.g., "ambience", "A4", "C5")
+  const ambienceName = String(s?.ambienceFile ?? "ambience");
+  const [trackList, setTrackList] = useState<string[]>(["ambience"]);
 
   useEffect(() => {
     let alive = true;
-    if (Platform.OS !== "web") return;
     (async () => {
       try {
-        const res = await fetch("/audio/manifest.json");
-        if (res.ok) {
-          const list = (await res.json()) as string[];
-          if (Array.isArray(list) && list.length > 0 && alive) setTrackList(list);
-        }
+        const tracks = await loadTracks();
+        if (alive) setTrackList(tracks.map((t) => t.name));
       } catch {
-        // leave default single track
+        if (alive) setTrackList(["ambience"]);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const toggleAmbience = () => {
@@ -69,7 +69,7 @@ export default function ExperienceControls() {
   const setAmbienceFile = (name: string) => {
     updateConfig({ specific: { ...experienceConfig.specific, ambienceFile: name } });
     haptics.impactLight();
-    toast.show(`Ambience track: ${name.replace(/\.[^/.]+$/, "")}`);
+    toast.show(`Ambience track: ${name}`);
   };
 
   // Fluid/camera checks
@@ -254,13 +254,12 @@ export default function ExperienceControls() {
               </Text>
             </Pressable>
 
-            {trackList.map((t) => {
-              const active = ambienceFile === t;
-              const label = t.replace(/\.[^/.]+$/, "");
+            {trackList.map((name) => {
+              const active = ambienceName === name;
               return (
                 <Pressable
-                  key={t}
-                  onPress={() => setAmbienceFile(t)}
+                  key={name}
+                  onPress={() => setAmbienceFile(name)}
                   style={{
                     paddingVertical: 6,
                     paddingHorizontal: 10,
@@ -270,13 +269,15 @@ export default function ExperienceControls() {
                     backgroundColor: active ? "rgba(2,132,199,0.22)" : "transparent",
                   }}
                 >
-                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>{label}</Text>
+                  <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
+                    {name}
+                  </Text>
                 </Pressable>
               );
             })}
           </View>
           <Text style={{ color: "#9ca3af", fontSize: 11 }}>
-            Place .mp3 files in /audio and optionally provide /audio/manifest.json listing filenames.
+            Tracks are bundled locally; no network needed.
           </Text>
         </View>
       ) : null}

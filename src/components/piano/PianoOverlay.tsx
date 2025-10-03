@@ -28,9 +28,8 @@ export default function PianoOverlay({
     let mounted = true;
     (async () => {
       try {
-        // Keep relative path; Metro/Expo will fingerprint and host it
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const moduleId = require("../../../piano/public/models/MIDI to Keyframe - Piano Template - Web V5.glb");
+        const moduleId = require("../../../app/assets/models/piano_v5.glb");
         const asset = Asset.fromModule(moduleId);
         if (!asset.downloaded) {
           await asset.downloadAsync();
