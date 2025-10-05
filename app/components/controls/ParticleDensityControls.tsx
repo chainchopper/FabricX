@@ -10,6 +10,7 @@ export default function ParticleDensityControls() {
   const toast = useToast();
 
   const density = Number(state.experienceConfig.common?.particleDensity ?? 0.6);
+
   const setParticleDensity = (v: number) => {
     updateConfig({ common: { ...state.experienceConfig.common, particleDensity: v } });
     haptics.impactLight();
