@@ -1,10 +1,10 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { Animated, Pressable, Text, TextInput, View, Platform, ScrollView } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 import { useExperience } from "../../context/ExperienceContext";
 import { useFabricChat } from "../../../src/hooks/useFabricChat";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../../shared/utils/realtimeStatus";
-import { useEffect } from "react";
+import { peerColor } from "../../../shared/utils/peerColor";
 
 export default function FriendsDrawer() {
   const { back, getAnim } = useNewDrawers();
@@ -35,7 +35,6 @@ export default function FriendsDrawer() {
 
   const scrollRef = useRef<ScrollView | null>(null);
   useEffect(() => {
-    // Auto scroll on new message
     const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
     return () => clearTimeout(t);
   }, [chat.messages.length]);
@@ -59,7 +58,6 @@ export default function FriendsDrawer() {
     </View>
   );
 
-  // Native fallback
   if (Platform.OS !== "web") {
     return (
       <Animated.View
@@ -92,7 +90,6 @@ export default function FriendsDrawer() {
     );
   }
 
-  // Web UI
   return (
     <Animated.View
       pointerEvents="box-none"
@@ -117,14 +114,49 @@ export default function FriendsDrawer() {
       >
         <Title />
 
-        {/* Room/Peers */}
+        {/* Room / Transport */}
         <View style={{ marginBottom: 12 }}>
           <Text style={{ color: "#93c5fd" }}>Room: {roomId}</Text>
           <Text style={{ color: "#e5e7eb", marginTop: 4 }}>
             Transport: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"} • Peers: {rt.peers ?? 0}
           </Text>
+          {/* Peer color chips */}
           {peers.length > 0 ? (
-            <Text style={{ color: "#9ca3af", fontSize: 12, marginTop: 2 }}>Peer IDs: {peers.join(", ")}</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              {peers.map((id) => {
+                const clr = peerColor(id);
+                return (
+                  <View
+                    key={id}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      paddingVertical: 4,
+                      paddingHorizontal: 8,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: "rgba(148,163,184,0.35)",
+                      backgroundColor: "rgba(2,8,23,0.5)",
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 6,
+                        backgroundColor: clr,
+                        borderWidth: 1,
+                        borderColor: "rgba(0,0,0,0.35)",
+                      }}
+                    />
+                    <Text style={{ color: "#cbd5e1", fontSize: 12 }} numberOfLines={1}>
+                      {id}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
           ) : null}
         </View>
 

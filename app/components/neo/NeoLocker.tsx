@@ -2,7 +2,16 @@ import React from "react";
 import { Animated, Pressable, Text, View } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 import ExperienceSwitch from "../ExperienceSwitch";
+// Keep full ExperienceControls for advanced options
 import ExperienceControls from "../ExperienceControls";
+
+// Modular quick-controls
+import AmbienceControls from "../controls/AmbienceControls";
+import MusicControls from "../controls/MusicControls";
+import BackgroundControls from "../controls/BackgroundControls";
+import AudioVolumeControls from "../controls/AudioVolumeControls";
+import ParticleDensityControls from "../controls/ParticleDensityControls";
+import FluidQualityControls from "../controls/FluidQualityControls";
 
 export default function NeoLocker() {
   const { back, getAnim } = useNewDrawers();
@@ -54,8 +63,32 @@ export default function NeoLocker() {
           Modern panel • Independent controls
         </Text>
 
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 12, paddingBottom: 80 }}>
+          {/* Experience selection */}
           <ExperienceSwitch />
+
+          {/* Quick Controls section */}
+          <View
+            style={{
+              marginTop: 6,
+              padding: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: "rgba(34,211,238,0.25)",
+              backgroundColor: "rgba(2,8,23,0.5)",
+              gap: 12,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "800" }}>Quick Controls</Text>
+            <BackgroundControls />
+            <AudioVolumeControls />
+            <ParticleDensityControls />
+            <FluidQualityControls />
+            <AmbienceControls />
+            <MusicControls />
+          </View>
+
+          {/* Advanced controls keep everything else (AR camera, rendering mode, MIDI, room, etc.) */}
           <ExperienceControls />
         </View>
 
