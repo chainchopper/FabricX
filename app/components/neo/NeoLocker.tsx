@@ -15,6 +15,10 @@ import AudioVolumeControls from "../controls/AudioVolumeControls";
 import ParticleDensityControls from "../controls/ParticleDensityControls";
 import FluidQualityControls from "../controls/FluidQualityControls";
 
+// New feature drawers
+import SwarmControlDrawer from "./SwarmControlDrawer";
+import SocialFeedDrawer from "./SocialFeedDrawer";
+
 export default function NeoLocker() {
   const { back, getAnim } = useNewDrawers();
   const { tx, width } = getAnim("neo");
@@ -143,49 +147,9 @@ export default function NeoLocker() {
             </View>
           )}
 
-          {activeTab === "social" && (
-            <View style={{ gap: 12 }}>
-              <View
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: "rgba(34,211,238,0.25)",
-                  backgroundColor: "rgba(2,8,23,0.5)",
-                }}
-              >
-                <Text style={{ color: "white", fontWeight: "800", marginBottom: 8 }}>Social Broadcasting</Text>
-                <Text style={{ color: "#93c5fd", fontSize: 13, marginBottom: 12 }}>
-                  Connect with influencers and receive live experiences
-                </Text>
-                <Text style={{ color: "#9ca3af", fontSize: 12 }}>
-                  🚀 Coming soon: Subscribe to creators and receive personalized lighting, vibrations, and messages on your Fabric devices
-                </Text>
-              </View>
-            </View>
-          )}
+          {activeTab === "social" && <SocialFeedDrawer />}
 
-          {activeTab === "swarm" && (
-            <View style={{ gap: 12 }}>
-              <View
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: "rgba(34,211,238,0.25)",
-                  backgroundColor: "rgba(2,8,23,0.5)",
-                }}
-              >
-                <Text style={{ color: "white", fontWeight: "800", marginBottom: 8 }}>Swarm Mode</Text>
-                <Text style={{ color: "#93c5fd", fontSize: 13, marginBottom: 12 }}>
-                  Coordinate multiple S3 Matrix devices
-                </Text>
-                <Text style={{ color: "#9ca3af", fontSize: 12 }}>
-                  📡 Coming soon: Assign node numbers, broadcast patterns, and display words across multiple devices simultaneously
-                </Text>
-              </View>
-            </View>
-          )}
+          {activeTab === "swarm" && <SwarmControlDrawer />}
         </ScrollView>
 
         {/* Footer */}
