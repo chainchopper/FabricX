@@ -36,10 +36,21 @@ Agents
 - VideoTexture correctness; smooth transitions with curtain fade
 - Acceptance: camera/AR toggle is stable; no black frames; accurate capability cleanup
 
-7) Input/Devices Agent (Future)
-- Scaffold InputOrchestrator and adapters (Bluetooth/Serial/WebSocket/Camera/Biometrics)
-- Define transformation rules → fabric outputs; no heavy deps without approval
-- Acceptance: additive scaffolding only; disabled by default; no regressions
+7) Input/Devices Agent
+- Implement InputOrchestrator and adapters (Serial/WebSocket/Bluetooth)
+- Define transformation rules → fabric outputs
+- Acceptance: Microcontroller integration complete; ESP32 firmware ready; UI functional
+
+**Status: CORE IMPLEMENTATION COMPLETE** ✓
+- InputOrchestrator with device management ✓
+- SerialAdapter (Web Serial API) ✓
+- WebSocketAdapter (WiFi devices) ✓
+- SensorToFluidMapper for data transformation ✓
+- Device Manager UI (web & native stubs) ✓
+- ESP32-S3 Matrix reference firmware ✓
+- OTA update support ✓
+- Comprehensive documentation ✓
+- Testing on hardware: Pending
 
 8) Marketplace/Layer SDK Agent (Future)
 - Define LayerSDK surface for safe, sandboxed extensions
