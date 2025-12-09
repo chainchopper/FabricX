@@ -181,7 +181,9 @@ export class SwarmManager {
     this.isProcessing = true;
     
     while (this.messageQueue.length > 0) {
-      const message = this.messageQueue.shift()!;
+      const message = this.messageQueue.shift();
+      if (!message) break;
+      
       await this.deliverMessage(message);
       
       // Small delay to prevent overwhelming devices
@@ -248,7 +250,7 @@ export class SwarmManager {
         [0, 0, 0, 0, 0, 0, 0, 0],
       ],
       // Add more letters as needed...
-      " ": Array(8).fill(Array(8).fill(0)),
+      " ": Array(8).fill(null).map(() => Array(8).fill(0)),
     };
     
     return patterns[letter] || patterns[" "];
@@ -277,8 +279,8 @@ export class SwarmManager {
 }
 
 // React hook for swarm management
-import { useState, useEffect, useRef } from "react";
-import { useDeviceManager } from "../../hooks/useDeviceManager";
+import { useState, useEffect } from "react";
+import { useDeviceManager } from "./useDeviceManager";
 
 export function useSwarmManager(hostId: string = "fabric-host") {
   const [swarmManager] = useState(() => new SwarmManager(hostId));

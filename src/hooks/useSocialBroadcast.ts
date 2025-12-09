@@ -112,7 +112,7 @@ export class SocialBroadcastManager {
     }
     
     const event: BroadcastEvent = {
-      id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `event-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       influencerId,
       timestamp: Date.now(),
       ...eventData,

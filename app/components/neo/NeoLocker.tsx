@@ -34,7 +34,7 @@ export default function NeoLocker() {
 
   const handleBackPress = () => {
     haptics.impactLight();
-    audio.back();
+    audio.click();
     back();
   };
 
