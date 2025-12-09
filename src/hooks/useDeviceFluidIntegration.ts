@@ -30,7 +30,14 @@ export function useDeviceFluidIntegration({
     }
   }, [mapperConfig]);
 
-  // Handle incoming sensor data
+  // Use ref for onInteraction callback to avoid subscription churn
+  const onInteractionRef = useRef(onInteraction);
+  
+  useEffect(() => {
+    onInteractionRef.current = onInteraction;
+  }, [onInteraction]);
+
+  // Handle incoming sensor data - stable callback
   const handleSensorData = useCallback(
     (data: SensorData, deviceId: string) => {
       if (!enabled) return;
@@ -38,10 +45,10 @@ export function useDeviceFluidIntegration({
       const interaction = mapperRef.current.map(data, userId);
       if (interaction) {
         setLastInteraction(interaction);
-        onInteraction?.(interaction);
+        onInteractionRef.current?.(interaction);
       }
     },
-    [enabled, userId, onInteraction]
+    [enabled, userId]
   );
 
   // Subscribe to device data

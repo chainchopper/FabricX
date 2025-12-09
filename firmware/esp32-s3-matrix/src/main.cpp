@@ -254,6 +254,8 @@ void setupWiFi() {
   // Try to connect with saved credentials or start AP
   String apName = String(DEVICE_NAME) + "_" + String((uint32_t)ESP.getEfuseMac(), HEX);
   
+  // SECURITY NOTE: Change default password for production use!
+  // Consider generating device-specific passwords or requiring setup
   if (!wm.autoConnect(apName.c_str(), "fabricx123")) {
     Serial.println("Failed to connect, restarting...");
     delay(3000);
@@ -275,6 +277,7 @@ void setupWiFi() {
  */
 void setupOTA() {
   ArduinoOTA.setHostname(DEVICE_NAME);
+  // SECURITY NOTE: Change default password for production use!
   ArduinoOTA.setPassword("fabricx123");
   
   ArduinoOTA.onStart([]() {

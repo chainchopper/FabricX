@@ -9,6 +9,9 @@ export interface MapperConfig {
   fixedColor?: { r: number; g: number; b: number };
   enableAccel: boolean;
   enableGyro: boolean;
+  accelerationThreshold?: number; // m/s^2, default 1.0
+  tempMin?: number;              // Celsius, default 15
+  tempMax?: number;              // Celsius, default 40
 }
 
 export class SensorToFluidMapper {
@@ -18,6 +21,9 @@ export class SensorToFluidMapper {
     colorMapping: "velocity",
     enableAccel: true,
     enableGyro: false,
+    accelerationThreshold: 1.0,
+    tempMin: 15,
+    tempMax: 40,
   };
 
   private lastAccel = { x: 0, y: 0, z: 0 };
@@ -74,7 +80,7 @@ export class SensorToFluidMapper {
     );
 
     // Threshold: only create interaction if acceleration is significant
-    const threshold = 1.0; // m/s^2 (Earth's gravity ~9.8 m/s^2)
+    const threshold = this.config.accelerationThreshold || 1.0; // m/s^2
     if (accelMag < threshold) {
       return null;
     }
@@ -174,7 +180,9 @@ export class SensorToFluidMapper {
 
     if (this.config.colorMapping === "temperature" && temp !== undefined) {
       // Map temperature to color (blue = cold, red = hot)
-      const normalizedTemp = Math.max(0, Math.min(1, (temp - 15) / 25)); // 15-40°C range
+      const tempMin = this.config.tempMin || 15;
+      const tempMax = this.config.tempMax || 40;
+      const normalizedTemp = Math.max(0, Math.min(1, (temp - tempMin) / (tempMax - tempMin)));
       const hue = (1 - normalizedTemp) * 240; // 240=blue, 0=red
       return this.hsvToRgb(hue, 1.0, 1.0);
     }

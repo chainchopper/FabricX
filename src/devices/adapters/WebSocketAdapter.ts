@@ -95,10 +95,14 @@ export class WebSocketAdapter extends BaseDeviceAdapter {
   }
 
   async disconnect(): Promise<void> {
+    // Stop reconnection attempts
     if (this.reconnectTimer) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    
+    // Reset reconnection counter to prevent further attempts
+    this.reconnectAttempts = this.maxReconnectAttempts;
 
     if (this.ws) {
       // Send disconnect message before closing
@@ -117,7 +121,6 @@ export class WebSocketAdapter extends BaseDeviceAdapter {
     }
 
     this.device = null;
-    this.reconnectAttempts = 0;
 
     this.notifyStatusChange({
       connected: false,
