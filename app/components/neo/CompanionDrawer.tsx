@@ -70,7 +70,7 @@ export default function CompanionDrawer() {
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "I understand you want to " + input + ". Let me help you with that. [This is a demo response - real AI integration coming soon!]",
+        content: `I understand you want to ${input}. Let me help you with that. [This is a demo response - real AI integration coming soon!]`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiMsg]);

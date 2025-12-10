@@ -3,6 +3,7 @@ import { Animated, Pressable, Text, View, ScrollView } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
+import { formatRelativeTime } from "../../utils/timeFormatters";
 
 interface Asset {
   id: string;
@@ -101,6 +102,12 @@ export default function WalletDrawer() {
     setActiveTab(tab);
   };
 
+  const formatAssetValue = (asset: Asset) => {
+    if (asset.currency === "credits") return `💎 ${asset.value}`;
+    if (asset.currency === "usd") return `$${asset.value}`;
+    return `${asset.value} ${asset.currency.toUpperCase()}`;
+  };
+  
   const formatDate = (date: Date) => {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
@@ -325,9 +332,7 @@ export default function WalletDrawer() {
                   </View>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                     <Text style={{ color: "#22d3ee", fontWeight: "600" }}>
-                      {asset.currency === "credits" ? `💎 ${asset.value}` : 
-                       asset.currency === "usd" ? `$${asset.value}` :
-                       `${asset.value} ${asset.currency.toUpperCase()}`}
+                      {formatAssetValue(asset)}
                     </Text>
                     <Pressable
                       onPress={() => { haptics.impactLight(); audio.click(); }}
@@ -365,7 +370,7 @@ export default function WalletDrawer() {
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: "white", fontWeight: "600", fontSize: 14 }}>{tx.description}</Text>
                       <Text style={{ color: "#9ca3af", fontSize: 11 }}>
-                        {tx.type.toUpperCase()} • {formatDate(tx.timestamp)}
+                        {tx.type.toUpperCase()} • {formatRelativeTime(tx.timestamp)}
                       </Text>
                     </View>
                     <Text

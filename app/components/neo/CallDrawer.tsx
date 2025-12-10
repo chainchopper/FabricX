@@ -3,6 +3,7 @@ import { Animated, Pressable, Text, View, ScrollView, TextInput } from "react-na
 import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
+import { formatRelativeTime, formatDuration } from "../../utils/timeFormatters";
 
 interface Contact {
   id: string;
@@ -279,7 +280,7 @@ export default function CallDrawer() {
                         />
                         <Text style={{ color: "#9ca3af", fontSize: 12 }}>
                           {contact.status === "offline" && contact.lastSeen
-                            ? `Last seen ${formatTime(contact.lastSeen)}`
+                            ? `Last seen ${formatRelativeTime(contact.lastSeen)}`
                             : contact.status}
                         </Text>
                       </View>
@@ -426,7 +427,7 @@ export default function CallDrawer() {
                         {session.participants.join(", ")}
                       </Text>
                       <Text style={{ color: "#9ca3af", fontSize: 12 }}>
-                        {session.type.toUpperCase()} • {formatTime(session.timestamp)}
+                        {session.type.toUpperCase()} • {formatRelativeTime(session.timestamp)}
                       </Text>
                     </View>
                     <View

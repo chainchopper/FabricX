@@ -285,39 +285,48 @@ export default function StudioDrawer() {
                 
                 {/* Timeline visualization */}
                 <View style={{ gap: 8 }}>
-                  {["Audio", "Visual", "Haptic", "Device"].map((track, i) => (
-                    <View key={track} style={{ gap: 4 }}>
-                      <Text style={{ color: "#9ca3af", fontSize: 11, fontWeight: "600" }}>{track}</Text>
-                      <View
-                        style={{
-                          height: 32,
-                          backgroundColor: "rgba(0,0,0,0.3)",
-                          borderRadius: 6,
-                          borderWidth: 1,
-                          borderColor: "rgba(148,163,184,0.2)",
-                          flexDirection: "row",
-                          alignItems: "center",
-                          paddingHorizontal: 4,
-                          gap: 2,
-                        }}
-                      >
-                        {/* Mock clips */}
-                        {[...Array(Math.floor(Math.random() * 3) + 1)].map((_, j) => (
-                          <View
-                            key={j}
-                            style={{
-                              height: 24,
-                              width: Math.random() * 60 + 40,
-                              backgroundColor: `rgba(${i * 60}, ${180 - i * 30}, ${200 + i * 10}, 0.5)`,
-                              borderRadius: 4,
-                              borderWidth: 1,
-                              borderColor: `rgba(${i * 60}, ${180 - i * 30}, ${200 + i * 10}, 0.8)`,
-                            }}
-                          />
-                        ))}
+                  {["Audio", "Visual", "Haptic", "Device"].map((track, i) => {
+                    // Generate stable mock clips based on track index
+                    const clipCount = (i % 3) + 1;
+                    const clips = Array.from({ length: clipCount }, (_, j) => ({
+                      key: `${track}-${j}`,
+                      width: ((i + j) * 17 % 60) + 40,
+                    }));
+                    
+                    return (
+                      <View key={track} style={{ gap: 4 }}>
+                        <Text style={{ color: "#9ca3af", fontSize: 11, fontWeight: "600" }}>{track}</Text>
+                        <View
+                          style={{
+                            height: 32,
+                            backgroundColor: "rgba(0,0,0,0.3)",
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: "rgba(148,163,184,0.2)",
+                            flexDirection: "row",
+                            alignItems: "center",
+                            paddingHorizontal: 4,
+                            gap: 2,
+                          }}
+                        >
+                          {/* Mock clips */}
+                          {clips.map((clip) => (
+                            <View
+                              key={clip.key}
+                              style={{
+                                height: 24,
+                                width: clip.width,
+                                backgroundColor: `rgba(${i * 60}, ${180 - i * 30}, ${200 + i * 10}, 0.5)`,
+                                borderRadius: 4,
+                                borderWidth: 1,
+                                borderColor: `rgba(${i * 60}, ${180 - i * 30}, ${200 + i * 10}, 0.8)`,
+                              }}
+                            />
+                          ))}
+                        </View>
                       </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
 
                 <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
