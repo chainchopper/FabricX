@@ -114,10 +114,67 @@ function MyApp() {
     <ARPianoExperience
       onKeyPress={handleKeyPress}
       deviceId="esp32-device-id" // Optional S3 Matrix device
+      enableARCamera={true}       // Enable camera background
+      enableMIDIInput={true}       // Enable MIDI keyboard
     />
   );
 }
 ```
+
+### AR Camera Integration
+
+The AR Piano now supports camera background overlay:
+
+**Configuration:**
+```typescript
+{
+  specific: {
+    enableARCamera: true,  // Enables camera feed as background
+    cameraFeed: true,      // Legacy setting
+  }
+}
+```
+
+**Features:**
+- Camera feed rendered as 3D scene background
+- Automatic initialization when piano loads
+- Enhanced lighting for AR mode
+- Smooth transitions
+- Status indicator showing camera state
+
+**Camera Controls:**
+- Automatically requests camera permission
+- Initializes on experience load
+- Cleans up on experience switch
+- Error handling with user feedback
+
+### MIDI Input Support
+
+Full MIDI keyboard integration is now available:
+
+**Configuration:**
+```typescript
+{
+  specific: {
+    enableMIDIInput: true,  // Enable MIDI keyboard support
+    midiEnabled: true,      // Legacy setting
+  }
+}
+```
+
+**Features:**
+- Real-time MIDI note detection
+- Sustain pedal support
+- Velocity-sensitive playback
+- Visual feedback on virtual piano
+- Device LED coordination
+
+**MIDI Capabilities:**
+- Supports all MIDI controllers
+- Note on/off detection
+- Velocity mapping
+- Control change support (sustain pedal)
+- Automatic note-to-key mapping
 
 ### Device Integration
 
