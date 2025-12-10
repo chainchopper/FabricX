@@ -1,10 +1,33 @@
 import React from "react";
+import { useExperience } from "../../contexts/ExperienceContext";
+import ARPianoExperience from "./ARPianoExperience";
 
 /**
- * PianoOverlay (safe stub)
- * - If/when a GLB is bundled, this can be upgraded to load it.
- * - For now, return null so AR Piano runs without model assets.
+ * PianoOverlay - Renders the AR Piano experience when active
+ * Integrates with experience config for AR camera and MIDI settings
  */
 export default function PianoOverlay() {
-  return null;
+  const { state } = useExperience();
+  const { experienceConfig } = state;
+  
+  // Get config from experience
+  const specific = experienceConfig.specific as Record<string, unknown> || {};
+  const enableARCamera = Boolean(specific.enableARCamera ?? true);
+  const enableMIDIInput = Boolean(specific.enableMIDIInput ?? true);
+  
+  return (
+    <div style={{ 
+      position: "absolute", 
+      top: 0, 
+      left: 0, 
+      right: 0, 
+      bottom: 0,
+      pointerEvents: "auto",
+    }}>
+      <ARPianoExperience 
+        enableARCamera={enableARCamera}
+        enableMIDIInput={enableMIDIInput}
+      />
+    </div>
+  );
 }

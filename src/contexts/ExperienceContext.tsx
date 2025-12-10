@@ -68,7 +68,7 @@ const builtin: ExperienceLayer[] = [
   {
     id: "ar-piano",
     name: "AR Piano",
-    description: "Augmented reality piano with camera overlay",
+    description: "Augmented reality piano with camera overlay and MIDI support",
     type: "ar-piano" as ExperienceType,
     version: "1.0.0",
     author: "Fanalogy",
@@ -82,12 +82,14 @@ const builtin: ExperienceLayer[] = [
         renderMode: "compat", // camera path stays on WebGL pipeline for now
       } as any,
       specific: {
-        handTracking: true,
+        handTracking: false,
         pianoLayout: "floating",
         cameraFeed: true,
         midiEnabled: true,
         midiIntensity: 1,
         roomId: "arpiano",
+        enableARCamera: true,
+        enableMIDIInput: true,
       },
     },
   },

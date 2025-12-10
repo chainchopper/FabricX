@@ -1,6 +1,7 @@
 /**
  * ARPianoExperience - Full AR Virtual Piano implementation
  * With S3 Matrix integration, gyro/accelerometer, and bidirectional communication
+ * Now includes AR camera overlay and MIDI input routing
  * Powered by Nirvana
  */
 import React, { useRef, useState, useEffect, useCallback } from "react";
@@ -9,6 +10,8 @@ import * as THREE from "three";
 import * as Tone from "tone";
 import { useDeviceManager } from "../../hooks/useDeviceManager";
 import { useHaptics } from "../../../app/hooks/useHaptics";
+import { useAR } from "../../contexts/ARContext";
+import { useMIDI } from "../../hooks/useMIDI";
 
 // Piano key configuration
 const WHITE_KEYS = ["C", "D", "E", "F", "G", "A", "B"];
@@ -29,6 +32,8 @@ interface PianoKey {
 interface ARPianoProps {
   onKeyPress?: (note: string, velocity: number) => void;
   deviceId?: string; // S3 Matrix device ID
+  enableARCamera?: boolean; // Enable AR camera background
+  enableMIDIInput?: boolean; // Enable MIDI keyboard input
 }
 
 // Generate all piano keys
@@ -136,14 +141,16 @@ function PianoScene({
   onKeyRelease,
   pressedKeys,
   gyroEffect,
+  videoTexture,
 }: {
   onKeyPress: (key: PianoKey) => void;
   onKeyRelease: (key: PianoKey) => void;
   pressedKeys: Set<string>;
   gyroEffect: { x: number; y: number; z: number };
+  videoTexture: THREE.VideoTexture | null;
 }) {
   const keys = generateKeys();
-  const { camera } = useThree();
+  const { camera, scene } = useThree();
   
   // Apply gyro effect to camera
   useFrame(() => {
@@ -152,12 +159,21 @@ function PianoScene({
     camera.rotation.z = gyroEffect.z * 0.1;
   });
   
+  // Set AR camera background
+  useEffect(() => {
+    if (videoTexture) {
+      scene.background = videoTexture;
+    } else {
+      scene.background = new THREE.Color(0x0b1020);
+    }
+  }, [videoTexture, scene]);
+  
   return (
     <>
-      <ambientLight intensity={0.4} />
-      <spotLight position={[0, 5, 0]} angle={0.6} penumbra={1} intensity={1} />
-      <pointLight position={[-5, 3, -5]} intensity={0.5} />
-      <pointLight position={[5, 3, -5]} intensity={0.5} />
+      <ambientLight intensity={videoTexture ? 0.6 : 0.4} />
+      <spotLight position={[0, 5, 0]} angle={0.6} penumbra={1} intensity={videoTexture ? 1.2 : 1} />
+      <pointLight position={[-5, 3, -5]} intensity={videoTexture ? 0.6 : 0.5} />
+      <pointLight position={[5, 3, -5]} intensity={videoTexture ? 0.6 : 0.5} />
       
       {keys.map((key, idx) => (
         <PianoKeyMesh
@@ -178,12 +194,19 @@ function PianoScene({
   );
 }
 
-export default function ARPianoExperience({ onKeyPress, deviceId }: ARPianoProps) {
+export default function ARPianoExperience({ 
+  onKeyPress, 
+  deviceId,
+  enableARCamera = false,
+  enableMIDIInput = true,
+}: ARPianoProps) {
   const synthRef = useRef<Tone.PolySynth | null>(null);
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
   const [gyroEffect, setGyroEffect] = useState({ x: 0, y: 0, z: 0 });
   const haptics = useHaptics();
   const { devices, sendCommand } = useDeviceManager();
+  const { enableARCamera: enableAR, disableARCamera: disableAR, videoTexture, isARCameraActive } = useAR();
+  const { activeNotes, noteVelocities } = useMIDI();
   
   // Initialize synthesizer
   useEffect(() => {
@@ -249,6 +272,52 @@ export default function ARPianoExperience({ onKeyPress, deviceId }: ARPianoProps
     // For now, this is a placeholder for the integration pattern
     
   }, [deviceId, devices, sendCommand]);
+  
+  // Initialize AR camera if enabled
+  useEffect(() => {
+    if (enableARCamera && !isARCameraActive) {
+      enableAR().catch(err => {
+        console.warn("Failed to enable AR camera:", err);
+      });
+    }
+    
+    return () => {
+      if (enableARCamera && isARCameraActive) {
+        disableAR();
+      }
+    };
+  }, [enableARCamera, isARCameraActive, enableAR, disableAR]);
+  
+  // Handle MIDI input
+  useEffect(() => {
+    if (!enableMIDIInput) return;
+    
+    // Map MIDI notes to piano key presses
+    activeNotes.forEach((noteName) => {
+      const keyId = noteName;
+      
+      // Find the piano key that matches this MIDI note
+      const keys = generateKeys();
+      const matchingKey = keys.find(k => `${k.note}${k.octave}` === noteName);
+      
+      if (matchingKey && !pressedKeys.has(keyId)) {
+        // Trigger key press
+        handleKeyPress(matchingKey);
+      }
+    });
+    
+    // Release keys that are no longer active in MIDI
+    const currentPressedKeys = Array.from(pressedKeys);
+    currentPressedKeys.forEach((keyId) => {
+      if (!activeNotes.includes(keyId as any)) {
+        const keys = generateKeys();
+        const matchingKey = keys.find(k => `${k.note}${k.octave}` === keyId);
+        if (matchingKey) {
+          handleKeyRelease(matchingKey);
+        }
+      }
+    });
+  }, [activeNotes, enableMIDIInput, pressedKeys, handleKeyPress, handleKeyRelease]);
   
   const handleKeyPress = useCallback(
     (key: PianoKey) => {
@@ -318,6 +387,7 @@ export default function ARPianoExperience({ onKeyPress, deviceId }: ARPianoProps
           onKeyRelease={handleKeyRelease}
           pressedKeys={pressedKeys}
           gyroEffect={gyroEffect}
+          videoTexture={enableARCamera ? videoTexture : null}
         />
       </Canvas>
       
@@ -334,9 +404,19 @@ export default function ARPianoExperience({ onKeyPress, deviceId }: ARPianoProps
           fontSize: "12px",
         }}
       >
-        <div>AR Piano Active</div>
+        <div style={{ fontWeight: "bold", marginBottom: "4px" }}>AR Piano Active</div>
         {deviceId && <div>Device: {deviceId.slice(0, 8)}</div>}
         <div>Keys: {pressedKeys.size}</div>
+        {enableARCamera && (
+          <div style={{ color: isARCameraActive ? "#10b981" : "#f59e0b" }}>
+            Camera: {isARCameraActive ? "Active" : "Initializing..."}
+          </div>
+        )}
+        {enableMIDIInput && (
+          <div style={{ color: "#22d3ee" }}>
+            MIDI: {activeNotes.length > 0 ? `${activeNotes.length} notes` : "Ready"}
+          </div>
+        )}
       </div>
     </div>
   );
