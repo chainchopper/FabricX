@@ -66,7 +66,8 @@ Fabric is a revolutionary multi‑user, game‑like platform with a liquid 3D su
 
 ### AR & Piano ✓
 - **AR Piano Experience**: Full 3D interactive keyboard
-- **MIDI Integration**: Polyphonic synthesis with Tone.js
+- **AR Camera Overlay**: Live camera feed as background ✓ NEW
+- **MIDI Integration**: External MIDI keyboard support ✓ NEW
 - **Device Control**: S3 Matrix gyro/accelerometer integration
 - **Quick Toggle**: Floating button for instant experience switching
 
@@ -115,7 +116,7 @@ Fabric is a revolutionary multi‑user, game‑like platform with a liquid 3D su
 
 ### Experiences
 - ✅ Fluid Fabric (default) - Liquid 3D surface with touch interaction
-- ✅ AR Piano - Full 3D keyboard with device integration
+- ✅ AR Piano - Full 3D keyboard with AR camera overlay ✓ NEW
 - ✅ Camera Effects - Real-time filters and effects
 - ⏳ Custom Experiences (via Layer SDK - future)
 
@@ -124,7 +125,8 @@ Fabric is a revolutionary multi‑user, game‑like platform with a liquid 3D su
 - ✅ Polyphonic piano synthesizer
 - ✅ Ambient soundscapes
 - ✅ Audio-reactive visualizations
-- ⏳ MIDI input/output routing (partial)
+- ✅ MIDI input support (keyboard, controllers) ✓ NEW
+- ⏳ MIDI output routing (architecture ready)
 - ⏳ Music controls and composition tools (planned)
 
 ### Device Integration
@@ -229,11 +231,18 @@ npm run android
 ### Using AR Piano
 
 1. Click the floating toggle button (🎹 icon) or select "AR Piano" in the experience switcher
-2. Touch the piano keys on screen to play notes
-3. Connect an S3 Matrix device for enhanced control:
+2. **Grant camera permission** for AR overlay (optional) ✓ NEW
+3. Touch the piano keys on screen to play notes
+4. **Connect MIDI keyboard** for external input (optional) ✓ NEW
+5. Connect an S3 Matrix device for enhanced control:
    - Tilt device to modulate volume
    - Use buttons for haptic feedback
    - See LED feedback on key presses
+
+**New Features:**
+- **AR Camera Background**: Live camera feed displays behind the piano
+- **MIDI Input**: Connect any MIDI keyboard for real-time playing
+- **Visual Status**: Shows camera state and active MIDI notes
 
 ### Using Swarm Mode
 
@@ -382,11 +391,14 @@ src/
 
 ## Documentation
 
-- **AI_RULES.md** - Development guidelines and stack details
+- **README.md** (this file) - Complete feature overview and getting started
+- **IMPLEMENTATION_GUIDE.md** - Developer guide with API reference and examples
+- **IMPLEMENTATION_SUMMARY.md** - Executive summary of implementation
+- **HARDWARE_TESTING_GUIDE.md** - Comprehensive hardware testing procedures ✓ NEW
 - **AGENTS.md** - Agent responsibilities and handoffs
+- **AI_RULES.md** - Development guidelines and stack details
 - **MICROCONTROLLER_GUIDE.md** - Device integration guide
 - **PROJECT_STATUS_REPORT.md** - Comprehensive architecture
-- **IMPLEMENTATION_COMPLETE.md** - Implementation checklist
 - **firmware/esp32-s3-matrix/README.md** - Firmware documentation
 
 ---
