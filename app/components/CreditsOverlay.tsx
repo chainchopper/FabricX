@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Easing, Pressable, View, Text, Image , Platform } from "react-native";
+import { Animated, Easing, Pressable, View, Text, Image, Platform } from "react-native";
 
 interface CreditsOverlayProps {
   visible: boolean;

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, View , Platform } from "react-native";
+import { Animated, View, Platform } from "react-native";
 import ProfileTab from "./ProfileTab";
 import LockerTab from "./LockerTab";
 import { useLocker } from "./Locker";

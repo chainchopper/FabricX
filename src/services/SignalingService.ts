@@ -5,6 +5,16 @@
  * for distributed WebRTC peer connections.
  */
 
+// Get environment variable in a cross-platform way
+function getEnvVar(key: string): string | undefined {
+  // For web, use process.env injected by bundler
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key];
+  }
+  // For native, Constants should be used (but we keep process.env as fallback for web)
+  return undefined;
+}
+
 export type SignalingMessage =
   | { type: 'join'; roomId: string; peerId: string }
   | { type: 'leave'; roomId: string; peerId: string }
@@ -28,9 +38,7 @@ export class SignalingService {
 
   constructor(url?: string) {
     // Use environment variable if available, otherwise use provided url or default to localhost
-    this.url = url || 
-      (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_SIGNALING_SERVER_URL) || 
-      'ws://localhost:8080';
+    this.url = url || getEnvVar('EXPO_PUBLIC_SIGNALING_SERVER_URL') || 'ws://localhost:8080';
   }
 
   /**

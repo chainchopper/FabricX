@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from "react";
-import { View, Pressable, Animated, StyleSheet, LayoutChangeEvent , Platform } from "react-native";
+import { View, Pressable, Animated, StyleSheet, LayoutChangeEvent, Platform } from "react-native";
 import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
 import { eventBus } from "../../shared/utils/eventBus";

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Animated, Pressable, Text, View, ScrollView , Platform } from "react-native";
+import { Animated, Pressable, Text, View, ScrollView, Platform } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";

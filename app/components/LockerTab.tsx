@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import { Animated, Pressable, Text, View , Platform } from "react-native";
+import { Animated, Pressable, Text, View, Platform } from "react-native";
 import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
 import { eventBus } from "../../shared/utils/eventBus";
