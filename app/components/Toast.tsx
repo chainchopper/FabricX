@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import { View, Text, Animated, Easing, StyleSheet } from "react-native";
+import { View, Text, Animated, Easing, StyleSheet, Platform } from "react-native";
 
 type Toast = { id: number; message: string };
 type ToastContextType = { show: (message: string) => void };
@@ -18,13 +18,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         toValue: 1,
         duration: 160,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
       Animated.timing(translateY, {
         toValue: 0,
         duration: 160,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start();
   };
@@ -35,13 +35,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         toValue: 0,
         duration: 160,
         easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
       Animated.timing(translateY, {
         toValue: 8,
         duration: 160,
         easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start(onDone);
   };

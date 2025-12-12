@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Easing, Pressable, View, Text, Image } from "react-native";
+import { Animated, Easing, Pressable, View, Text, Image , Platform } from "react-native";
 
 interface CreditsOverlayProps {
   visible: boolean;
@@ -13,8 +13,8 @@ export default function CreditsOverlay({ visible, onClose }: CreditsOverlayProps
   useEffect(() => {
     if (visible) {
       Animated.parallel([
-        Animated.timing(opacity, { toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(scale, { toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
       ]).start();
     } else {
       opacity.setValue(0);

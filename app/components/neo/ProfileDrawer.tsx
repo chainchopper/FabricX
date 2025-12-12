@@ -1,5 +1,5 @@
 import React from "react";
-import { Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
+import { Animated, Image, Pressable, ScrollView, Text, View , Platform } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 
 export default function ProfileDrawer() {

@@ -3,7 +3,7 @@
  * Powered by Nirvana
  */
 import React, { useState } from "react";
-import { View, Text, Pressable, ScrollView, TextInput } from "react-native";
+import { View, Text, Pressable, ScrollView, TextInput , Platform } from "react-native";
 import { useSocialBroadcast } from "../../../src/hooks/useSocialBroadcast";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
