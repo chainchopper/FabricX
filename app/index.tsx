@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { View, Text, Pressable, Animated, Easing } from "react-native";
+import { View, Text, Pressable, Animated, Easing, Platform } from "react-native";
 import SafetyBackground from "./components/SafetyBackground";
 
 export default function HomeScreen() {
@@ -12,7 +12,7 @@ export default function HomeScreen() {
       toValue: 0,
       duration: 280,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== 'web',
     }).start(() => setOverlayActive(false));
   };
 

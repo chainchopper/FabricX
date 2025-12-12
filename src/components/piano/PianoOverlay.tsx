@@ -1,6 +1,7 @@
 import React from "react";
 import { useExperience } from "../../contexts/ExperienceContext";
 import ARPianoExperience from "./ARPianoExperience";
+import { ErrorBoundary } from "../ErrorBoundary";
 
 /**
  * PianoOverlay - Renders the AR Piano experience when active
@@ -24,10 +25,16 @@ export default function PianoOverlay() {
       bottom: 0,
       pointerEvents: "auto",
     }}>
-      <ARPianoExperience 
-        enableARCamera={enableARCamera}
-        enableMIDIInput={enableMIDIInput}
-      />
+      <ErrorBoundary
+        onError={(error, errorInfo) => {
+          console.error('[PianoOverlay] Error in AR Piano:', error, errorInfo);
+        }}
+      >
+        <ARPianoExperience 
+          enableARCamera={enableARCamera}
+          enableMIDIInput={enableMIDIInput}
+        />
+      </ErrorBoundary>
     </div>
   );
 }

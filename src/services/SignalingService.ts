@@ -5,6 +5,16 @@
  * for distributed WebRTC peer connections.
  */
 
+// Get environment variable in a cross-platform way
+function getEnvVar(key: string): string | undefined {
+  // For web, use process.env injected by bundler
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key];
+  }
+  // For native, Constants should be used (but we keep process.env as fallback for web)
+  return undefined;
+}
+
 export type SignalingMessage =
   | { type: 'join'; roomId: string; peerId: string }
   | { type: 'leave'; roomId: string; peerId: string }
@@ -26,9 +36,9 @@ export class SignalingService {
   private connected = false;
   private url: string;
 
-  constructor(url: string = 'ws://localhost:8080') {
-    // Default to localhost for development, but allow configuration
-    this.url = url;
+  constructor(url?: string) {
+    // Use environment variable if available, otherwise use provided url or default to localhost
+    this.url = url || getEnvVar('EXPO_PUBLIC_SIGNALING_SERVER_URL') || 'ws://localhost:8080';
   }
 
   /**
@@ -37,6 +47,13 @@ export class SignalingService {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // Check if WebSocket is available (web-only API)
+        if (typeof WebSocket === 'undefined') {
+          console.warn('[SignalingService] WebSocket not available in this environment');
+          reject(new Error('WebSocket not available'));
+          return;
+        }
+
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
@@ -67,7 +84,7 @@ export class SignalingService {
           this.connected = false;
           this.ws = null;
 
-          // Attempt to reconnect
+          // Attempt to reconnect only if we haven't exceeded max attempts
           if (this.reconnectAttempts < this.maxReconnectAttempts) {
             const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
             console.log(`[SignalingService] Reconnecting in ${delay}ms...`);
@@ -78,6 +95,8 @@ export class SignalingService {
                 // Reconnection will be attempted again in onclose
               });
             }, delay);
+          } else {
+            console.log('[SignalingService] Max reconnection attempts reached');
           }
         };
       } catch (error) {

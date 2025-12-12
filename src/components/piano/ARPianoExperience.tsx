@@ -288,37 +288,6 @@ export default function ARPianoExperience({
     };
   }, [enableARCamera, isARCameraActive, enableAR, disableAR]);
   
-  // Handle MIDI input
-  useEffect(() => {
-    if (!enableMIDIInput) return;
-    
-    // Map MIDI notes to piano key presses
-    activeNotes.forEach((noteName) => {
-      const keyId = noteName;
-      
-      // Find the piano key that matches this MIDI note
-      const keys = generateKeys();
-      const matchingKey = keys.find(k => `${k.note}${k.octave}` === noteName);
-      
-      if (matchingKey && !pressedKeys.has(keyId)) {
-        // Trigger key press
-        handleKeyPress(matchingKey);
-      }
-    });
-    
-    // Release keys that are no longer active in MIDI
-    const currentPressedKeys = Array.from(pressedKeys);
-    currentPressedKeys.forEach((keyId) => {
-      if (!activeNotes.includes(keyId as any)) {
-        const keys = generateKeys();
-        const matchingKey = keys.find(k => `${k.note}${k.octave}` === keyId);
-        if (matchingKey) {
-          handleKeyRelease(matchingKey);
-        }
-      }
-    });
-  }, [activeNotes, enableMIDIInput, pressedKeys, handleKeyPress, handleKeyRelease]);
-  
   const handleKeyPress = useCallback(
     (key: PianoKey) => {
       const keyId = `${key.note}${key.octave}`;
@@ -375,6 +344,37 @@ export default function ARPianoExperience({
     },
     [pressedKeys, deviceId, sendCommand]
   );
+  
+  // Handle MIDI input (placed after callbacks are defined)
+  useEffect(() => {
+    if (!enableMIDIInput) return;
+    
+    // Map MIDI notes to piano key presses
+    activeNotes.forEach((noteName) => {
+      const keyId = noteName;
+      
+      // Find the piano key that matches this MIDI note
+      const keys = generateKeys();
+      const matchingKey = keys.find(k => `${k.note}${k.octave}` === noteName);
+      
+      if (matchingKey && !pressedKeys.has(keyId)) {
+        // Trigger key press
+        handleKeyPress(matchingKey);
+      }
+    });
+    
+    // Release keys that are no longer active in MIDI
+    const currentPressedKeys = Array.from(pressedKeys);
+    currentPressedKeys.forEach((keyId) => {
+      if (!activeNotes.includes(keyId as any)) {
+        const keys = generateKeys();
+        const matchingKey = keys.find(k => `${k.note}${k.octave}` === keyId);
+        if (matchingKey) {
+          handleKeyRelease(matchingKey);
+        }
+      }
+    });
+  }, [activeNotes, enableMIDIInput, pressedKeys, handleKeyPress, handleKeyRelease]);
   
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>

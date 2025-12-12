@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, View } from "react-native";
+import { Animated, View, Platform } from "react-native";
 import ProfileTab from "./ProfileTab";
 import LockerTab from "./LockerTab";
 import { useLocker } from "./Locker";
@@ -17,7 +17,7 @@ export default function TabsRail() {
     Animated.timing(tx, {
       toValue: shouldOpen ? DRAWER_WIDTH : 0,
       duration: 220,
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== 'web',
     }).start();
   }, [lockerOpen, userOpen, tx]);
 

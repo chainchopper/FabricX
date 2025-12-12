@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Image, Pressable } from "react-native";
+import { Animated, Image, Pressable, Platform } from "react-native";
 import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
@@ -17,8 +17,8 @@ export default function ProfileDrawerButton() {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 2200, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 2200, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 2200, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulse, { toValue: 0, duration: 2200, useNativeDriver: Platform.OS !== 'web' }),
       ])
     ).start();
   }, [pulse]);

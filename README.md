@@ -228,6 +228,27 @@ npm run ios
 npm run android
 ```
 
+### Environment Configuration
+
+Fabric uses environment variables for configurable endpoints and feature flags. Create a `.env` file in the project root (see `.env.example` for reference):
+
+```bash
+# WebRTC Signaling Server (for multi-user features)
+EXPO_PUBLIC_SIGNALING_SERVER_URL=ws://localhost:8080
+# Production: wss://your-signaling-server.com
+
+# Feature Flags (optional)
+# EXPO_PUBLIC_ENABLE_AR_CAMERA=true
+# EXPO_PUBLIC_ENABLE_MIDI_INPUT=true
+# EXPO_PUBLIC_ENABLE_WEBRTC=true
+
+# Debug Settings (optional)
+# EXPO_PUBLIC_DEBUG_MODE=false
+# EXPO_PUBLIC_LOG_LEVEL=info
+```
+
+**Note**: The WebRTC signaling server is optional. When not available, Fabric automatically falls back to `BroadcastChannel` for local multi-tab communication. For production deployments, configure a proper signaling server URL.
+
 ### Using AR Piano
 
 1. Click the floating toggle button (🎹 icon) or select "AR Piano" in the experience switcher

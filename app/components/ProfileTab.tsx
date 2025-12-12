@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import { Animated, Pressable, Text, View } from "react-native";
+import { Animated, Pressable, Text, View, Platform } from "react-native";
 import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
 import { eventBus } from "../../shared/utils/eventBus";
@@ -17,10 +17,10 @@ export default function ProfileTab() {
     Animated.timing(glow, { toValue: to, duration: 180, useNativeDriver: false }).start();
   };
   const pressIn = () => {
-    Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, friction: 7, tension: 120 }).start();
+    Animated.spring(scale, { toValue: 0.95, useNativeDriver: Platform.OS !== 'web', friction: 7, tension: 120 }).start();
   };
   const pressOut = () => {
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 7, tension: 120 }).start();
+    Animated.spring(scale, { toValue: 1, useNativeDriver: Platform.OS !== 'web', friction: 7, tension: 120 }).start();
   };
 
   const bgColor = glow.interpolate({

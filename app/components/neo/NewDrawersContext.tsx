@@ -87,7 +87,7 @@ export function NewDrawersProvider({ children }: { children: React.ReactNode }) 
       toValue: toOpen ? 0 : -width,
       duration: toOpen ? 260 : 200,
       easing: toOpen ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-      useNativeDriver: true,
+      useNativeDriver: Platform.OS !== 'web',
     }).start();
   };
 
@@ -105,7 +105,7 @@ export function NewDrawersProvider({ children }: { children: React.ReactNode }) 
         duration: 220,
         easing: Easing.in(Easing.cubic),
         delay,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }).start();
     });
   };

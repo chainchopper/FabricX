@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from "react";
-import { View, Pressable, Animated, StyleSheet, LayoutChangeEvent } from "react-native";
+import { View, Pressable, Animated, StyleSheet, LayoutChangeEvent, Platform } from "react-native";
 import { useHaptics } from "../hooks/useHaptics";
 import { useAudioCues } from "../hooks/useAudioCues";
 import { eventBus } from "../../shared/utils/eventBus";
@@ -61,12 +61,12 @@ export default function FabricCanvas({ height = 260, fullScreen = false, onTouch
       Animated.timing(scale, {
         toValue: 1.8,
         duration: 900,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
       Animated.timing(opacity, {
         toValue: 0,
         duration: 900,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start(() => {
       setRipples((prev) => prev.filter((r) => r.id !== id));
