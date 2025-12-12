@@ -1,13 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-
-type MessageHandler = (data: unknown, from: string) => void;
-
-type Peer = {
-  id: string;
-  pc: RTCPeerConnection;
-  dc: RTCDataChannel | null;
-  ready: boolean;
-};
+import { WebRTCManager, MessageHandler } from '../services/WebRTCManager';
+import { getSignalingService } from '../services/SignalingService';
 
 function randomId() {
   return Math.random().toString(36).slice(2, 10);
@@ -15,177 +8,56 @@ function randomId() {
 
 export function useWebRTC(roomId: string) {
   const peerId = useMemo(() => `peer-${randomId()}`, []);
-  const [peers, setPeers] = useState<Record<string, Peer>>({});
+  const managerRef = useRef<WebRTCManager | null>(null);
+  const [peersCount, setPeersCount] = useState(0);
+  const [peerIds, setPeerIds] = useState<string[]>([]);
   const msgHandlers = useRef<Set<MessageHandler>>(new Set());
-  const signalRef = useRef<BroadcastChannel | null>(null);
 
-  const peerArr = Object.values(peers);
-  const peersCount = peerArr.filter((p) => p.ready).length;
-  const peerIds = peerArr.filter((p) => p.ready).map((p) => p.id);
   const active = peersCount > 0;
 
-  const notifyMessage = (payload: unknown, from: string) => {
-    msgHandlers.current.forEach((h) => h(payload, from));
-  };
-
-  const removePeer = (id: string) => {
-    setPeers((prev) => {
-      const p = prev[id];
-      if (p) {
-        try { p.dc?.close(); } catch {}
-        try { p.pc.close(); } catch {}
-      }
-      const { [id]: _, ...rest } = prev;
-      return rest;
-    });
-  };
-
-  const wireChannel = (peer: Peer) => {
-    if (!peer.dc) return;
-    peer.dc.onopen = () => {
-      peer.ready = true;
-      setPeers((prev) => ({ ...prev, [peer.id]: { ...peer } }));
-    };
-    peer.dc.onclose = () => {
-      peer.ready = false;
-      setPeers((prev) => ({ ...prev, [peer.id]: { ...peer } }));
-    };
-    peer.dc.onmessage = (ev) => {
-      let data: unknown = ev.data;
-      try {
-        data = JSON.parse(ev.data);
-      } catch {
-        // keep raw
-      }
-      notifyMessage(data, peer.id);
-    };
-  };
-
-  const createPeer = (otherId: string, asCaller: boolean) => {
-    if (peers[otherId]) return peers[otherId];
-
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
-      iceCandidatePoolSize: 2,
-    });
-
-    const peer: Peer = { id: otherId, pc, dc: null, ready: false };
-
-    pc.onicecandidate = (ev) => {
-      if (ev.candidate && signalRef.current) {
-        signalRef.current.postMessage({
-          t: "candidate",
-          roomId,
-          from: peerId,
-          to: otherId,
-          candidate: ev.candidate,
-        });
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "failed" || pc.connectionState === "disconnected" || pc.connectionState === "closed") {
-        removePeer(otherId);
-      }
-    };
-
-    pc.ondatachannel = (ev) => {
-      peer.dc = ev.channel;
-      wireChannel(peer);
-    };
-
-    if (asCaller) {
-      const dc = pc.createDataChannel("fabric");
-      peer.dc = dc;
-      wireChannel(peer);
-      (async () => {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        signalRef.current?.postMessage({
-          t: "offer",
-          roomId,
-          from: peerId,
-          to: otherId,
-          sdp: offer,
-        });
-      })();
+  // Initialize WebRTCManager
+  useEffect(() => {
+    // Try to get signaling service, but don't require it (fallback to BroadcastChannel)
+    let signaling = null;
+    try {
+      signaling = getSignalingService();
+      // Try to connect, but don't block on it
+      signaling.connect().catch(() => {
+        console.log('[useWebRTC] Signaling server not available, using fallback');
+      });
+    } catch {
+      console.log('[useWebRTC] Signaling service not available, using fallback');
     }
 
-    setPeers((prev) => ({ ...prev, [otherId]: peer }));
-    return peer;
-  };
+    const manager = new WebRTCManager(roomId, peerId, signaling);
+    managerRef.current = manager;
 
-  useEffect(() => {
-    if (!("BroadcastChannel" in window)) return;
-
-    const signal = new BroadcastChannel(`fabric-signal-${roomId}`);
-    signalRef.current = signal;
-
-    const onSignal = async (ev: MessageEvent) => {
-      const msg = ev.data as any;
-      if (!msg || msg.roomId !== roomId || msg.from === peerId) return;
-
-      if (msg.t === "hello") {
-        const weAreCaller = peerId > msg.from;
-        createPeer(msg.from, weAreCaller);
-      } else if (msg.t === "offer" && msg.to === peerId) {
-        let peer = peers[msg.from];
-        if (!peer) peer = createPeer(msg.from, false);
-        await peer.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        const answer = await peer.pc.createAnswer();
-        await peer.pc.setLocalDescription(answer);
-        signal.postMessage({
-          t: "answer",
-          roomId,
-          from: peerId,
-          to: msg.from,
-          sdp: answer,
-        });
-      } else if (msg.t === "answer" && msg.to === peerId) {
-        const peer = peers[msg.from];
-        if (peer) {
-          await peer.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        }
-      } else if (msg.t === "candidate" && msg.to === peerId) {
-        const peer = peers[msg.from];
-        if (peer) {
-          try {
-            await peer.pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-          } catch {
-            // ignore invalid
-          }
-        }
-      }
+    // Update state when peers change
+    const updatePeers = () => {
+      setPeersCount(manager.getPeerCount());
+      setPeerIds(manager.getPeerIds());
     };
 
-    signal.onmessage = onSignal;
-    signal.postMessage({ t: "hello", roomId, from: peerId });
+    // Poll for peer updates (in production, manager could emit events)
+    const interval = setInterval(updatePeers, 500);
 
-    const onReannounce = (e: Event) => {
-      const wanted = (e as CustomEvent).detail as string | undefined;
-      if (wanted && wanted !== roomId) return;
-      signalRef.current?.postMessage({ t: "hello", roomId, from: peerId });
-    };
-    window.addEventListener("fabric:webrtc-reannounce", onReannounce as EventListener);
+    // Wire up message handlers
+    const unsubscribe = manager.onMessage((data, from) => {
+      msgHandlers.current.forEach((h) => h(data, from));
+    });
 
     return () => {
-      window.removeEventListener("fabric:webrtc-reannounce", onReannounce as EventListener);
-      signal.close();
-      Object.values(peers).forEach((p) => {
-        try { p.dc?.close(); } catch {}
-        try { p.pc.close(); } catch {}
-      });
+      clearInterval(interval);
+      unsubscribe();
+      manager.destroy();
+      managerRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, peerId]);
 
   const send = (payload: unknown) => {
-    const str = typeof payload === "string" ? payload : JSON.stringify(payload);
-    Object.values(peers).forEach((p) => {
-      if (p.ready && p.dc?.readyState === "open") {
-        try { p.dc.send(str); } catch {}
-      }
-    });
+    if (managerRef.current) {
+      managerRef.current.send(payload);
+    }
   };
 
   const onMessage = (handler: MessageHandler): (() => void) => {
