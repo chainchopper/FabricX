@@ -39,6 +39,13 @@ export class SignalingService {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // Check if WebSocket is available (web-only API)
+        if (typeof WebSocket === 'undefined') {
+          console.warn('[SignalingService] WebSocket not available in this environment');
+          reject(new Error('WebSocket not available'));
+          return;
+        }
+
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
@@ -69,7 +76,7 @@ export class SignalingService {
           this.connected = false;
           this.ws = null;
 
-          // Attempt to reconnect
+          // Attempt to reconnect only if we haven't exceeded max attempts
           if (this.reconnectAttempts < this.maxReconnectAttempts) {
             const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
             console.log(`[SignalingService] Reconnecting in ${delay}ms...`);
@@ -80,6 +87,8 @@ export class SignalingService {
                 // Reconnection will be attempted again in onclose
               });
             }, delay);
+          } else {
+            console.log('[SignalingService] Max reconnection attempts reached');
           }
         };
       } catch (error) {
