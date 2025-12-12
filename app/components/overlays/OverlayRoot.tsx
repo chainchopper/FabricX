@@ -1,5 +1,5 @@
 import React from "react";
-import { Animated, Easing, Pressable, View, Text, ScrollView } from "react-native";
+import { Animated, Easing, Pressable, View, Text, ScrollView, Platform } from "react-native";
 import { useOverlays } from "../../context/OverlayContext";
 import DashboardOverlay from "./DashboardOverlay";
 import PluginsOverlay from "./PluginsOverlay";
@@ -18,13 +18,13 @@ export default function OverlayRoot() {
   React.useEffect(() => {
     if (open) {
       Animated.parallel([
-        Animated.timing(opacity, { toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(slide, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(slide, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(opacity, { toValue: 0, duration: 140, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-        Animated.timing(slide, { toValue: 0, duration: 180, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0, duration: 140, easing: Easing.in(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(slide, { toValue: 0, duration: 180, easing: Easing.in(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }),
       ]).start();
     }
   }, [open, opacity, slide]);

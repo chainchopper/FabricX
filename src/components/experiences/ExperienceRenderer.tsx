@@ -26,8 +26,8 @@ export default function ExperienceRenderer() {
   useEffect(() => {
     if (lastMode.current !== wantsAROrCamera) {
       Animated.sequence([
-        Animated.timing(curtainOpacity, { toValue: 1, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(curtainOpacity, { toValue: 0, duration: 140, delay: 40, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.timing(curtainOpacity, { toValue: 1, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(curtainOpacity, { toValue: 0, duration: 140, delay: 40, easing: Easing.in(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
       ]).start();
       lastMode.current = wantsAROrCamera;
     }

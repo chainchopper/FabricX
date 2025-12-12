@@ -26,9 +26,11 @@ export class SignalingService {
   private connected = false;
   private url: string;
 
-  constructor(url: string = 'ws://localhost:8080') {
-    // Default to localhost for development, but allow configuration
-    this.url = url;
+  constructor(url?: string) {
+    // Use environment variable if available, otherwise use provided url or default to localhost
+    this.url = url || 
+      (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_SIGNALING_SERVER_URL) || 
+      'ws://localhost:8080';
   }
 
   /**
