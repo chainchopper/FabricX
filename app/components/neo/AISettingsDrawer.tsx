@@ -155,10 +155,55 @@ export default function AISettingsDrawer() {
     audio.pulse();
     toast.show(`Testing ${service} connection...`);
     
-    // TODO: Implement actual connection test
-    setTimeout(() => {
-      toast.show(`${service} connection test: Not implemented yet`);
-    }, 1000);
+    try {
+      if (service === "llm") {
+        // Dynamically import LLM service
+        const { getLLMService, resetLLMService } = await import("../../../src/services/LLMService");
+        resetLLMService();
+        const llmService = getLLMService(config.llm);
+        const success = await llmService.testConnection();
+        
+        if (success) {
+          haptics.notifySuccess();
+          audio.success();
+          toast.show("LLM connection successful!");
+        } else {
+          haptics.notifyError();
+          audio.error();
+          toast.show("LLM connection failed");
+        }
+      } else if (service === "vision") {
+        const { getVisionAIService, resetVisionAIService } = await import("../../../src/services/VisionAIService");
+        resetVisionAIService();
+        const visionService = getVisionAIService(config.vision);
+        const success = await visionService.testConnection();
+        
+        if (success) {
+          haptics.notifySuccess();
+          audio.success();
+          toast.show("Vision AI connection successful!");
+        } else {
+          haptics.notifyError();
+          audio.error();
+          toast.show("Vision AI connection failed");
+        }
+      } else if (service === "voice") {
+        const { getVoiceInputService } = await import("../../../src/services/VoiceInputService");
+        const voiceService = getVoiceInputService(config.voice);
+        await voiceService.initialize();
+        
+        haptics.notifySuccess();
+        audio.success();
+        toast.show("Voice input initialized successfully!");
+      } else {
+        toast.show(`${service} test not yet implemented`);
+      }
+    } catch (err) {
+      haptics.notifyError();
+      audio.error();
+      toast.show(`Error: ${String(err)}`);
+      console.error(`[AI Settings] Test failed for ${service}:`, err);
+    }
   };
 
   return (

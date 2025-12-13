@@ -30,6 +30,7 @@ import WalletDrawerButton from "./components/neo/WalletDrawerButton";
 import FriendsDrawerButton from "./components/neo/FriendsDrawerButton";
 import SettingsDrawerButton from "./components/neo/SettingsDrawerButton";
 import AISettingsDrawerButton from "./components/neo/AISettingsDrawerButton";
+import VoiceInputButton from "./components/VoiceInputButton";
 
 import ProfileDrawer from "./components/neo/ProfileDrawer";
 import NeoLocker from "./components/neo/NeoLocker";
@@ -98,6 +99,9 @@ export default function RootLayout() {
                         <FriendsDrawer />
                         <SettingsDrawer />
                         <AISettingsDrawer />
+                        
+                        {/* Floating Voice Input */}
+                        <VoiceInputButton />
                       </View>
                     </NewDrawersProvider>
                   </LockerProvider>
