@@ -4,7 +4,7 @@
  * Now includes AR camera overlay and MIDI input routing
  * Powered by Nirvana
  */
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import * as Tone from "tone";
@@ -215,6 +215,9 @@ export function PianoScene({
   const { videoTexture, isARCameraActive } = useAR();
   const { activeNotes } = useMIDI();
   
+  // Memoize keys array to avoid regenerating on every render
+  const keys = useMemo(() => generateKeys(), []);
+  
   // Initialize synthesizer
   useEffect(() => {
     const initSynth = async () => {
@@ -311,7 +314,6 @@ export function PianoScene({
     if (!enableMIDIInput) return;
     
     // Map MIDI notes to piano key presses
-    const keys = generateKeys();
     activeNotes.forEach((noteName) => {
       const keyId = noteName;
       const matchingKey = keys.find(k => `${k.note}${k.octave}` === noteName);
@@ -324,14 +326,14 @@ export function PianoScene({
     // Release keys that are no longer active
     const currentPressedKeys = Array.from(pressedKeys);
     currentPressedKeys.forEach((keyId) => {
-      if (!activeNotes.includes(keyId as any)) {
+      if (!activeNotes.some(note => note === keyId)) {
         const matchingKey = keys.find(k => `${k.note}${k.octave}` === keyId);
         if (matchingKey) {
           handleKeyRelease(matchingKey);
         }
       }
     });
-  }, [activeNotes, enableMIDIInput, pressedKeys, handleKeyPress, handleKeyRelease]);
+  }, [activeNotes, enableMIDIInput, pressedKeys, keys, handleKeyPress, handleKeyRelease]);
   
   return (
     <PianoSceneContent
