@@ -218,6 +218,15 @@ export function PianoScene({
   // Memoize keys array to avoid regenerating on every render
   const keys = useMemo(() => generateKeys(), []);
   
+  // Create a lookup map for efficient key finding
+  const keyMap = useMemo(() => {
+    const map = new Map<string, PianoKey>();
+    keys.forEach(key => {
+      map.set(`${key.note}${key.octave}`, key);
+    });
+    return map;
+  }, [keys]);
+  
   // Initialize synthesizer
   useEffect(() => {
     const initSynth = async () => {
@@ -313,27 +322,28 @@ export function PianoScene({
   useEffect(() => {
     if (!enableMIDIInput) return;
     
+    // Convert activeNotes to Set for O(1) lookup
+    const activeNotesSet = new Set(activeNotes);
+    
     // Map MIDI notes to piano key presses
     activeNotes.forEach((noteName) => {
-      const keyId = noteName;
-      const matchingKey = keys.find(k => `${k.note}${k.octave}` === noteName);
+      const matchingKey = keyMap.get(noteName);
       
-      if (matchingKey && !pressedKeys.has(keyId)) {
+      if (matchingKey && !pressedKeys.has(noteName)) {
         handleKeyPress(matchingKey);
       }
     });
     
     // Release keys that are no longer active
-    const currentPressedKeys = Array.from(pressedKeys);
-    currentPressedKeys.forEach((keyId) => {
-      if (!activeNotes.some(note => note === keyId)) {
-        const matchingKey = keys.find(k => `${k.note}${k.octave}` === keyId);
+    pressedKeys.forEach((keyId) => {
+      if (!activeNotesSet.has(keyId)) {
+        const matchingKey = keyMap.get(keyId);
         if (matchingKey) {
           handleKeyRelease(matchingKey);
         }
       }
     });
-  }, [activeNotes, enableMIDIInput, pressedKeys, keys, handleKeyPress, handleKeyRelease]);
+  }, [activeNotes, enableMIDIInput, pressedKeys, keyMap, handleKeyPress, handleKeyRelease]);
   
   return (
     <PianoSceneContent
