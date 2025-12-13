@@ -4,6 +4,10 @@
  * Powered by Nirvana
  */
 
+// Test image: 1x1 red pixel PNG (base64)
+const TEST_IMAGE_BASE64 =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+
 export interface VisionConfig {
   provider: "openai" | "google" | "custom" | "none";
   apiKey: string;
@@ -319,11 +323,7 @@ export class VisionAIService {
    */
   async testConnection(): Promise<boolean> {
     try {
-      // Create a simple test image (1x1 red pixel)
-      const testImage =
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
-
-      const result = await this.analyzeImage(testImage, "Test");
+      const result = await this.analyzeImage(TEST_IMAGE_BASE64, "Test");
       return result.description.length > 0;
     } catch (err) {
       console.error("[Vision] Connection test failed:", err);

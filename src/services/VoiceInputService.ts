@@ -112,30 +112,34 @@ export class VoiceInputService {
 
   /**
    * Initialize Whisper API
+   * TODO: Implement Whisper API support using MediaRecorder
+   * - Capture audio chunks with MediaRecorder
+   * - Send to OpenAI Whisper endpoint
+   * - Handle streaming or batch transcription
    */
   private async initializeWhisper(): Promise<void> {
     if (!this.config.apiKey) {
       throw new Error("Whisper API key is required");
     }
 
-    // TODO: Implement Whisper API initialization
-    // For now, we'll use MediaRecorder to capture audio chunks
-    // and send them to Whisper API endpoint
     console.log("[VoiceInput] Whisper API mode - not yet implemented");
-    throw new Error("Whisper API mode is not yet implemented");
+    throw new Error("Whisper API mode is not yet implemented. Browser mode is recommended.");
   }
 
   /**
    * Initialize custom endpoint
+   * TODO: Implement custom endpoint support
+   * - Allow users to provide custom transcription API
+   * - Support WebSocket streaming protocols
+   * - Handle custom authentication methods
    */
   private async initializeCustom(): Promise<void> {
     if (!this.config.endpoint) {
       throw new Error("Custom endpoint is required");
     }
 
-    // TODO: Implement custom endpoint initialization
     console.log("[VoiceInput] Custom endpoint mode - not yet implemented");
-    throw new Error("Custom endpoint mode is not yet implemented");
+    throw new Error("Custom endpoint mode is not yet implemented. Browser mode is recommended.");
   }
 
   /**

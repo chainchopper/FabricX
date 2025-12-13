@@ -170,7 +170,10 @@ export class LLMService {
               onStream({ text: content, done: false });
             }
           } catch (err) {
-            console.warn("[LLM] Failed to parse SSE line:", line);
+            console.warn("[LLM] Failed to parse SSE line:", {
+              line,
+              error: err instanceof Error ? err.message : String(err)
+            });
           }
         }
       }

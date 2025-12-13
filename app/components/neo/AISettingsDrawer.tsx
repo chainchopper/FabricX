@@ -157,7 +157,6 @@ export default function AISettingsDrawer() {
     
     try {
       if (service === "llm") {
-        // Dynamically import LLM service
         const { getLLMService, resetLLMService } = await import("../../../src/services/LLMService");
         resetLLMService();
         const llmService = getLLMService(config.llm);
@@ -195,13 +194,17 @@ export default function AISettingsDrawer() {
         haptics.notifySuccess();
         audio.success();
         toast.show("Voice input initialized successfully!");
+      } else if (service === "ocr") {
+        // TODO: Implement OCR test when Tesseract.js is integrated
+        toast.show("OCR test: Tesseract.js integration pending");
       } else {
         toast.show(`${service} test not yet implemented`);
       }
     } catch (err) {
       haptics.notifyError();
       audio.error();
-      toast.show(`Error: ${String(err)}`);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      toast.show(`Connection failed: ${errorMsg}`);
       console.error(`[AI Settings] Test failed for ${service}:`, err);
     }
   };
@@ -1000,7 +1003,10 @@ export default function AISettingsDrawer() {
             Powered by Nirvana
           </Text>
           <Text style={{ color: "#93c5fd", fontSize: 10, marginTop: 4 }}>
-            Your API keys are stored locally and never sent to Fabric servers
+            🔒 API keys stored locally via AsyncStorage. Never sent to Fabric servers.
+          </Text>
+          <Text style={{ color: "#93c5fd", fontSize: 10, marginTop: 2 }}>
+            On web: localStorage. On mobile: secure app storage.
           </Text>
         </View>
       </View>
