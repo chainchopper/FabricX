@@ -29,6 +29,7 @@ import CallDrawerButton from "./components/neo/CallDrawerButton";
 import WalletDrawerButton from "./components/neo/WalletDrawerButton";
 import FriendsDrawerButton from "./components/neo/FriendsDrawerButton";
 import SettingsDrawerButton from "./components/neo/SettingsDrawerButton";
+import AISettingsDrawerButton from "./components/neo/AISettingsDrawerButton";
 
 import ProfileDrawer from "./components/neo/ProfileDrawer";
 import NeoLocker from "./components/neo/NeoLocker";
@@ -41,6 +42,7 @@ import CallDrawer from "./components/neo/CallDrawer";
 import WalletDrawer from "./components/neo/WalletDrawer";
 import FriendsDrawer from "./components/neo/FriendsDrawer";
 import SettingsDrawer from "./components/neo/SettingsDrawer";
+import AISettingsDrawer from "./components/neo/AISettingsDrawer";
 
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
@@ -95,6 +97,7 @@ export default function RootLayout() {
                         <WalletDrawer />
                         <FriendsDrawer />
                         <SettingsDrawer />
+                        <AISettingsDrawer />
                       </View>
                     </NewDrawersProvider>
                   </LockerProvider>
