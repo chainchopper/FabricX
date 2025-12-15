@@ -278,11 +278,18 @@ export class OCRService {
 
   /**
    * Extract text using custom endpoint
+   * TODO: Implement actual custom endpoint support with configurable request format
+   * For now, assumes Google Vision-compatible API format
    */
   private async extractWithCustom(
     image: string | Blob | HTMLImageElement
   ): Promise<OCRResult> {
-    // Assume Google Vision-compatible format
+    if (!this.config.endpoint) {
+      throw new Error("Custom endpoint URL is required");
+    }
+    
+    // For now, use Google Vision-compatible format
+    // In the future, this could support custom request/response formats
     return this.extractWithGoogle(image);
   }
 

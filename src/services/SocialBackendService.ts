@@ -2,6 +2,9 @@
  * SocialBackendService - Real backend integration for social features
  * Connects to API for persistent storage of influencers, followers, and events
  * Powered by Nirvana
+ * 
+ * Note: Types are currently imported from useSocialBroadcast hook.
+ * TODO: Move these types to src/types/social.ts for better separation of concerns.
  */
 
 import type { Influencer, Follower, BroadcastEvent } from "../hooks/useSocialBroadcast";

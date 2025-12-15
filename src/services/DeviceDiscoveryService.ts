@@ -44,10 +44,16 @@ export class DeviceDiscoveryService {
     // Initial scan
     await this.performScan(ipRanges, timeout);
 
-    // Periodic scans
-    this.scanIntervalId = window.setInterval(async () => {
-      await this.performScan(ipRanges, timeout);
-    }, interval);
+    // Periodic scans (use recursive setTimeout to prevent overlapping scans)
+    const scheduleNextScan = () => {
+      this.scanIntervalId = window.setTimeout(async () => {
+        if (this.isScanning) {
+          await this.performScan(ipRanges, timeout);
+          scheduleNextScan();
+        }
+      }, interval);
+    };
+    scheduleNextScan();
   }
 
   /**
@@ -59,7 +65,7 @@ export class DeviceDiscoveryService {
     this.isScanning = false;
 
     if (this.scanIntervalId !== null) {
-      window.clearInterval(this.scanIntervalId);
+      window.clearTimeout(this.scanIntervalId);
       this.scanIntervalId = null;
     }
 
