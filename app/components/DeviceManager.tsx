@@ -97,6 +97,31 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
     }
   };
 
+  const handleConnectBluetooth = async () => {
+    if (!deviceManager.supportedTypes.includes("bluetooth")) {
+      toast.show("Web Bluetooth not supported in this browser. Use Chrome, Edge, or Opera.");
+      return;
+    }
+
+    try {
+      setConnecting(true);
+      const discovered = await deviceManager.discover("bluetooth");
+      if (discovered.length > 0) {
+        await deviceManager.connect(discovered[0]);
+        haptics.notifySuccess();
+        toast.show("Device connected via Bluetooth");
+      } else {
+        toast.show("No Bluetooth devices found.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.show("Failed to connect via Bluetooth");
+      haptics.notifyError();
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const handleDisconnect = async (deviceId: string) => {
     try {
       await deviceManager.disconnect(deviceId);
@@ -316,6 +341,42 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
                 }}
               >
                 {connecting ? "Connecting..." : "Connect via USB"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Bluetooth */}
+          <View
+            style={{
+              backgroundColor: "rgba(15,23,42,0.85)",
+              borderWidth: 1,
+              borderColor: "rgba(139,92,246,0.25)",
+              borderRadius: 12,
+              padding: 14,
+              gap: 10,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "700" }}>Bluetooth Connection</Text>
+            <Text style={{ color: "#cbd5e1", fontSize: 13 }}>
+              Connect device via Bluetooth Low Energy (Chrome/Edge/Opera only)
+            </Text>
+            <Pressable
+              onPress={handleConnectBluetooth}
+              disabled={connecting}
+              style={{
+                backgroundColor: connecting ? "rgba(148,163,184,0.3)" : "#8b5cf6",
+                paddingVertical: 12,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: "white",
+                  fontWeight: "700",
+                }}
+              >
+                {connecting ? "Connecting..." : "Connect via Bluetooth"}
               </Text>
             </Pressable>
           </View>
