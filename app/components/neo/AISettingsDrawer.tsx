@@ -195,8 +195,20 @@ export default function AISettingsDrawer() {
         audio.success();
         toast.show("Voice input initialized successfully!");
       } else if (service === "ocr") {
-        // TODO: Implement OCR test when Tesseract.js is integrated
-        toast.show("OCR test: Tesseract.js integration pending");
+        const { getOCRService, resetOCRService } = await import("../../../src/services/OCRService");
+        resetOCRService();
+        const ocrService = getOCRService(config.ocr);
+        const success = await ocrService.testConnection();
+        
+        if (success) {
+          haptics.notifySuccess();
+          audio.success();
+          toast.show("OCR connection successful!");
+        } else {
+          haptics.notifyError();
+          audio.error();
+          toast.show("OCR connection failed");
+        }
       } else {
         toast.show(`${service} test not yet implemented`);
       }

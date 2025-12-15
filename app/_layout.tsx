@@ -30,6 +30,7 @@ import WalletDrawerButton from "./components/neo/WalletDrawerButton";
 import FriendsDrawerButton from "./components/neo/FriendsDrawerButton";
 import SettingsDrawerButton from "./components/neo/SettingsDrawerButton";
 import AISettingsDrawerButton from "./components/neo/AISettingsDrawerButton";
+import AIChatDrawerButton from "./components/neo/AIChatDrawerButton";
 import VoiceInputButton from "./components/VoiceInputButton";
 
 import ProfileDrawer from "./components/neo/ProfileDrawer";
@@ -44,6 +45,7 @@ import WalletDrawer from "./components/neo/WalletDrawer";
 import FriendsDrawer from "./components/neo/FriendsDrawer";
 import SettingsDrawer from "./components/neo/SettingsDrawer";
 import AISettingsDrawer from "./components/neo/AISettingsDrawer";
+import AIChatDrawer from "./components/neo/AIChatDrawer";
 
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
@@ -99,6 +101,7 @@ export default function RootLayout() {
                         <FriendsDrawer />
                         <SettingsDrawer />
                         <AISettingsDrawer />
+                        <AIChatDrawer />
                         
                         {/* Floating Voice Input */}
                         <VoiceInputButton />

@@ -5,6 +5,7 @@ import { usePreferences } from "../../context/PreferencesContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import AISettingsDrawerButton from "./AISettingsDrawerButton";
+import AIChatDrawerButton from "./AIChatDrawerButton";
 
 export default function SettingsDrawer() {
   const { back, getAnim, open } = useNewDrawers();
@@ -70,7 +71,10 @@ export default function SettingsDrawer() {
             <Text style={{ color: "#e5e7eb", fontWeight: "700", marginBottom: 8, fontSize: 14 }}>
               AI Services
             </Text>
-            <AISettingsDrawerButton />
+            <View style={{ gap: 8 }}>
+              <AISettingsDrawerButton />
+              <AIChatDrawerButton />
+            </View>
           </View>
 
           {/* Audio & Haptics */}
