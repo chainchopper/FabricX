@@ -6,7 +6,7 @@ varying vec2 vL;
 varying vec2 vR;
 varying vec2 vT;
 varying vec2 vB;
-uniform vec2 texelSize;
+uniform highp vec2 texelSize;
 void main () {
   vUv = aPosition * 0.5 + 0.5;
   vL = vUv - vec2(texelSize.x, 0.0);
@@ -23,7 +23,7 @@ attribute vec2 aPosition;
 varying vec2 vUv;
 varying vec2 vL;
 varying vec2 vR;
-uniform vec2 texelSize;
+uniform highp vec2 texelSize;
 void main () {
   vUv = aPosition * 0.5 + 0.5;
   float offset = 1.33333333;
@@ -103,7 +103,7 @@ uniform sampler2D uBloom;
 uniform sampler2D uSunrays;
 uniform sampler2D uDithering;
 uniform vec2 ditherScale;
-uniform vec2 texelSize;
+uniform highp vec2 texelSize;
 vec3 linearToGamma (vec3 color) {
   color = max(color, vec3(0));
   return max(1.055 * pow(color, vec3(0.416666667)) - 0.055, vec3(0));
@@ -169,7 +169,7 @@ varying vec2 vR;
 varying vec2 vT;
 varying vec2 vB;
 uniform sampler2D uTexture;
-uniform vec2 texelSize;
+uniform highp vec2 texelSize;
 void main () {
   vec4 sum = vec4(0.0);
   sum += texture2D(uTexture, vL);
@@ -265,8 +265,8 @@ precision highp sampler2D;
 varying vec2 vUv;
 uniform sampler2D uVelocity;
 uniform sampler2D uSource;
-uniform vec2 texelSize;
-uniform vec2 dyeTexelSize;
+uniform highp vec2 texelSize;
+uniform highp vec2 dyeTexelSize;
 uniform float dt;
 uniform float dissipation;
 vec4 bilerp (sampler2D sam, vec2 uv, vec2 tsize) {

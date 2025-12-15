@@ -1,11 +1,11 @@
 import React from "react";
 import { useExperience } from "../../contexts/ExperienceContext";
-import ARPianoExperience from "./ARPianoExperience";
+import { PianoScene } from "./ARPianoExperience";
 import { ErrorBoundary } from "../ErrorBoundary";
 
 /**
- * PianoOverlay - Renders the AR Piano experience when active
- * Integrates with experience config for AR camera and MIDI settings
+ * PianoOverlay - Renders the AR Piano 3D scene inside the main Canvas
+ * This component is used within FabricWeb3D's Canvas, so it only renders 3D objects
  */
 export default function PianoOverlay() {
   const { state } = useExperience();
@@ -17,24 +17,15 @@ export default function PianoOverlay() {
   const enableMIDIInput = Boolean(specific.enableMIDIInput ?? true);
   
   return (
-    <div style={{ 
-      position: "absolute", 
-      top: 0, 
-      left: 0, 
-      right: 0, 
-      bottom: 0,
-      pointerEvents: "auto",
-    }}>
-      <ErrorBoundary
-        onError={(error, errorInfo) => {
-          console.error('[PianoOverlay] Error in AR Piano:', error, errorInfo);
-        }}
-      >
-        <ARPianoExperience 
-          enableARCamera={enableARCamera}
-          enableMIDIInput={enableMIDIInput}
-        />
-      </ErrorBoundary>
-    </div>
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        console.error('[PianoOverlay] Error in AR Piano:', error, errorInfo);
+      }}
+    >
+      <PianoScene 
+        enableARCamera={enableARCamera}
+        enableMIDIInput={enableMIDIInput}
+      />
+    </ErrorBoundary>
   );
 }

@@ -4,7 +4,7 @@
  * Now includes AR camera overlay and MIDI input routing
  * Powered by Nirvana
  */
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import * as Tone from "tone";
@@ -136,7 +136,10 @@ function PianoKeyMesh({
   );
 }
 
-function PianoScene({
+/**
+ * PianoSceneContent - Internal 3D scene content for the piano
+ */
+function PianoSceneContent({
   onKeyPress,
   onKeyRelease,
   pressedKeys,
@@ -194,19 +197,35 @@ function PianoScene({
   );
 }
 
-export default function ARPianoExperience({ 
-  onKeyPress, 
-  deviceId,
+/**
+ * PianoScene - Exported component for use inside an existing R3F Canvas
+ * This renders only the 3D piano objects without creating its own Canvas
+ */
+export function PianoScene({
   enableARCamera = false,
   enableMIDIInput = true,
-}: ARPianoProps) {
+  onKeyPress,
+  deviceId,
+}: Partial<ARPianoProps>) {
   const synthRef = useRef<Tone.PolySynth | null>(null);
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
   const [gyroEffect, setGyroEffect] = useState({ x: 0, y: 0, z: 0 });
   const haptics = useHaptics();
   const { devices, sendCommand } = useDeviceManager();
-  const { enableARCamera: enableAR, disableARCamera: disableAR, videoTexture, isARCameraActive } = useAR();
-  const { activeNotes, noteVelocities } = useMIDI();
+  const { videoTexture, isARCameraActive } = useAR();
+  const { activeNotes } = useMIDI();
+  
+  // Memoize keys array to avoid regenerating on every render
+  const keys = useMemo(() => generateKeys(), []);
+  
+  // Create a lookup map for efficient key finding
+  const keyMap = useMemo(() => {
+    const map = new Map<string, PianoKey>();
+    keys.forEach(key => {
+      map.set(`${key.note}${key.octave}`, key);
+    });
+    return map;
+  }, [keys]);
   
   // Initialize synthesizer
   useEffect(() => {
@@ -238,55 +257,9 @@ export default function ARPianoExperience({
     const device = devices.find((d) => d.id === deviceId);
     if (!device) return;
     
-    const handleDeviceData = (data: any) => {
-      if (data.type === "sensor") {
-        // Map accelerometer to gyro effect
-        setGyroEffect({
-          x: data.accelX || 0,
-          y: data.accelY || 0,
-          z: data.gyroZ || 0,
-        });
-        
-        // Map gyro movements to piano effects
-        if (Math.abs(data.accelX) > 0.5) {
-          // Tilt left/right modulates volume
-          const volume = -8 + (data.accelX * 10);
-          if (synthRef.current) {
-            synthRef.current.volume.value = volume;
-          }
-        }
-      }
-      
-      if (data.type === "button") {
-        // Button presses send haptic feedback back to device
-        if (data.button === 1) {
-          sendCommand(deviceId, "vibrate", { duration: 100, intensity: 128 });
-        } else if (data.button === 2) {
-          sendCommand(deviceId, "vibrate", { duration: 200, intensity: 255 });
-        }
-      }
-    };
-    
-    // Subscribe to device events
-    // Note: This would need to be implemented in the device manager
-    // For now, this is a placeholder for the integration pattern
-    
-  }, [deviceId, devices, sendCommand]);
-  
-  // Initialize AR camera if enabled
-  useEffect(() => {
-    if (enableARCamera && !isARCameraActive) {
-      enableAR().catch(err => {
-        console.warn("Failed to enable AR camera:", err);
-      });
-    }
-    
-    return () => {
-      if (enableARCamera && isARCameraActive) {
-        disableAR();
-      }
-    };
-  }, [enableARCamera, isARCameraActive, enableAR, disableAR]);
+    // Device event handling would be implemented here
+    // This is a placeholder for the integration pattern
+  }, [deviceId, devices]);
   
   const handleKeyPress = useCallback(
     (key: PianoKey) => {
@@ -305,9 +278,9 @@ export default function ARPianoExperience({
       
       // Send to device LEDs
       if (deviceId) {
-        const hue = (key.midi % 12) * 30; // Map to color wheel
+        const hue = (key.midi % 12) * 30;
         sendCommand(deviceId, "setLED", {
-          index: key.midi % 64, // Map to matrix position
+          index: key.midi % 64,
           color: { h: hue, s: 100, v: 255 },
         });
       }
@@ -345,36 +318,71 @@ export default function ARPianoExperience({
     [pressedKeys, deviceId, sendCommand]
   );
   
-  // Handle MIDI input (placed after callbacks are defined)
+  // Handle MIDI input
   useEffect(() => {
     if (!enableMIDIInput) return;
     
+    // Convert activeNotes to Set for O(1) lookup
+    const activeNotesSet = new Set(activeNotes);
+    
     // Map MIDI notes to piano key presses
     activeNotes.forEach((noteName) => {
-      const keyId = noteName;
+      const matchingKey = keyMap.get(noteName);
       
-      // Find the piano key that matches this MIDI note
-      const keys = generateKeys();
-      const matchingKey = keys.find(k => `${k.note}${k.octave}` === noteName);
-      
-      if (matchingKey && !pressedKeys.has(keyId)) {
-        // Trigger key press
+      if (matchingKey && !pressedKeys.has(noteName)) {
         handleKeyPress(matchingKey);
       }
     });
     
-    // Release keys that are no longer active in MIDI
-    const currentPressedKeys = Array.from(pressedKeys);
-    currentPressedKeys.forEach((keyId) => {
-      if (!activeNotes.includes(keyId as any)) {
-        const keys = generateKeys();
-        const matchingKey = keys.find(k => `${k.note}${k.octave}` === keyId);
+    // Release keys that are no longer active
+    pressedKeys.forEach((keyId) => {
+      if (!activeNotesSet.has(keyId)) {
+        const matchingKey = keyMap.get(keyId);
         if (matchingKey) {
           handleKeyRelease(matchingKey);
         }
       }
     });
-  }, [activeNotes, enableMIDIInput, pressedKeys, handleKeyPress, handleKeyRelease]);
+  }, [activeNotes, enableMIDIInput, pressedKeys, keyMap, handleKeyPress, handleKeyRelease]);
+  
+  return (
+    <PianoSceneContent
+      onKeyPress={handleKeyPress}
+      onKeyRelease={handleKeyRelease}
+      pressedKeys={pressedKeys}
+      gyroEffect={gyroEffect}
+      videoTexture={enableARCamera ? videoTexture : null}
+    />
+  );
+}
+
+/**
+ * ARPianoExperience - Full standalone AR Piano with its own Canvas
+ * Use this for standalone piano applications
+ */
+export default function ARPianoExperience({ 
+  onKeyPress, 
+  deviceId,
+  enableARCamera = false,
+  enableMIDIInput = true,
+}: ARPianoProps) {
+  const { enableARCamera: enableAR, disableARCamera: disableAR, isARCameraActive } = useAR();
+  const { activeNotes } = useMIDI();
+  
+  // Initialize AR camera if enabled
+  useEffect(() => {
+    if (enableARCamera && !isARCameraActive) {
+      enableAR().catch(err => {
+        console.warn("Failed to enable AR camera:", err);
+      });
+    }
+    
+    return () => {
+      if (enableARCamera && isARCameraActive) {
+        disableAR();
+      }
+    };
+  }, [enableARCamera, isARCameraActive, enableAR, disableAR]);
   
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
@@ -383,11 +391,10 @@ export default function ARPianoExperience({
         style={{ width: "100%", height: "100%" }}
       >
         <PianoScene
-          onKeyPress={handleKeyPress}
-          onKeyRelease={handleKeyRelease}
-          pressedKeys={pressedKeys}
-          gyroEffect={gyroEffect}
-          videoTexture={enableARCamera ? videoTexture : null}
+          enableARCamera={enableARCamera}
+          enableMIDIInput={enableMIDIInput}
+          onKeyPress={onKeyPress}
+          deviceId={deviceId}
         />
       </Canvas>
       
@@ -406,7 +413,6 @@ export default function ARPianoExperience({
       >
         <div style={{ fontWeight: "bold", marginBottom: "4px" }}>AR Piano Active</div>
         {deviceId && <div>Device: {deviceId.slice(0, 8)}</div>}
-        <div>Keys: {pressedKeys.size}</div>
         {enableARCamera && (
           <div style={{ color: isARCameraActive ? "#10b981" : "#f59e0b" }}>
             Camera: {isARCameraActive ? "Active" : "Initializing..."}
