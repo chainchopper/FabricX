@@ -1,10 +1,20 @@
 // Device Manager UI for connecting and managing microcontrollers
 import React, { useState, useEffect } from "react";
-import { View, Text, Pressable, ScrollView, TextInput } from "react-native";
+import { View, Text, Pressable, ScrollView, TextInput, Platform } from "react-native";
 import { useToast } from "./Toast";
 import { useHaptics } from "../hooks/useHaptics";
 
-// Note: These hooks are web-only, so we'll provide placeholders for native
+// Import actual device manager hook for web
+let useDeviceManagerWeb: any = null;
+if (Platform.OS === "web") {
+  try {
+    useDeviceManagerWeb = require("../../src/hooks/useDeviceManager").useDeviceManager;
+  } catch (err) {
+    console.warn("Failed to load web device manager:", err);
+  }
+}
+
+// Placeholder for native - actual implementation in web version
 const useDeviceManagerNative = () => {
   return {
     devices: [],
@@ -12,8 +22,12 @@ const useDeviceManagerNative = () => {
     discover: async () => [],
     connect: async () => {},
     disconnect: async () => {},
+    disconnectAll: async () => {},
     sendCommand: async () => {},
     configure: async () => {},
+    getDevice: () => undefined,
+    onData: () => () => {},
+    onStatusChange: () => () => {},
   };
 };
 
@@ -21,15 +35,21 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
   const toast = useToast();
   const haptics = useHaptics();
   
-  // Use placeholder for native - actual implementation in web version
-  const deviceManager = useDeviceManagerNative();
+  // Use actual device manager on web, placeholder on native
+  const deviceManager = Platform.OS === "web" && useDeviceManagerWeb 
+    ? useDeviceManagerWeb() 
+    : useDeviceManagerNative();
   
   const [websocketUrl, setWebsocketUrl] = useState("ws://192.168.1.100:8080/ws");
   const [connecting, setConnecting] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([]);
+  const [testingDevice, setTestingDevice] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
 
   const handleConnectSerial = async () => {
     if (!deviceManager.supportedTypes.includes("serial")) {
-      toast.show("Web Serial not supported in this browser");
+      toast.show("Web Serial not supported in this browser. Use Chrome or Edge.");
       return;
     }
 
@@ -40,6 +60,8 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
         await deviceManager.connect(discovered[0]);
         haptics.notifySuccess();
         toast.show("Device connected via USB");
+      } else {
+        toast.show("No devices found. Make sure device is plugged in.");
       }
     } catch (err) {
       console.error(err);
@@ -76,6 +98,31 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
     }
   };
 
+  const handleConnectBluetooth = async () => {
+    if (!deviceManager.supportedTypes.includes("bluetooth")) {
+      toast.show("Web Bluetooth not supported in this browser. Use Chrome, Edge, or Opera.");
+      return;
+    }
+
+    try {
+      setConnecting(true);
+      const discovered = await deviceManager.discover("bluetooth");
+      if (discovered.length > 0) {
+        await deviceManager.connect(discovered[0]);
+        haptics.notifySuccess();
+        toast.show("Device connected via Bluetooth");
+      } else {
+        toast.show("No Bluetooth devices found.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.show("Failed to connect via Bluetooth");
+      haptics.notifyError();
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const handleDisconnect = async (deviceId: string) => {
     try {
       await deviceManager.disconnect(deviceId);
@@ -84,6 +131,99 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
     } catch (err) {
       console.error(err);
       toast.show("Failed to disconnect");
+    }
+  };
+
+  const handleDisconnectAll = async () => {
+    try {
+      await deviceManager.disconnectAll();
+      haptics.impactMedium();
+      toast.show("All devices disconnected");
+    } catch (err) {
+      console.error(err);
+      toast.show("Failed to disconnect all");
+    }
+  };
+
+  const handleTestDevice = async (deviceId: string) => {
+    try {
+      setTestingDevice(deviceId);
+      haptics.impactMedium();
+      
+      // Send a test command to light up the matrix
+      await deviceManager.sendCommand(deviceId, {
+        type: "led_pattern",
+        pattern: "test",
+        color: { r: 255, g: 0, b: 255 },
+        duration: 2000,
+      });
+      
+      toast.show("Test command sent! Watch your device.");
+    } catch (err) {
+      console.error(err);
+      toast.show("Failed to send test command");
+    } finally {
+      setTimeout(() => setTestingDevice(null), 2000);
+    }
+  };
+
+  const handleAutoDiscover = async () => {
+    if (Platform.OS !== "web") {
+      toast.show("Auto-discovery is only available on web");
+      return;
+    }
+
+    setIsScanning(true);
+    haptics.impactMedium();
+    toast.show("Scanning local network for devices...");
+
+    try {
+      const { getDeviceDiscoveryService } = await import("../../src/services/DeviceDiscoveryService");
+      const discoveryService = getDeviceDiscoveryService();
+
+      // Subscribe to device updates
+      const unsubscribe = discoveryService.onDevicesChanged((devices) => {
+        setDiscoveredDevices(devices);
+        if (devices.length > 0) {
+          toast.show(`Found ${devices.length} device(s)`);
+        }
+      });
+
+      // Start scanning
+      await discoveryService.startScanning({
+        interval: 15000, // Scan every 15 seconds
+        timeout: 2000,
+      });
+
+      // Stop scanning after 30 seconds
+      setTimeout(() => {
+        discoveryService.stopScanning();
+        unsubscribe();
+        setIsScanning(false);
+        
+        if (discoveredDevices.length === 0) {
+          toast.show("No devices found. Make sure devices are on the same network.");
+        }
+      }, 30000);
+    } catch (err) {
+      console.error(err);
+      toast.show("Auto-discovery failed");
+      setIsScanning(false);
+    }
+  };
+
+  const handleConnectDiscovered = async (device: any) => {
+    try {
+      setConnecting(true);
+      await deviceManager.connect(device.info);
+      haptics.notifySuccess();
+      toast.show(`Connected to ${device.info.name}`);
+    } catch (err) {
+      console.error(err);
+      toast.show("Connection failed");
+      haptics.notifyError();
+    } finally {
+      setConnecting(false);
     }
   };
 
@@ -108,9 +248,26 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
         {/* Connected Devices */}
         {deviceManager.devices.length > 0 && (
           <View style={{ gap: 12 }}>
-            <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>
-              Connected Devices
-            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>
+                Connected Devices ({deviceManager.devices.length})
+              </Text>
+              {deviceManager.devices.length > 1 && (
+                <Pressable
+                  onPress={handleDisconnectAll}
+                  style={{
+                    backgroundColor: "rgba(239,68,68,0.2)",
+                    paddingVertical: 6,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: "#ef4444", fontWeight: "700", fontSize: 12 }}>
+                    Disconnect All
+                  </Text>
+                </Pressable>
+              )}
+            </View>
             {deviceManager.devices.map((device) => (
               <View
                 key={device.info.id}
@@ -168,17 +325,89 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
                   </View>
                 )}
 
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={() => handleTestDevice(device.info.id)}
+                    disabled={testingDevice === device.info.id}
+                    style={{
+                      flex: 1,
+                      backgroundColor: testingDevice === device.info.id 
+                        ? "rgba(139,92,246,0.3)" 
+                        : "rgba(139,92,246,0.2)",
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text style={{ color: "#a78bfa", fontWeight: "700" }}>
+                      {testingDevice === device.info.id ? "Testing..." : "Test Device"}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => handleDisconnect(device.info.id)}
+                    style={{
+                      flex: 1,
+                      backgroundColor: "rgba(239,68,68,0.2)",
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text style={{ color: "#ef4444", fontWeight: "700" }}>
+                      Disconnect
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Auto-Discovery Results */}
+        {discoveredDevices.length > 0 && (
+          <View style={{ gap: 12 }}>
+            <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>
+              Discovered Devices ({discoveredDevices.length})
+            </Text>
+            {discoveredDevices.map((device) => (
+              <View
+                key={device.info.id}
+                style={{
+                  backgroundColor: "rgba(34,211,238,0.05)",
+                  borderWidth: 1,
+                  borderColor: "rgba(34,211,238,0.3)",
+                  borderRadius: 12,
+                  padding: 14,
+                  gap: 8,
+                }}
+              >
+                <View>
+                  <Text style={{ color: "white", fontWeight: "700" }}>
+                    {device.info.name}
+                  </Text>
+                  <Text style={{ color: "#cbd5e1", fontSize: 12 }}>
+                    {device.ipAddress}:{device.port} • {device.info.type}
+                  </Text>
+                </View>
+                
                 <Pressable
-                  onPress={() => handleDisconnect(device.info.id)}
+                  onPress={() => handleConnectDiscovered(device)}
+                  disabled={connecting}
                   style={{
-                    backgroundColor: "rgba(239,68,68,0.2)",
-                    paddingVertical: 8,
+                    backgroundColor: connecting ? "rgba(148,163,184,0.3)" : "rgba(34,211,238,0.2)",
+                    paddingVertical: 10,
                     borderRadius: 8,
                     alignItems: "center",
                   }}
                 >
-                  <Text style={{ color: "#ef4444", fontWeight: "700" }}>
-                    Disconnect
+                  <Text
+                    style={{
+                      color: connecting ? "#9ca3af" : "#22d3ee",
+                      fontWeight: "700",
+                    }}
+                  >
+                    {connecting ? "Connecting..." : "Connect"}
                   </Text>
                 </Pressable>
               </View>
@@ -191,6 +420,42 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
           <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>
             Add Device
           </Text>
+
+          {/* Auto-Discovery */}
+          <View
+            style={{
+              backgroundColor: "rgba(15,23,42,0.85)",
+              borderWidth: 1,
+              borderColor: "rgba(34,211,238,0.25)",
+              borderRadius: 12,
+              padding: 14,
+              gap: 10,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "700" }}>Auto-Discovery</Text>
+            <Text style={{ color: "#cbd5e1", fontSize: 13 }}>
+              Automatically scan local network for devices (Web only)
+            </Text>
+            <Pressable
+              onPress={handleAutoDiscover}
+              disabled={isScanning}
+              style={{
+                backgroundColor: isScanning ? "rgba(148,163,184,0.3)" : "#10b981",
+                paddingVertical: 12,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: "white",
+                  fontWeight: "700",
+                }}
+              >
+                {isScanning ? "Scanning..." : "Scan Network"}
+              </Text>
+            </Pressable>
+          </View>
 
           {/* USB Serial */}
           <View
@@ -224,6 +489,42 @@ export default function DeviceManager({ onClose }: { onClose?: () => void }) {
                 }}
               >
                 {connecting ? "Connecting..." : "Connect via USB"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Bluetooth */}
+          <View
+            style={{
+              backgroundColor: "rgba(15,23,42,0.85)",
+              borderWidth: 1,
+              borderColor: "rgba(139,92,246,0.25)",
+              borderRadius: 12,
+              padding: 14,
+              gap: 10,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "700" }}>Bluetooth Connection</Text>
+            <Text style={{ color: "#cbd5e1", fontSize: 13 }}>
+              Connect device via Bluetooth Low Energy (Chrome/Edge/Opera only)
+            </Text>
+            <Pressable
+              onPress={handleConnectBluetooth}
+              disabled={connecting}
+              style={{
+                backgroundColor: connecting ? "rgba(148,163,184,0.3)" : "#8b5cf6",
+                paddingVertical: 12,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: "white",
+                  fontWeight: "700",
+                }}
+              >
+                {connecting ? "Connecting..." : "Connect via Bluetooth"}
               </Text>
             </Pressable>
           </View>
