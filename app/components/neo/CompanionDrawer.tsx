@@ -3,6 +3,7 @@ import { Animated, Pressable, Text, View, ScrollView, TextInput, Platform } from
 import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
+import { useDemoData } from "../../utils/demoMode";
 
 interface Message {
   id: string;
@@ -22,7 +23,9 @@ export default function CompanionDrawer() {
   const { tx, width } = getAnim("companion");
   const haptics = useHaptics();
   const audio = useAudioCues();
-  
+  // Canned suggestions only render when the demo-data flag is on (Slice 1).
+  const demoData = useDemoData();
+
   const [activeTab, setActiveTab] = useState<"chat" | "suggestions" | "settings">("chat");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([
@@ -41,6 +44,8 @@ export default function CompanionDrawer() {
     { id: "4", text: "Help me optimize performance", action: "optimize" },
     { id: "5", text: "Explain swarm mode features", action: "explain_swarm" },
   ];
+
+  const suggestions: Suggestion[] = demoData ? mockSuggestions : [];
 
   const handleTabChange = (tab: typeof activeTab) => {
     haptics.impactLight();
@@ -270,7 +275,12 @@ export default function CompanionDrawer() {
                 </Text>
               </View>
 
-              {mockSuggestions.map((suggestion) => (
+              {suggestions.length === 0 ? (
+                <Text style={{ color: "#9ca3af", textAlign: "center", marginTop: 8 }}>
+                  No suggestions right now — ask the companion anything from the Chat tab.
+                </Text>
+              ) : null}
+              {suggestions.map((suggestion) => (
                 <Pressable
                   key={suggestion.id}
                   onPress={() => handleSuggestion(suggestion)}
