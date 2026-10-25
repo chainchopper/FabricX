@@ -1,0 +1,1 @@
+{"dependencies":{"ws":"^8.18.0"},"description":"Minimal WebSocket signaling relay for Fabric WebRTC (matches src/services/SignalingService.ts).","engines":{"node":">=18"},"main":"index.js","name":"fabric-signaling","private":true,"scripts":{"start":"node index.js"},"version":"1.0.0"}
