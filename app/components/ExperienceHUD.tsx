@@ -5,6 +5,7 @@ import { useAR } from "../context/ARContext";
 import { useMIDI } from "../../src/hooks/useMIDI";
 import { getAudioReactive } from "../../src/shared/utils/audioReactive";
 import VerbBar from "../../src/components/sensory/VerbBar";
+import GhostIndicator from "../../src/ghost/GhostIndicator";
 
 export default function ExperienceHUD() {
   // Platform const guard is safe; never changes across renders
@@ -50,6 +51,9 @@ export default function ExperienceHUD() {
       </Text>
       {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
       <VerbBar />
+      {/* Ghost AI presence + controls (Slice 2): honest agent indicator
+          with on/off toggle and Summon/Dismiss for shared sessions. */}
+      <GhostIndicator />
       {isARCameraActive ? (
         <Text style={{ color: "#34d399", fontSize: 11, marginTop: 2 }}>AR On</Text>
       ) : null}
