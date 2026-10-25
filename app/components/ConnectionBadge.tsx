@@ -13,16 +13,21 @@ export default function ConnectionBadge() {
   const [countdown, setCountdown] = useState<number>(RETRY_SECONDS);
   const timerRef = useRef<number | null>(null);
 
+  const mode = rt.mode ?? "local";
+  const peers = rt.peers ?? 0;
+
   useEffect(() => {
     const unsub = subscribeRealtimeStatus((next) => setRt(next));
     return () => unsub();
   }, []);
 
-  // Manage auto-retry loop when disconnected
+  // Manage auto-retry loop. It only runs in 'online' mode with no peers
+  // (signaling is up, re-announcing may still find someone). In 'local'
+  // mode there is nothing to retry — local is the designed state, not a
+  // failure — and 'connecting' resolves itself via bounded attempts.
   useEffect(() => {
-    const disconnected = (rt.peers ?? 0) === 0;
-    if (!disconnected) {
-      // Stop countdown when peers are back
+    const shouldRetry = mode === "online" && peers === 0;
+    if (!shouldRetry) {
       if (timerRef.current) {
         window.clearInterval(timerRef.current);
         timerRef.current = null;
@@ -53,7 +58,7 @@ export default function ConnectionBadge() {
         timerRef.current = null;
       }
     };
-  }, [rt.peers]);
+  }, [mode, peers]);
 
   const reannounce = () => {
     if (typeof window !== "undefined") {
@@ -65,9 +70,27 @@ export default function ConnectionBadge() {
   };
 
   const transportLabel = rt.transport === "webrtc" ? "RTC" : "BC";
-  const peers = rt.peers ?? 0;
   const latency = typeof rt.latencyMs === "number" ? `${Math.round(rt.latencyMs)}ms` : "—";
-  const warn = peers === 0;
+  // Warning styling is reserved for "signaling up but nobody here".
+  // Local mode is quiet and neutral by design.
+  const warn = mode === "online" && peers === 0;
+
+  const headline =
+    mode === "local"
+      ? `Local • ${peers}`
+      : mode === "connecting"
+        ? "Connecting…"
+        : `${transportLabel} • ${peers}`;
+
+  const subline = warn
+    ? `Auto retry in ${countdown}s • Tap to retry`
+    : mode === "local"
+      ? peers > 0
+        ? "Local sync • Tap to re-announce"
+        : "Local mode • Tap to re-announce"
+      : mode === "connecting"
+        ? "Looking for signaling…"
+        : "Tap to re-announce";
 
   return (
     <Pressable
@@ -88,13 +111,13 @@ export default function ConnectionBadge() {
       }}
     >
       <Text style={{ color: warn ? "#fbbf24" : "#e5e7eb", fontWeight: "800" }}>
-        {transportLabel} • {peers}
+        {headline}
       </Text>
       <Text style={{ color: warn ? "#fde68a" : "#93c5fd", fontSize: 11 }}>
         {latency}
       </Text>
       <Text style={{ color: warn ? "#fde68a" : "#9ca3af", fontSize: 10, marginTop: 2 }}>
-        {warn ? `Auto retry in ${countdown}s • Tap to retry` : "Tap to re-announce"}
+        {subline}
       </Text>
     </Pressable>
   );
