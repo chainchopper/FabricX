@@ -322,8 +322,13 @@ export class WebRTCManager {
     };
 
     pc.onconnectionstatechange = () => {
+      // Only terminal states remove the peer. 'disconnected' is a
+      // TRANSIENT ICE state (brief network flap, remote tab
+      // re-negotiating) from which the connection routinely recovers
+      // on its own; treating it as fatal closed the peer's data
+      // channel and forced a full renegotiation for a blip
+      // (Hotfix 1.2).
       if (pc.connectionState === 'failed' ||
-          pc.connectionState === 'disconnected' ||
           pc.connectionState === 'closed') {
         this.removePeer(peerId);
       }
