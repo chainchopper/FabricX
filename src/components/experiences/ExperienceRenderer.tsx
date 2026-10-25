@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useRef } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useRef } from "react";
 import { Platform, View, Animated, Easing } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useAR } from "../../contexts/ARContext";
@@ -33,17 +33,31 @@ export default function ExperienceRenderer() {
     }
   }, [wantsAROrCamera, curtainOpacity]);
 
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      window.__fabric_bg_ready = true;
-      window.dispatchEvent(new CustomEvent("fabric:background-ready", { detail: true }));
-      return () => {
-        window.__fabric_bg_ready = false;
-        window.dispatchEvent(new CustomEvent("fabric:background-ready", { detail: false }));
-      };
-    }
-    return;
+  // Honest ready signal (Slice 1): the flag used to be set on mount,
+  // before the WebGL engine had initialized — a cold load could report
+  // "ready" over a blank canvas. Now the fluid engine reports real init
+  // via onReady (threaded through WebFluidBackground -> LegacyFluid).
+  // A 4s fallback still sets the flag if the engine errors out or an
+  // experience has no ready callback (e.g. the AR path), so consumers
+  // waiting on the flag never hang.
+  const readyRef = useRef(false);
+  const markReady = useCallback(() => {
+    if (Platform.OS !== "web" || readyRef.current) return;
+    readyRef.current = true;
+    window.__fabric_bg_ready = true;
+    window.dispatchEvent(new CustomEvent("fabric:background-ready", { detail: true }));
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const fallback = window.setTimeout(markReady, 4000);
+    return () => {
+      window.clearTimeout(fallback);
+      readyRef.current = false;
+      window.__fabric_bg_ready = false;
+      window.dispatchEvent(new CustomEvent("fabric:background-ready", { detail: false }));
+    };
+  }, [markReady]);
 
   if (Platform.OS !== "web") return null;
 
@@ -71,7 +85,7 @@ export default function ExperienceRenderer() {
           <FabricWeb3DLazy />
         </Suspense>
       ) : (
-        <WebFluidBackground />
+        <WebFluidBackground onReady={markReady} />
       )}
 
       <Animated.View
