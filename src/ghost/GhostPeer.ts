@@ -1,0 +1,1234 @@
+/**
+ * GhostPeer — the Fabric ghost: a local agent peer on the same
+ * interaction protocol human peers use, with a personality of its own.
+ *
+ * The ghost is NOT a fake user. It has a clearly-an-agent peer id
+ * ("ghost:<ownerId>"), a persistent identity (generated name + signature
+ * hue, persisted by useGhostPeer in fabric_ghost_v1), and it never
+ * appears in contacts or people lists. Every interaction it makes is
+ * rendered by clients through the normal remote-interaction path (splat
+ * + verb haptics/audio), honoring each client's own preferences.
+ *
+ * Two modes:
+ *
+ * - SOLO (default companion): the ghost lives only on this client,
+ *   injected locally, never networked. Present only while no human peer
+ *   is connected; when one joins it finishes its gesture, fades, and
+ *   stays away.
+ *
+ * - SESSION (summoned): any participant can summon THEIR OWN ghost into
+ *   the shared session. The owner's client runs the brain; the ghost's
+ *   interactions are also broadcast under its "ghost:<ownerId>" peer id
+ *   so everyone renders it through the normal remote path. The brain
+ *   consumes ALL participants' interactions, so it reacts to anyone.
+ *   Only the owner can dismiss their ghost (soft goodbye sequence);
+ *   when the owner disconnects, their ghost leaves with them (v1).
+ *
+ * Personality: a temperament state machine (curious / playful / sleepy /
+ * sassy / affectionate) drifts over time and reacts to events — petting
+ * raises affectionate, being ignored while playful can flip sassy, long
+ * quiet becomes sleepy. Temperament biases probabilities and speeds:
+ * a sassy ghost occasionally ignores a pet and wanders off; a playful
+ * ghost initiates more. Even idle, the ghost has autonomous antics
+ * (spiral doodles, tail-chases, a startle-hop when a very strong splat
+ * lands nearby) — rate-limited so the canvas never gets noisy.
+ *
+ * Body & petting: the ghost has a virtual position; it wanders slowly
+ * and its idle splats originate there. PETTING = any participant's
+ * interaction landing within PET_RADIUS of that position. Petted ghosts
+ * lean toward the hand, burst happily, PURR (ghost-only verb), and
+ * after sustained petting occasionally send a HEART. In session mode the
+ * only room-wide verbs a ghost sends are those petting responses (PURR /
+ * HEART) — never verbs aimed at other ghosts.
+ *
+ * Ghost society: ghosts perceive each other through the broadcast stream
+ * (peerId prefix "ghost:"). On first sensing another ghost, a ghost
+ * approaches it and SNIFFS (3–4 small quick probing splats near it).
+ * Then temperament decides: PLAY (a short chase), SOCIAL IDLE (drift
+ * nearby, occasional companionable splat), or ALOOF (wander off). Ghosts
+ * that met before in the session skip the sniff and go straight to
+ * social/play with higher probability. Soft cap: MAX_GHOSTS_PER_ROOM
+ * ghosts per room; a hard per-ghost emit budget keeps ghost society
+ * from ever flooding human interaction.
+ *
+ * All behavior is local, deterministic (PRNG seeded by the persisted
+ * identity seed), and LLM-free. An optional LLM bias (setMoodBias,
+ * driven by useGhostPeer's poll) only nudges choices among allowlisted
+ * behaviors.
+ *
+ * Powered by Nirvana
+ */
+
+import type { FluidInteraction } from "../types/fluid";
+import {
+  HEART,
+  CHEER,
+  TICKLE,
+  PURR,
+  verbInteraction,
+  type SensoryVerb,
+} from "../sensory/verbs";
+import type { GhostPresence } from "./ghostStore";
+import type { GhostSfxKind } from "./useGhostSfx";
+
+/** Peer-id convention: every ghost broadcasts as "ghost:<ownerUserId>". */
+export const GHOST_PEER_PREFIX = "ghost:";
+
+export function ghostPeerIdFor(ownerUserId: string): string {
+  return `${GHOST_PEER_PREFIX}${ownerUserId}`;
+}
+
+export function isGhostPeerId(userId?: string | null): boolean {
+  return typeof userId === "string" && userId.startsWith(GHOST_PEER_PREFIX);
+}
+
+export type GhostMode = "solo" | "session";
+
+export type GhostTemperament =
+  | "curious"
+  | "playful"
+  | "sleepy"
+  | "sassy"
+  | "affectionate";
+
+/** Behavior biases the optional LLM link may pick — nothing else sticks. */
+export type GhostMoodBias = "heart" | "cheer" | "tickle" | "drift" | "mirror";
+export const GHOST_MOOD_BIASES: readonly GhostMoodBias[] = [
+  "heart",
+  "cheer",
+  "tickle",
+  "drift",
+  "mirror",
+];
+
+export interface GhostIdentity {
+  /** Signature hue, degrees 0..360. Plain splats live in this family. */
+  hue: number;
+  /** Persistent seed: drives the PRNG (and, in useGhostPeer, the name). */
+  seed: number;
+}
+
+export interface GhostPeerOptions {
+  /** This ghost's own peer id: ghostPeerIdFor(ownerUserId). */
+  peerId: string;
+  identity: GhostIdentity;
+  /** Render a ghost interaction on THIS client (never networked). */
+  injectLocal: (interaction: FluidInteraction) => void;
+  /**
+   * Broadcast a ghost interaction to the session (session mode only).
+   * The owner's sendInteraction stamps it with this ghost's peer id.
+   */
+  broadcast?: (
+    interaction: Omit<FluidInteraction, "userId" | "timestamp">
+  ) => void;
+  onPresenceChange?: (presence: GhostPresence, mode: GhostMode) => void;
+  onTemperamentChange?: (temperament: GhostTemperament) => void;
+  /** Fired when the count of sensed OTHER ghosts in the room changes. */
+  onGhostsChange?: (otherGhostCount: number) => void;
+  /**
+   * Semantic sound events for THIS ghost (sniff, play, mirror, startle,
+   * sleep, wake, heart). The hook layer turns them into synthesized SFX
+   * pitched from the ghost's signature hue — ghosts never speak.
+   */
+  onSfx?: (kind: GhostSfxKind) => void;
+}
+
+export const MAX_GHOSTS_PER_ROOM = 4;
+
+// ---- Tuning (all times in ms, positions normalized 0..1) ----
+const TICK_MS = 300;
+const SLEEP_AFTER_MS = 60_000;
+const DRIFT_MIN_IDLE_MS = 3_500;
+const CONTACT_GAP_MS = 220;
+const CONTACT_FINALIZE_MS = 320;
+const TAP_MAX_DURATION_MS = 300;
+const RHYTHM_WINDOW_MS = 1_800;
+const VERB_MIN_INTERVAL_MS = 180_000;
+const VERB_RECENT_ACTIVITY_MS = 25_000;
+const PET_RADIUS = 0.17;
+const PET_BURST_COOLDOWN_MS = 2_500;
+const PET_PURR_COOLDOWN_MS = 20_000;
+const PET_HEART_COOLDOWN_MS = 150_000;
+const FADE_GRACE_MS = 1_200;
+const BIAS_TTL_MS = 90_000;
+const EMIT_BUDGET = 16; // max ghost interactions per EMIT_WINDOW_MS
+const EMIT_WINDOW_MS = 10_000;
+const GHOST_STALE_MS = 20_000;
+const ANTICS_MIN_GAP_MS = 18_000;
+const STARTLE_COOLDOWN_MS = 6_000;
+const STARTLE_RADIUS = 0.26;
+
+/** Deterministic PRNG so ghost behavior is reproducible, never chaotic. */
+function mulberry32(seed: number): () => number {
+  let a = seed | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hslToRgb(
+  hDeg: number,
+  s: number,
+  l: number
+): { r: number; g: number; b: number } {
+  const h = (((hDeg % 360) + 360) % 360) / 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h * 6) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 1 / 6) [r, g, b] = [c, x, 0];
+  else if (h < 2 / 6) [r, g, b] = [x, c, 0];
+  else if (h < 3 / 6) [r, g, b] = [0, c, x];
+  else if (h < 4 / 6) [r, g, b] = [0, x, c];
+  else if (h < 5 / 6) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return { r: r + m, g: g + m, b: b + m };
+}
+
+const clamp01 = (v: number) => Math.min(0.97, Math.max(0.03, v));
+const dist2 = (
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number => {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
+};
+
+interface ContactPoint {
+  x: number;
+  y: number;
+  fx: number;
+  fy: number;
+  pressure: number;
+  t: number;
+}
+
+interface Contact {
+  userId: string;
+  startedAt: number;
+  lastAt: number;
+  points: ContactPoint[];
+}
+
+interface Tap {
+  t: number;
+  x: number;
+  y: number;
+}
+
+interface OtherGhost {
+  x: number;
+  y: number;
+  lastSeen: number;
+}
+
+type SocialPhase = "none" | "approach" | "decide" | "chase" | "social";
+
+interface SocialState {
+  phase: SocialPhase;
+  targetId: string | null;
+  until: number;
+  nextActionAt: number;
+}
+
+export class GhostPeer {
+  private options: GhostPeerOptions;
+  private rng: () => number;
+  private sigColor: { r: number; g: number; b: number };
+  private sigDriftColor: { r: number; g: number; b: number };
+
+  private enabled = true;
+  private humansPresent = false;
+  private mode: GhostMode = "solo";
+  private dismissing = false;
+  private fading = false;
+  private fadeDeadline = 0;
+
+  private presence: GhostPresence = "sleeping";
+  private temperament: GhostTemperament = "curious";
+  private temperamentSince = Date.now();
+
+  private lastActivityAt: number;
+  private lastEventAt = 0;
+  private lastVerbAt = 0;
+  private lastPetBurstAt = 0;
+  private lastPurrAt = 0;
+  private lastPetHeartAt = 0;
+  private lastAnticAt = 0;
+  private lastStartleAt = 0;
+
+  /** The ghost's body: current position + where it is drifting toward. */
+  private position = { x: 0.5, y: 0.42 };
+  private wanderTarget = { x: 0.5, y: 0.42 };
+  private nextWanderAt = 0;
+  private nextDriftAt = 0;
+
+  private contacts = new Map<string, Contact>();
+  private taps = new Map<string, Tap[]>();
+  private petTimes: number[] = [];
+  private emitTimes: number[] = [];
+
+  // Ghost society
+  private otherGhosts = new Map<string, OtherGhost>();
+  private metBefore = new Set<string>();
+  private aloofUntil = new Map<string, number>();
+  private social: SocialState = {
+    phase: "none",
+    targetId: null,
+    until: 0,
+    nextActionAt: 0,
+  };
+
+  private bias: GhostMoodBias | null = null;
+  private biasExpiresAt = 0;
+
+  private lastTs = 0;
+  private timers = new Set<ReturnType<typeof setTimeout>>();
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private destroyed = false;
+
+  constructor(options: GhostPeerOptions) {
+    this.options = options;
+    this.rng = mulberry32(options.identity.seed || 0xfab21c);
+    this.sigColor = hslToRgb(options.identity.hue, 0.8, 0.68);
+    this.sigDriftColor = hslToRgb(options.identity.hue, 0.62, 0.76);
+    // A seed-flavored starting temperament (stable per identity).
+    const starts: GhostTemperament[] = ["curious", "playful", "curious", "affectionate"];
+    this.temperament = starts[Math.floor(this.rng() * starts.length)];
+    this.lastActivityAt = Date.now();
+    this.temperamentSince = this.lastActivityAt;
+    this.nextWanderAt = this.lastActivityAt + 4_000;
+    this.nextDriftAt = this.lastActivityAt + 5_000;
+    this.tickTimer = setInterval(() => this.tick(), TICK_MS);
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    if (this.tickTimer) clearInterval(this.tickTimer);
+    this.timers.forEach((t) => clearTimeout(t));
+    this.timers.clear();
+  }
+
+  get peerId(): string {
+    return this.options.peerId;
+  }
+
+  getMode(): GhostMode {
+    return this.mode;
+  }
+
+  getPresence(): GhostPresence {
+    return this.presence;
+  }
+
+  getTemperament(): GhostTemperament {
+    return this.temperament;
+  }
+
+  // ---------------------------------------------------------- inputs
+
+  setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    if (!enabled && this.mode === "session") {
+      // Muting yourself releases the session ghost you host.
+      this.mode = "solo";
+      this.dismissing = false;
+      this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+    }
+    this.publishPresence();
+  }
+
+  setHumansPresent(present: boolean): void {
+    if (this.humansPresent === present) return;
+    const now = Date.now();
+    this.humansPresent = present;
+    if (present && this.mode === "solo" && this.timers.size > 0) {
+      // Let the in-flight gesture finish, then stay away.
+      this.fading = true;
+      this.fadeDeadline = now + FADE_GRACE_MS;
+    }
+    if (!present) {
+      this.fading = false;
+      if (this.mode === "session") {
+        // Everyone left — the summoned ghost leaves with the session.
+        this.mode = "solo";
+        this.dismissing = false;
+      }
+    }
+    this.publishPresence();
+  }
+
+  /**
+   * Summon THIS user's ghost into the shared session (this client hosts
+   * it). Returns false when the room is already at the ghost cap.
+   */
+  summon(): boolean {
+    if (!this.enabled || !this.humansPresent || this.mode === "session") {
+      return this.mode === "session";
+    }
+    if (1 + this.activeOtherGhostCount(Date.now()) > MAX_GHOSTS_PER_ROOM) {
+      return false;
+    }
+    this.mode = "session";
+    this.dismissing = false;
+    // A small hello: three soft splats rising from the ghost's position.
+    for (let k = 0; k < 3; k++) {
+      this.schedule(
+        k * 140,
+        () => {
+          this.emit(
+            {
+              position: { x: this.position.x, y: this.position.y - k * 0.03 },
+              force: { x: 0, y: -60 - k * 30 },
+              pressure: 0.35 + k * 0.1,
+              color: this.sigColor,
+            },
+            true
+          );
+        },
+        true
+      );
+    }
+    this.publishPresence();
+    return true;
+  }
+
+  /** Dismiss your own session ghost: a soft goodbye, then it stops. */
+  dismiss(): void {
+    if (this.mode !== "session" || this.dismissing) return;
+    this.dismissing = true;
+    this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+    for (let k = 0; k < 4; k++) {
+      this.schedule(
+        k * 170,
+        () => {
+          this.emit(
+            {
+              position: {
+                x: clamp01(this.position.x + k * 0.035),
+                y: clamp01(this.position.y + k * 0.05),
+              },
+              force: { x: 40, y: 70 },
+              pressure: 0.42 - k * 0.07,
+              color: this.sigDriftColor,
+            },
+            true
+          );
+        },
+        true
+      );
+    }
+    this.schedule(
+      850,
+      () => {
+        this.mode = "solo";
+        this.dismissing = false;
+        this.publishPresence();
+      },
+      true
+    );
+    this.publishPresence();
+  }
+
+  /** Bias behavior with an LLM-chosen directive (allowlist enforced). */
+  setMoodBias(bias: GhostMoodBias): void {
+    this.bias = bias;
+    this.biasExpiresAt = Date.now() + BIAS_TTL_MS;
+  }
+
+  /** Any user activity that is not a canvas stroke (e.g. sending a verb). */
+  noteUserActivity(): void {
+    this.lastActivityAt = Date.now();
+    if (this.temperament === "sleepy") this.setTemperament("curious");
+    this.publishPresence();
+  }
+
+  /**
+   * Feed one HUMAN participant interaction into the brain — the local
+   * user's strokes and, in session mode, every remote human peer's, so
+   * the ghost can react to anyone. Ghost-authored interactions must go
+   * through noteGhostSighting instead; verb interactions count as
+   * activity only.
+   */
+  noteInteraction(i: FluidInteraction): void {
+    if (isGhostPeerId(i.userId)) return;
+    const now = i.timestamp || Date.now();
+    this.lastActivityAt = now;
+    this.lastEventAt = now;
+    if (this.temperament === "sleepy") this.setTemperament("curious");
+    if (i.verb) {
+      this.publishPresence();
+      return;
+    }
+
+    this.maybeStartle(i, now);
+    this.registerPet(i, now);
+
+    let contact = this.contacts.get(i.userId);
+    if (contact && now - contact.lastAt > CONTACT_GAP_MS) {
+      this.finalizeContact(contact);
+      this.contacts.delete(i.userId);
+      contact = undefined;
+    }
+    if (!contact) {
+      contact = { userId: i.userId, startedAt: now, lastAt: now, points: [] };
+      this.contacts.set(i.userId, contact);
+    }
+    contact.points.push({
+      x: i.position.x,
+      y: i.position.y,
+      fx: i.force?.x ?? 0,
+      fy: i.force?.y ?? 0,
+      pressure: i.pressure ?? 0.5,
+      t: now,
+    });
+    if (contact.points.length > 60) contact.points.shift();
+    contact.lastAt = now;
+    this.publishPresence();
+  }
+
+  /**
+   * Feed one GHOST-authored interaction (from the broadcast stream) into
+   * social perception: track the other ghost's position and, in session
+   * mode, run the greeting ritual. Own-ghost and stale ids are ignored.
+   */
+  noteGhostSighting(i: FluidInteraction): void {
+    if (!isGhostPeerId(i.userId) || i.userId === this.peerId) return;
+    const now = Date.now();
+    const isNew = !this.otherGhosts.has(i.userId);
+    this.otherGhosts.set(i.userId, {
+      x: i.position.x,
+      y: i.position.y,
+      lastSeen: now,
+    });
+    if (isNew) {
+      this.options.onGhostsChange?.(this.otherGhosts.size);
+    }
+
+    // Greetings only happen while my own ghost is summoned & social.
+    if (
+      this.mode !== "session" ||
+      !this.enabled ||
+      this.dismissing ||
+      this.social.phase !== "none" ||
+      (this.aloofUntil.get(i.userId) ?? 0) > now
+    ) {
+      return;
+    }
+
+    if (!this.metBefore.has(i.userId)) {
+      // First meeting this session: approach, then sniff.
+      this.social = {
+        phase: "approach",
+        targetId: i.userId,
+        until: now + 5_000,
+        nextActionAt: 0,
+      };
+    } else if (this.rng() < 0.5) {
+      // Old friends skip the sniff — straight to play or social idle.
+      this.decideAfterSniff(i.userId, true);
+    }
+  }
+
+  // ---------------------------------------------------------- petting
+
+  private registerPet(i: FluidInteraction, now: number): void {
+    if (
+      dist2(i.position.x, i.position.y, this.position.x, this.position.y) >
+      PET_RADIUS * PET_RADIUS
+    ) {
+      return;
+    }
+
+    // A sassy ghost occasionally pointedly ignores a pet.
+    if (this.temperament === "sassy" && this.rng() < 0.25) {
+      this.wanderTarget.x = clamp01(
+        this.position.x - (i.position.x - this.position.x) * 0.6
+      );
+      this.wanderTarget.y = clamp01(
+        this.position.y - (i.position.y - this.position.y) * 0.6
+      );
+      return;
+    }
+
+    // Lean toward the stroking hand.
+    const lean = this.temperament === "affectionate" ? 0.26 : 0.18;
+    this.position.x = clamp01(
+      this.position.x + (i.position.x - this.position.x) * lean
+    );
+    this.position.y = clamp01(
+      this.position.y + (i.position.y - this.position.y) * lean
+    );
+    this.wanderTarget.x = clamp01(
+      this.wanderTarget.x + (i.position.x - this.wanderTarget.x) * 0.25
+    );
+    this.wanderTarget.y = clamp01(
+      this.wanderTarget.y + (i.position.y - this.wanderTarget.y) * 0.25
+    );
+
+    this.petTimes = this.petTimes.filter((t) => now - t < 9_000);
+    this.petTimes.push(now);
+    if (this.rng() < 0.7) this.setTemperament("affectionate");
+
+    // Happy burst — small, soft, rate-limited.
+    if (now - this.lastPetBurstAt > PET_BURST_COOLDOWN_MS) {
+      this.lastPetBurstAt = now;
+      this.schedule(120, () => {
+        if (!this.canAct()) return;
+        for (let k = 0; k < 3; k++) {
+          const angle = this.rng() * Math.PI * 2;
+          this.emit({
+            position: { x: this.position.x, y: this.position.y },
+            force: { x: Math.cos(angle) * 90, y: Math.sin(angle) * 90 },
+            pressure: 0.42,
+            color: this.sigColor,
+          });
+        }
+      });
+    }
+
+    const recentPets = this.petTimes.filter((t) => now - t < 5_000).length;
+    const purrThreshold = this.temperament === "affectionate" ? 3 : 4;
+
+    // Sustained petting -> purr (ghost-only verb, standard effect path).
+    if (recentPets >= purrThreshold && now - this.lastPurrAt > PET_PURR_COOLDOWN_MS) {
+      this.lastPurrAt = now;
+      this.schedule(250, () => {
+        if (!this.canAct()) return;
+        this.emitVerb(PURR);
+      });
+    }
+
+    // Lots of sustained petting -> an occasional heart.
+    if (
+      this.petTimes.length >= 8 &&
+      now - this.lastPetHeartAt > PET_HEART_COOLDOWN_MS
+    ) {
+      this.lastPetHeartAt = now;
+      this.petTimes = [];
+      this.schedule(450, () => {
+        if (!this.canAct()) return;
+        this.emitVerb(HEART);
+      });
+    }
+  }
+
+  // ---------------------------------------------------------- startle
+
+  private maybeStartle(i: FluidInteraction, now: number): void {
+    if (
+      (i.pressure ?? 0) < 0.95 ||
+      now - this.lastStartleAt < STARTLE_COOLDOWN_MS ||
+      dist2(i.position.x, i.position.y, this.position.x, this.position.y) >
+        STARTLE_RADIUS * STARTLE_RADIUS
+    ) {
+      return;
+    }
+    this.lastStartleAt = now;
+    // Hop away from the big splat.
+    let dx = this.position.x - i.position.x;
+    let dy = this.position.y - i.position.y;
+    const len = Math.hypot(dx, dy) || 1;
+    dx = (dx / len) * 0.11;
+    dy = (dy / len) * 0.11;
+    const from = { ...this.position };
+    this.position.x = clamp01(this.position.x + dx);
+    this.position.y = clamp01(this.position.y + dy);
+    this.wanderTarget.x = clamp01(this.position.x + dx * 0.6);
+    this.wanderTarget.y = clamp01(this.position.y + dy * 0.6);
+    this.setTemperament("curious");
+    this.schedule(60, () => {
+      if (!this.canAct()) return;
+      this.options.onSfx?.("startle");
+      this.emit({
+        position: from,
+        force: { x: dx * 900, y: dy * 900 },
+        pressure: 0.5,
+        color: this.sigColor,
+      });
+      this.emit({
+        position: { x: this.position.x, y: this.position.y },
+        force: { x: dx * 500, y: dy * 500 },
+        pressure: 0.35,
+        color: this.sigColor,
+      });
+    });
+  }
+
+  // ---------------------------------------------------------- contacts
+
+  private finalizeContact(contact: Contact): void {
+    const duration = contact.lastAt - contact.startedAt;
+    const points = contact.points;
+    if (points.length === 0) return;
+
+    if (duration <= TAP_MAX_DURATION_MS && points.length <= 5) {
+      // A tap — collect it toward a possible rhythm.
+      const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+      const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
+      const list = (this.taps.get(contact.userId) ?? []).filter(
+        (t) => contact.startedAt - t.t < RHYTHM_WINDOW_MS
+      );
+      list.push({ t: contact.startedAt, x: cx, y: cy });
+      if (list.length >= 3) {
+        this.taps.set(contact.userId, []);
+        this.scheduleResponse(list);
+      } else {
+        this.taps.set(contact.userId, list);
+      }
+      return;
+    }
+
+    if (points.length >= 3) {
+      this.scheduleMirror(points);
+    }
+  }
+
+  /** Echo a softened, slightly offset copy of a finished stroke. */
+  private scheduleMirror(points: ContactPoint[]): void {
+    if (!this.canAct()) return;
+    const bias = this.currentBias();
+    const delay =
+      bias === "mirror" ? 500 + this.rng() * 300 : 700 + this.rng() * 450;
+    const att =
+      this.temperament === "curious" ? 0.75 : bias === "mirror" ? 0.8 : 0.6;
+    const step = Math.max(1, Math.floor(points.length / 9));
+    const sampled = points.filter((_, idx) => idx % step === 0).slice(0, 9);
+
+    sampled.forEach((p, idx) => {
+      this.schedule(delay + idx * 50, () => {
+        if (!this.canAct() || this.userIsDrawing()) return;
+        if (idx === 0) this.options.onSfx?.("mirror");
+        this.emit({
+          position: { x: clamp01(p.x + 0.055), y: clamp01(p.y - 0.035) },
+          force: { x: p.fx * att, y: p.fy * att },
+          pressure: Math.max(0.15, p.pressure * 0.7),
+          color: this.sigColor,
+        });
+      });
+    });
+  }
+
+  /** Answer a quick tap rhythm with a simple variation of it. */
+  private scheduleResponse(taps: Tap[]): void {
+    if (!this.canAct()) return;
+    const bias = this.currentBias();
+    const delay = 480 + this.rng() * 250;
+    const extra =
+      bias === "tickle" || this.temperament === "playful"
+        ? 1
+        : this.rng() < 0.35
+          ? 1
+          : 0;
+    const count = Math.min(6, Math.max(2, taps.length + extra));
+    const cx = taps.reduce((s, t) => s + t.x, 0) / taps.length;
+    const cy = taps.reduce((s, t) => s + t.y, 0) / taps.length;
+    let interval = 260;
+    if (taps.length > 1) {
+      const gaps = taps.slice(1).map((t, idx) => t.t - taps[idx].t);
+      interval =
+        (gaps.reduce((s, g) => s + g, 0) / gaps.length) *
+        (0.9 + this.rng() * 0.25);
+    }
+
+    for (let k = 0; k < count; k++) {
+      this.schedule(delay + k * interval, () => {
+        if (!this.canAct() || this.userIsDrawing()) return;
+        this.emit({
+          position: {
+            x: clamp01(cx + (this.rng() - 0.5) * 0.07),
+            y: clamp01(cy + (this.rng() - 0.5) * 0.07),
+          },
+          force: { x: (this.rng() - 0.5) * 36, y: (this.rng() - 0.5) * 36 },
+          pressure: 0.5,
+          color: this.sigColor,
+        });
+      });
+    }
+  }
+
+  // ---------------------------------------------------------- society
+
+  private activeOtherGhostCount(now: number): number {
+    let n = 0;
+    this.otherGhosts.forEach((g) => {
+      if (now - g.lastSeen < GHOST_STALE_MS) n++;
+    });
+    return n;
+  }
+
+  /** After the sniff (or for old friends): play, socialize, or aloof. */
+  private decideAfterSniff(targetId: string, oldFriend: boolean): void {
+    const t = this.temperament;
+    const playBase =
+      t === "playful" ? 0.55 : t === "curious" ? 0.4 : t === "affectionate" ? 0.45 : t === "sassy" ? 0.15 : 0.1;
+    const socialBase =
+      t === "playful" ? 0.3 : t === "curious" ? 0.4 : t === "affectionate" ? 0.45 : t === "sassy" ? 0.25 : 0.3;
+    const playP = oldFriend ? Math.min(0.8, playBase + 0.2) : playBase;
+    const socialP = oldFriend ? Math.min(0.9, socialBase + 0.15) : socialBase;
+    const roll = this.rng();
+    this.metBefore.add(targetId);
+    if (roll < playP) {
+      this.options.onSfx?.("play");
+      this.social = {
+        phase: "chase",
+        targetId,
+        until: Date.now() + 4_000,
+        nextActionAt: 0,
+      };
+    } else if (roll < playP + socialP) {
+      this.social = {
+        phase: "social",
+        targetId,
+        until: Date.now() + 20_000,
+        nextActionAt: 0,
+      };
+    } else {
+      this.aloofUntil.set(targetId, Date.now() + 60_000);
+      this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+      this.wanderTarget = {
+        x: 0.15 + this.rng() * 0.7,
+        y: 0.15 + this.rng() * 0.7,
+      };
+    }
+  }
+
+  private tickSocial(now: number): void {
+    // Prune ghosts that left.
+    let changed = false;
+    this.otherGhosts.forEach((g, id) => {
+      if (now - g.lastSeen > GHOST_STALE_MS) {
+        this.otherGhosts.delete(id);
+        changed = true;
+        if (this.social.targetId === id) {
+          this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+        }
+      }
+    });
+    if (changed) this.options.onGhostsChange?.(this.otherGhosts.size);
+
+    if (this.social.phase === "none" || !this.social.targetId) return;
+    const target = this.otherGhosts.get(this.social.targetId);
+    if (!target) {
+      this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+      return;
+    }
+
+    if (this.social.phase === "approach") {
+      // Drift toward the other ghost; sniff when close (or time out).
+      this.wanderTarget.x = target.x;
+      this.wanderTarget.y = target.y;
+      const close =
+        dist2(this.position.x, this.position.y, target.x, target.y) <
+        0.13 * 0.13;
+      if (close || now > this.social.until) {
+        const targetId = this.social.targetId;
+        this.social = {
+          phase: "decide",
+          targetId,
+          until: now + 900,
+          nextActionAt: 0,
+        };
+        // The sniff: 3–4 small, quick probing splats near the other ghost.
+        this.options.onSfx?.("sniff");
+        const probes = 3 + Math.floor(this.rng() * 2);
+        for (let k = 0; k < probes; k++) {
+          this.schedule(k * 130, () => {
+            if (this.mode !== "session") return;
+            this.emit({
+              position: {
+                x: clamp01(target.x + (this.rng() - 0.5) * 0.05),
+                y: clamp01(target.y + (this.rng() - 0.5) * 0.05),
+              },
+              force: { x: (this.rng() - 0.5) * 60, y: (this.rng() - 0.5) * 60 },
+              pressure: 0.3,
+              color: this.sigColor,
+            });
+          });
+        }
+      }
+      return;
+    }
+
+    if (this.social.phase === "decide") {
+      if (now > this.social.until && this.social.targetId) {
+        this.decideAfterSniff(this.social.targetId, false);
+      }
+      return;
+    }
+
+    if (this.social.phase === "chase") {
+      if (now > this.social.until) {
+        this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+        return;
+      }
+      this.wanderTarget.x = target.x;
+      this.wanderTarget.y = target.y;
+      if (now >= this.social.nextActionAt) {
+        this.social.nextActionAt = now + 450;
+        this.emit({
+          position: { x: this.position.x, y: this.position.y },
+          force: { x: (this.rng() - 0.5) * 120, y: (this.rng() - 0.5) * 120 },
+          pressure: 0.4,
+          color: this.sigColor,
+        });
+      }
+      return;
+    }
+
+    if (this.social.phase === "social") {
+      if (now > this.social.until) {
+        this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+        return;
+      }
+      // Loiter companionably nearby.
+      this.wanderTarget.x = clamp01(target.x + 0.18);
+      this.wanderTarget.y = clamp01(target.y + 0.1);
+      if (now >= this.social.nextActionAt) {
+        this.social.nextActionAt = now + 7_000 + this.rng() * 5_000;
+        this.emit({
+          position: {
+            x: (this.position.x + target.x) / 2,
+            y: (this.position.y + target.y) / 2,
+          },
+          force: { x: (this.rng() - 0.5) * 50, y: (this.rng() - 0.5) * 50 },
+          pressure: 0.3,
+          color: this.sigDriftColor,
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------- antics
+
+  private maybeAntic(now: number): void {
+    if (now - this.lastAnticAt < ANTICS_MIN_GAP_MS) return;
+    const p =
+      this.temperament === "playful"
+        ? 0.01
+        : this.temperament === "curious"
+          ? 0.006
+          : this.temperament === "affectionate"
+            ? 0.004
+            : this.temperament === "sassy"
+              ? 0.002
+              : 0;
+    if (p === 0 || this.rng() >= p) return;
+    this.lastAnticAt = now;
+
+    if (this.rng() < 0.5) {
+      // Spiral doodle around the ghost's position.
+      const cx = this.position.x;
+      const cy = this.position.y;
+      for (let k = 0; k < 10; k++) {
+        const angle = k * 0.9;
+        const radius = 0.02 + k * 0.012;
+        this.schedule(k * 70, () => {
+          if (!this.canAct()) return;
+          this.emit({
+            position: {
+              x: clamp01(cx + Math.cos(angle) * radius),
+              y: clamp01(cy + Math.sin(angle) * radius),
+            },
+            force: {
+              x: -Math.sin(angle) * 70,
+              y: Math.cos(angle) * 70,
+            },
+            pressure: 0.32,
+            color: this.sigColor,
+          });
+        });
+      }
+    } else {
+      // Tail-chase: a quick circle of splats following its own position.
+      const cx = this.position.x;
+      const cy = this.position.y;
+      for (let k = 0; k < 8; k++) {
+        const angle = (k / 8) * Math.PI * 2;
+        this.schedule(k * 60, () => {
+          if (!this.canAct()) return;
+          this.emit({
+            position: {
+              x: clamp01(cx + Math.cos(angle) * 0.055),
+              y: clamp01(cy + Math.sin(angle) * 0.055),
+            },
+            force: {
+              x: -Math.sin(angle) * 110,
+              y: Math.cos(angle) * 110,
+            },
+            pressure: 0.38,
+            color: this.sigColor,
+          });
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------- temperament
+
+  private setTemperament(t: GhostTemperament): void {
+    if (this.temperament === t) return;
+    this.temperament = t;
+    this.temperamentSince = Date.now();
+    this.options.onTemperamentChange?.(t);
+  }
+
+  private tickTemperament(now: number): void {
+    const idleFor = now - this.lastActivityAt;
+    const age = now - this.temperamentSince;
+
+    if (idleFor > SLEEP_AFTER_MS) {
+      this.setTemperament("sleepy");
+      return;
+    }
+    if (this.temperament === "sleepy") {
+      this.setTemperament("curious");
+      return;
+    }
+    // Ignored while playful can flip sassy.
+    if (
+      this.temperament === "playful" &&
+      idleFor > 45_000 &&
+      this.rng() < 0.01
+    ) {
+      this.setTemperament("sassy");
+      return;
+    }
+    // Moods soften over time.
+    if (this.temperament === "affectionate" && age > 25_000) {
+      this.setTemperament(this.rng() < 0.5 ? "curious" : "playful");
+      return;
+    }
+    if (this.temperament === "sassy" && age > 30_000) {
+      this.setTemperament("curious");
+      return;
+    }
+    // Gentle spontaneous drift between curious and playful.
+    if (
+      (this.temperament === "curious" || this.temperament === "playful") &&
+      this.rng() < 0.002
+    ) {
+      this.setTemperament(
+        this.temperament === "curious" ? "playful" : "curious"
+      );
+    }
+  }
+
+  // ---------------------------------------------------------- tick
+
+  private tick(): void {
+    if (this.destroyed) return;
+    const now = Date.now();
+
+    // Finalize contacts that have gone quiet.
+    this.contacts.forEach((contact, userId) => {
+      if (now - contact.lastAt > CONTACT_FINALIZE_MS) {
+        this.finalizeContact(contact);
+        this.contacts.delete(userId);
+      }
+    });
+
+    this.tickTemperament(now);
+    if (this.mode === "session") this.tickSocial(now);
+
+    // Slow wander (approach/chase/social phases override the target).
+    if (
+      this.social.phase === "none" &&
+      now > this.nextWanderAt
+    ) {
+      this.wanderTarget = {
+        x: 0.22 + this.rng() * 0.56,
+        y: 0.22 + this.rng() * 0.56,
+      };
+      this.nextWanderAt = now + 9_000 + this.rng() * 5_000;
+    }
+    this.position.x += (this.wanderTarget.x - this.position.x) * 0.02;
+    this.position.y += (this.wanderTarget.y - this.position.y) * 0.02;
+
+    this.publishPresence();
+    if (!this.canAct()) return;
+
+    const idleFor = now - this.lastActivityAt;
+    const session = this.mode === "session";
+
+    // Idle drift: gentle splats originating at the ghost's position.
+    // Solo: only while the user is around but quiet. Session: sparser
+    // ambience so the ghost reads as *there* without stealing the show.
+    const driftIdleOk = session
+      ? idleFor > 2_000
+      : idleFor > DRIFT_MIN_IDLE_MS && idleFor < SLEEP_AFTER_MS;
+    if (driftIdleOk && now >= this.nextDriftAt) {
+      const bias = this.currentBias();
+      const base = session ? 6_000 : 3_800;
+      const span = session ? 4_000 : 3_200;
+      let scale = bias === "drift" ? 0.6 : 1;
+      if (this.temperament === "playful") scale *= 0.75;
+      if (this.temperament === "sleepy") scale *= 1.5;
+      if (this.temperament === "sassy") scale *= 1.1;
+      this.nextDriftAt = now + (base + this.rng() * span) * scale;
+      this.emitDrift();
+      this.maybeAntic(now);
+    }
+
+    // Solo-only spontaneous affection: an occasional heart after recent
+    // activity. (In session mode, hearts come from petting only.)
+    if (
+      !session &&
+      now - this.lastVerbAt > VERB_MIN_INTERVAL_MS &&
+      idleFor >= 1_200 &&
+      idleFor < VERB_RECENT_ACTIVITY_MS &&
+      this.rng() < 0.012
+    ) {
+      this.lastVerbAt = now;
+      const bias = this.currentBias();
+      const verb = bias === "cheer" ? CHEER : bias === "tickle" ? TICKLE : HEART;
+      this.emitVerb(verb);
+    }
+  }
+
+  private emitDrift(): void {
+    const dx = this.wanderTarget.x - this.position.x;
+    const dy = this.wanderTarget.y - this.position.y;
+    for (let k = 0; k < 3; k++) {
+      this.schedule(k * 110, () => {
+        if (!this.canAct() || this.userIsDrawing()) return;
+        this.emit({
+          position: {
+            x: clamp01(this.position.x + dx * 0.12 * k),
+            y: clamp01(this.position.y + dy * 0.12 * k),
+          },
+          force: {
+            x: Math.max(-160, Math.min(160, dx * 1_100)) + (this.rng() - 0.5) * 30,
+            y: Math.max(-160, Math.min(160, dy * 1_100)) + (this.rng() - 0.5) * 30,
+          },
+          pressure: 0.3 + this.rng() * 0.15,
+          color: this.sigDriftColor,
+        });
+      });
+    }
+  }
+
+  // ---------------------------------------------------------- helpers
+
+  private emitVerb(verb: SensoryVerb): void {
+    if (verb.id === "heart") this.options.onSfx?.("heart");
+    // Verbs normally splat at canvas center; the ghost's verbs belong at
+    // the ghost's body.
+    this.emit({
+      ...verbInteraction(verb),
+      position: { x: this.position.x, y: this.position.y },
+    });
+  }
+
+  /**
+   * Emit one ghost interaction: rendered locally via injectLocal, and in
+   * session mode also broadcast. Enforces the per-ghost emit budget so
+   * ghost society can never flood human interaction; `essential`
+   * (hello/goodbye) bypasses the budget.
+   */
+  private emit(
+    payload: Omit<FluidInteraction, "userId" | "timestamp">,
+    essential = false
+  ): void {
+    const now = Date.now();
+    this.emitTimes = this.emitTimes.filter((t) => now - t < EMIT_WINDOW_MS);
+    if (!essential && this.emitTimes.length >= EMIT_BUDGET) return;
+    this.emitTimes.push(now);
+
+    const full: FluidInteraction = {
+      ...payload,
+      userId: this.peerId,
+      timestamp: this.stamp(),
+    };
+    this.options.injectLocal(full);
+    if (this.mode === "session") {
+      this.options.broadcast?.(payload);
+    }
+  }
+
+  private schedule(
+    ms: number,
+    fn: () => void,
+    bypassPresenceGate = false
+  ): void {
+    const id = setTimeout(() => {
+      this.timers.delete(id);
+      if (this.destroyed || !this.enabled) return;
+      if (!bypassPresenceGate && !this.gateAllows()) return;
+      fn();
+    }, ms);
+    this.timers.add(id);
+  }
+
+  /** Fire-time gate for scheduled gestures. */
+  private gateAllows(): boolean {
+    if (this.mode === "session") return !this.dismissing;
+    if (!this.humansPresent) return true;
+    // Solo fade: in-flight gestures may finish within the grace window.
+    return this.fading && Date.now() <= this.fadeDeadline;
+  }
+
+  private canAct(): boolean {
+    if (!this.enabled || this.dismissing) return false;
+    if (this.mode === "session") return true;
+    if (this.humansPresent) return false;
+    return Date.now() - this.lastActivityAt < SLEEP_AFTER_MS;
+  }
+
+  private userIsDrawing(): boolean {
+    return Date.now() - this.lastEventAt < 250;
+  }
+
+  private currentBias(): GhostMoodBias | null {
+    if (this.bias && Date.now() > this.biasExpiresAt) {
+      this.bias = null;
+    }
+    return this.bias;
+  }
+
+  private computePresence(now: number): GhostPresence {
+    if (!this.enabled) return "off";
+    if (this.mode === "session") return "summoned";
+    if (this.humansPresent) {
+      return this.fading && now <= this.fadeDeadline ? "present" : "away";
+    }
+    if (now - this.lastActivityAt > SLEEP_AFTER_MS) return "sleeping";
+    return "present";
+  }
+
+  private lastPublishedKey = "";
+
+  private publishPresence(): void {
+    const next = this.computePresence(Date.now());
+    const prev = this.presence;
+    this.presence = next;
+    const key = `${next}:${this.mode}`;
+    if (key !== this.lastPublishedKey) {
+      const isFirstPublish = this.lastPublishedKey === "";
+      this.lastPublishedKey = key;
+      this.options.onPresenceChange?.(next, this.mode);
+      // Sleep/wake chimes on real transitions (never on first publish).
+      if (!isFirstPublish && next === "sleeping" && prev !== "sleeping") {
+        this.options.onSfx?.("sleep");
+      } else if (!isFirstPublish && prev === "sleeping" && next === "present") {
+        this.options.onSfx?.("wake");
+      }
+    }
+  }
+
+  /** Monotonic timestamps: remote dedupe keys on userId + timestamp. */
+  private stamp(): number {
+    const now = Date.now();
+    this.lastTs = Math.max(now, this.lastTs + 1);
+    return this.lastTs;
+  }
+}
