@@ -4,6 +4,7 @@ import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { formatRelativeTime, formatDuration } from "../../utils/timeFormatters";
+import { useDemoData } from "../../utils/demoMode";
 
 interface Contact {
   id: string;
@@ -27,7 +28,10 @@ export default function CallDrawer() {
   const { tx, width } = getAnim("call");
   const haptics = useHaptics();
   const audio = useAudioCues();
-  
+  // Sample data only renders when the demo-data flag is on (Slice 1);
+  // otherwise the drawer shows its real empty states.
+  const demoData = useDemoData();
+
   const [activeTab, setActiveTab] = useState<"contacts" | "active" | "history">("contacts");
   const [searchQuery, setSearchQuery] = useState("");
   const [inCall, setInCall] = useState(false);
@@ -67,7 +71,10 @@ export default function CallDrawer() {
     },
   ];
 
-  const filteredContacts = mockContacts.filter((c) =>
+  const contacts: Contact[] = demoData ? mockContacts : [];
+  const sessions: CallSession[] = demoData ? mockSessions : [];
+
+  const filteredContacts = contacts.filter((c) =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -253,6 +260,13 @@ export default function CallDrawer() {
         <ScrollView style={{ flex: 1, paddingHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 80 }}>
           {activeTab === "contacts" && (
             <View style={{ gap: 12 }}>
+              {filteredContacts.length === 0 ? (
+                <Text style={{ color: "#9ca3af", textAlign: "center", marginTop: 20 }}>
+                  {searchQuery
+                    ? "No contacts match your search."
+                    : "No contacts yet. People you connect with on Fabric will show up here."}
+                </Text>
+              ) : null}
               {filteredContacts.map((contact) => (
                 <View
                   key={contact.id}
@@ -347,12 +361,12 @@ export default function CallDrawer() {
 
           {activeTab === "active" && (
             <View style={{ gap: 12 }}>
-              {mockSessions.filter((s) => s.status === "active").length === 0 ? (
+              {sessions.filter((s) => s.status === "active").length === 0 ? (
                 <Text style={{ color: "#9ca3af", textAlign: "center", marginTop: 20 }}>
                   No active calls. Start a new call from Contacts!
                 </Text>
               ) : (
-                mockSessions
+                sessions
                   .filter((s) => s.status === "active")
                   .map((session) => (
                     <View
@@ -410,7 +424,12 @@ export default function CallDrawer() {
 
           {activeTab === "history" && (
             <View style={{ gap: 12 }}>
-              {mockSessions.map((session) => (
+              {sessions.length === 0 ? (
+                <Text style={{ color: "#9ca3af", textAlign: "center", marginTop: 20 }}>
+                  No call history yet.
+                </Text>
+              ) : null}
+              {sessions.map((session) => (
                 <View
                   key={session.id}
                   style={{
