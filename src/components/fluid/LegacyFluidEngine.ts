@@ -177,6 +177,19 @@ export class LegacyFluidEngine {
     this.splat(xNorm, yNorm, dx, dy, col);
   }
 
+  /**
+   * Optional observer for locally generated pointer splats. The React
+   * wrapper (LegacyFluid) sets this to broadcast local touches to peers
+   * (via useFluidMultiUser.sendInteraction). Purely a notification — the
+   * engine always renders local input itself, exactly as before.
+   */
+  public onLocalInteraction?: (interaction: {
+    position: { x: number; y: number };
+    force: { x: number; y: number };
+    pressure: number;
+    color: { r: number; g: number; b: number };
+  }) => void;
+
   private initGL() {
     const params: WebGLContextAttributes = {
       alpha: true, depth: false, stencil: false, antialias: false,
@@ -410,6 +423,12 @@ export class LegacyFluidEngine {
         const dx = p.deltaX * this.config.SPLAT_FORCE;
         const dy = p.deltaY * this.config.SPLAT_FORCE;
         this.splat(p.texcoordX, p.texcoordY, dx, dy, p.color);
+        this.onLocalInteraction?.({
+          position: { x: p.texcoordX, y: p.texcoordY },
+          force: { x: dx, y: dy },
+          pressure: Math.min(1, Math.max(0.25, Math.hypot(dx, dy) / 250)),
+          color: p.color,
+        });
       }
     });
   }

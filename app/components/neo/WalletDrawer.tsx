@@ -4,6 +4,7 @@ import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { formatRelativeTime } from "../../utils/timeFormatters";
+import { useDemoData } from "../../utils/demoMode";
 
 interface Asset {
   id: string;
@@ -30,7 +31,10 @@ export default function WalletDrawer() {
   const { tx, width } = getAnim("wallet");
   const haptics = useHaptics();
   const audio = useAudioCues();
-  
+  // Sample assets/transactions only render when the demo-data flag is
+  // on (Slice 1); otherwise balances are 0 and lists show empty states.
+  const demoData = useDemoData();
+
   const [activeTab, setActiveTab] = useState<"balance" | "assets" | "history">("balance");
 
   const mockAssets: Asset[] = [
@@ -89,12 +93,21 @@ export default function WalletDrawer() {
     },
   ];
 
-  const totalCredits = mockAssets.find((a) => a.type === "credit")?.quantity || 0;
-  const totalValue = mockAssets.reduce((sum, asset) => {
+  const assets: Asset[] = demoData ? mockAssets : [];
+  const transactions: Transaction[] = demoData ? mockTransactions : [];
+
+  const totalCredits = assets.find((a) => a.type === "credit")?.quantity || 0;
+  const totalValue = assets.reduce((sum, asset) => {
     if (asset.currency === "credits") return sum;
     if (asset.currency === "usd") return sum + asset.value;
     return sum;
   }, 0);
+  const totalEarned = transactions
+    .filter((t) => t.currency === "credits" && t.amount > 0)
+    .reduce((sum, t) => sum + t.amount, 0);
+  const totalSpent = transactions
+    .filter((t) => t.currency === "credits" && t.amount < 0)
+    .reduce((sum, t) => sum + t.amount, 0);
 
   const handleTabChange = (tab: typeof activeTab) => {
     haptics.impactLight();
@@ -293,15 +306,15 @@ export default function WalletDrawer() {
                 <View style={{ gap: 6 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text style={{ color: "#9ca3af" }}>Total Earned</Text>
-                    <Text style={{ color: "#10b981", fontWeight: "600" }}>+350 credits</Text>
+                    <Text style={{ color: "#10b981", fontWeight: "600" }}>+{totalEarned} credits</Text>
                   </View>
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text style={{ color: "#9ca3af" }}>Total Spent</Text>
-                    <Text style={{ color: "#22d3ee", fontWeight: "600" }}>-599 credits</Text>
+                    <Text style={{ color: "#22d3ee", fontWeight: "600" }}>{totalSpent} credits</Text>
                   </View>
                   <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
                     <Text style={{ color: "#9ca3af" }}>Assets Owned</Text>
-                    <Text style={{ color: "white", fontWeight: "600" }}>{mockAssets.length}</Text>
+                    <Text style={{ color: "white", fontWeight: "600" }}>{assets.length}</Text>
                   </View>
                 </View>
               </View>
@@ -310,7 +323,12 @@ export default function WalletDrawer() {
 
           {activeTab === "assets" && (
             <View style={{ gap: 12 }}>
-              {mockAssets.map((asset) => (
+              {assets.length === 0 ? (
+                <Text style={{ color: "#9ca3af", textAlign: "center", marginTop: 20 }}>
+                  No assets yet. What you earn and collect on Fabric will show up here.
+                </Text>
+              ) : null}
+              {assets.map((asset) => (
                 <View
                   key={asset.id}
                   style={{
@@ -355,7 +373,12 @@ export default function WalletDrawer() {
 
           {activeTab === "history" && (
             <View style={{ gap: 12 }}>
-              {mockTransactions.map((tx) => (
+              {transactions.length === 0 ? (
+                <Text style={{ color: "#9ca3af", textAlign: "center", marginTop: 20 }}>
+                  No transactions yet.
+                </Text>
+              ) : null}
+              {transactions.map((tx) => (
                 <View
                   key={tx.id}
                   style={{

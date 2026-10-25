@@ -22,4 +22,11 @@ export interface FluidInteraction {
   pressure: number;
   color?: { r: number; g: number; b: number };
   timestamp: number;
+  /**
+   * Optional sensory-verb id (see src/sensory/verbs.ts, e.g. "heart").
+   * When present, receivers also fire the verb's vibration pattern and
+   * audio cue. Absent on plain touch interactions — fully backward
+   * compatible with existing transports and payloads.
+   */
+  verb?: string;
 }
