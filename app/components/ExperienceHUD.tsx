@@ -4,6 +4,7 @@ import { useExperience } from "../context/ExperienceContext";
 import { useAR } from "../context/ARContext";
 import { useMIDI } from "../../src/hooks/useMIDI";
 import { getAudioReactive } from "../../src/shared/utils/audioReactive";
+import VerbBar from "../../src/components/sensory/VerbBar";
 
 export default function ExperienceHUD() {
   // Platform const guard is safe; never changes across renders
@@ -47,6 +48,8 @@ export default function ExperienceHUD() {
       <Text style={{ color: "#93c5fd", fontSize: 11 }}>
         {activeExperience?.type ?? "no-experience"}
       </Text>
+      {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
+      <VerbBar />
       {isARCameraActive ? (
         <Text style={{ color: "#34d399", fontSize: 11, marginTop: 2 }}>AR On</Text>
       ) : null}
