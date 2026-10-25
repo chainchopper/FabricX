@@ -51,6 +51,17 @@ export interface AIServiceConfig {
   };
 }
 
+/**
+ * Meta Model API preset (Slice 1). Meta's Model API is OpenAI-compatible,
+ * so LLMService's "custom" provider talks to it directly: it appends
+ * /chat/completions to the endpoint below and sends the key as a Bearer
+ * token. Base URL and model id verified against Meta's Model API
+ * documentation (Oct 2026): https://api.meta.ai/v1, model "muse-spark-1.3".
+ * Get a key at dev.meta.ai (keys start with "LLM_").
+ */
+const META_MODEL_API_ENDPOINT = "https://api.meta.ai/v1";
+const META_MUSE_SPARK_MODEL = "muse-spark-1.3";
+
 const defaultConfig: AIServiceConfig = {
   llm: {
     provider: "none",
@@ -107,6 +118,15 @@ export default function AISettingsDrawer() {
   const saveConfig = (newConfig: AIServiceConfig) => {
     setConfig(newConfig);
     setJSON(STORAGE_KEY, newConfig);
+    // Slice 1 fix: drop the cached LLM service singleton on every save,
+    // so chats use the settings just saved. Previously only
+    // testConnection reset it — a chat opened before changing the
+    // endpoint/key kept using the stale config until reload.
+    void import("../../../src/services/LLMService")
+      .then((m) => m.resetLLMService())
+      .catch(() => {
+        // Service not loaded yet — nothing cached to reset.
+      });
     haptics.impactLight();
     audio.success();
     toast.show("AI settings saved");
@@ -124,6 +144,17 @@ export default function AISettingsDrawer() {
       llm: { ...config.llm, ...updates },
     };
     saveConfig(newConfig);
+  };
+
+  /** One-tap Meta (Muse Spark) preset: custom provider + Meta endpoint/model, enabled. */
+  const applyMetaPreset = () => {
+    updateLLM({
+      provider: "custom",
+      endpoint: META_MODEL_API_ENDPOINT,
+      model: META_MUSE_SPARK_MODEL,
+      enabled: true,
+    });
+    toast.show("Meta (Muse Spark) preset set — paste your Model API key below");
   };
 
   const updateVision = (updates: Partial<AIServiceConfig["vision"]>) => {
@@ -414,6 +445,28 @@ export default function AISettingsDrawer() {
                   )}
                 </View>
               </View>
+
+              {/* One-tap Meta (Muse Spark) preset */}
+              <Pressable
+                onPress={applyMetaPreset}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: "rgba(34,211,238,0.7)",
+                  backgroundColor: "rgba(34,211,238,0.12)",
+                  alignItems: "center",
+                  gap: 2,
+                }}
+              >
+                <Text style={{ color: "#22d3ee", fontWeight: "700" }}>
+                  Use Meta (Muse Spark)
+                </Text>
+                <Text style={{ color: "#93c5fd", fontSize: 11 }}>
+                  {META_MODEL_API_ENDPOINT} · {META_MUSE_SPARK_MODEL} — then paste your key below
+                </Text>
+              </Pressable>
 
               {/* API Key Input */}
               {config.llm.provider !== "none" && (
