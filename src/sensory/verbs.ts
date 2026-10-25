@@ -10,6 +10,12 @@
  * they work over every transport useFluidMultiUser supports (WebRTC data
  * channels, BroadcastChannel fallback) with no protocol changes.
  *
+ * SENSORY_VERBS is the human-facing set shown on the VerbBar. PURR is a
+ * ghost-only pattern (see src/ghost): it is deliberately NOT in
+ * SENSORY_VERBS, so it never appears as a button humans can send, but
+ * receivers still resolve it through getVerbById and play it through the
+ * exact same verb-effect path as any other verb.
+ *
  * Powered by Nirvana
  */
 
@@ -65,11 +71,29 @@ export const TICKLE: SensoryVerb = {
   emoji: "🪶",
 };
 
+/**
+ * A purr: slow, gentle pulses, warm peach dye. Ghost-only — the ghost
+ * "says" this when it is petted. Not part of SENSORY_VERBS (no human
+ * button), but resolvable via getVerbById so every client plays it
+ * through the standard verb-effect path.
+ */
+export const PURR: SensoryVerb = {
+  id: "purr",
+  label: "Purr",
+  vibration: [40, 60, 40, 60, 120],
+  color: { r: 1.0, g: 0.62, b: 0.45 },
+  audioCue: "pulse",
+  emoji: "🐾",
+};
+
 export const SENSORY_VERBS: SensoryVerb[] = [HEART, CHEER, TICKLE];
+
+/** Everything getVerbById can resolve: human verbs + ghost-only PURR. */
+const ALL_VERBS: SensoryVerb[] = [...SENSORY_VERBS, PURR];
 
 export function getVerbById(id?: string | null): SensoryVerb | undefined {
   if (!id) return undefined;
-  return SENSORY_VERBS.find((v) => v.id === id);
+  return ALL_VERBS.find((v) => v.id === id);
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { LegacyFluidEngine } from "./LegacyFluidEngine";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useFluidMultiUser } from "../../hooks/useFluidMultiUser";
@@ -10,6 +10,13 @@ import {
 } from "../../sensory/verbs";
 import { useAudioCues } from "../../../app/hooks/useAudioCues";
 import type { FluidInteraction } from "../../types/fluid";
+import { useGhostPeer } from "../../ghost/useGhostPeer";
+import {
+  ghostPeerIdFor,
+  isGhostPeerId,
+} from "../../ghost/GhostPeer";
+import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
+import { setGhostPublicState } from "../../ghost/ghostStore";
 
 interface LegacyFluidProps {
   /**
@@ -34,8 +41,15 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   const roomId =
     ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
       ?.roomId as string) || "main";
-  const { remoteInteractions, sendInteraction } = useFluidMultiUser(roomId);
+  const {
+    userId,
+    remoteInteractions,
+    sendInteraction,
+    injectRemoteInteraction,
+    humanPeers,
+  } = useFluidMultiUser(roomId);
   const audioCues = useAudioCues();
+  const ghostSfx = useGhostSfx();
 
   // Latest-callback refs so the engine hook and window listener never
   // capture stale closures.
@@ -43,9 +57,55 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   sendRef.current = sendInteraction;
   const cuesRef = useRef(audioCues);
   cuesRef.current = audioCues;
+  const sfxRef = useRef(ghostSfx);
+  sfxRef.current = ghostSfx;
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const seenRef = useRef<Set<string>>(new Set());
+
+  // ---- Ghost (Slice 2) -------------------------------------------------
+  // The ghost is a local agent peer with its own peer id
+  // ("ghost:<userId>"). Its interactions are injected through the SAME
+  // remote-interaction path human remotes take (injectRemoteInteraction
+  // -> remoteInteractions -> splatAt + effects below), never rendered
+  // through a fork. When summoned into a session, the same interactions
+  // are ALSO broadcast under the ghost peer id so every participant
+  // renders them through their own normal remote path.
+  const ghostPeerIdRef = useRef("");
+  ghostPeerIdRef.current = ghostPeerIdFor(userId);
+  const broadcastGhost = useCallback(
+    (payload: Omit<FluidInteraction, "userId" | "timestamp">) => {
+      sendRef.current(payload, ghostPeerIdRef.current);
+    },
+    []
+  );
+  const ghostSelfHueRef = useRef(200);
+  const ghost = useGhostPeer({
+    ownerId: userId,
+    inject: injectRemoteInteraction,
+    broadcast: broadcastGhost,
+    humanPeers,
+    onSfx: (kind) => {
+      // Own ghost: sounds are pitched from its signature hue.
+      sfxRef.current.play(kind, ghostSelfHueRef.current);
+    },
+  });
+  const ghostRef = useRef(ghost);
+  ghostRef.current = ghost;
+  useEffect(() => {
+    if (ghost.identity) ghostSelfHueRef.current = ghost.identity.hue;
+  }, [ghost.identity]);
+
+  // Per-ghost render-path tracking for visiting ghosts' sounds: last
+  // position (sniff proximity), signature hue learned from their splat
+  // colors, and activity bursts (play/chase onset).
+  const ghostPosRef = useRef<Map<string, { x: number; y: number }>>(
+    new Map()
+  );
+  const ghostHueRef = useRef<Map<string, number>>(new Map());
+  const ghostBurstRef = useRef<
+    Map<string, { count: number; start: number; lastCue: number }>
+  >(new Map());
 
   const playVerbEffects = (verb: SensoryVerb, withSplat: boolean) => {
     if (withSplat) {
@@ -63,6 +123,72 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     if (typeof cue === "function") cue();
   };
 
+  /**
+   * Effects for a ghost-authored interaction on the render path. The
+   * splat itself is rendered by the caller exactly like any remote.
+   * Consent: if the user turned their ghost off, a visiting ghost's
+   * sensations are muted locally (its splats still render — presence
+   * visible, sensations optional). Sounds come from the ghost SFX layer
+   * (hue-pitched, rate-limited) instead of the generic UI cues.
+   */
+  const handleGhostRenderFx = (i: FluidInteraction) => {
+    const hue = ghostHueRef.current.get(i.userId) ?? 28;
+    if (!i.verb) {
+      if (i.color) {
+        ghostHueRef.current.set(i.userId, hueFromColor(i.color));
+      }
+      // Sniff heuristic: a small soft splat landing right next to a
+      // DIFFERENT ghost is a greeting sniff — chirp for the sniffer.
+      if (i.pressure <= 0.36) {
+        ghostPosRef.current.forEach((pos, otherId) => {
+          if (otherId === i.userId) return;
+          const dx = pos.x - i.position.x;
+          const dy = pos.y - i.position.y;
+          if (dx * dx + dy * dy < 0.07 * 0.07) {
+            sfxRef.current.play("sniff", hue, { distance: 0.3 });
+          }
+        });
+      }
+      ghostPosRef.current.set(i.userId, {
+        x: i.position.x,
+        y: i.position.y,
+      });
+      // Play/chase onset: a burst of splats after quiet reads as play.
+      const now = Date.now();
+      const burst = ghostBurstRef.current.get(i.userId) ?? {
+        count: 0,
+        start: now,
+        lastCue: 0,
+      };
+      if (now - burst.start > 600) {
+        burst.count = 0;
+        burst.start = now;
+      }
+      burst.count += 1;
+      if (burst.count === 4 && now - burst.lastCue > 4_000) {
+        burst.lastCue = now;
+        sfxRef.current.play("play", hue, { distance: 0.3 });
+      }
+      ghostBurstRef.current.set(i.userId, burst);
+      return;
+    }
+
+    const verb = getVerbById(i.verb);
+    if (!verb || !ghostRef.current.enabled) return;
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate(verb.vibration);
+    }
+    if (verb.id === "purr") {
+      sfxRef.current.startPurr(hue);
+    } else if (verb.id === "heart") {
+      sfxRef.current.play("heart", hue);
+    } else if (verb.id === "cheer") {
+      sfxRef.current.play("play", hue);
+    } else if (verb.id === "tickle") {
+      sfxRef.current.play("mirror", hue);
+    }
+  };
+
   useEffect(() => {
     if (!canvasRef.current) return;
     let engine: LegacyFluidEngine | null = null;
@@ -76,7 +202,10 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     }
     engineRef.current = engine;
     engine.onLocalInteraction = (interaction) => {
-      sendRef.current(interaction);
+      const full = sendRef.current(interaction);
+      // Feed the local user's touch to the ghost brain (it mirrors,
+      // answers rhythms, notices petting, startles, sleeps/wakes).
+      ghostRef.current.noteLocalInteraction(full);
     };
     onReadyRef.current?.();
     return () => {
@@ -93,12 +222,16 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       if (!verb) return;
       sendRef.current(verbInteraction(verb));
       playVerbEffects(verb, true);
+      ghostRef.current.noteUserActivity();
     };
     window.addEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
     return () => window.removeEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
   }, []);
 
   // Incoming remote interactions -> splats (+ verb haptics/audio).
+  // Ghost-authored interactions (including this client's own ghost,
+  // injected locally) take the same splat path; only their effects and
+  // the brain feed differ.
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
@@ -107,9 +240,20 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       if (seenRef.current.has(key)) return;
       seenRef.current.add(key);
       engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, i.color);
-      if (i.verb) {
-        const verb = getVerbById(i.verb);
-        if (verb) playVerbEffects(verb, false);
+      if (isGhostPeerId(i.userId)) {
+        setGhostPublicState({ sessionGhostLastSeenAt: Date.now() });
+        // Other ghosts feed the brain's social perception; the brain
+        // itself ignores this client's own ghost id here.
+        ghostRef.current.noteRemoteInteraction(i);
+        handleGhostRenderFx(i);
+      } else {
+        // In session mode the ghost brain hears every human peer too,
+        // so a summoned ghost reacts to anyone, not just its owner.
+        ghostRef.current.noteRemoteInteraction(i);
+        if (i.verb) {
+          const verb = getVerbById(i.verb);
+          if (verb) playVerbEffects(verb, false);
+        }
       }
     });
     // The hook prunes remote entries after ~1s; once drained, reset the
