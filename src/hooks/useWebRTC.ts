@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { WebRTCManager, MessageHandler } from '../services/WebRTCManager';
-import { getSignalingService } from '../services/SignalingService';
+import {
+  getSignalingService,
+  type SignalingConnectionState,
+} from '../services/SignalingService';
+
+/**
+ * UI-facing connection state:
+ * - 'online':     signaling socket connected (peers counted separately)
+ * - 'local':      local transports only — the designed offline mode
+ * - 'connecting': a configured signaling server is being tried
+ */
+export type ConnectionState = SignalingConnectionState;
 
 function randomId() {
   return Math.random().toString(36).slice(2, 10);
@@ -11,22 +22,27 @@ export function useWebRTC(roomId: string) {
   const managerRef = useRef<WebRTCManager | null>(null);
   const [peersCount, setPeersCount] = useState(0);
   const [peerIds, setPeerIds] = useState<string[]>([]);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('local');
   const msgHandlers = useRef<Set<MessageHandler>>(new Set());
 
   const active = peersCount > 0;
 
   // Initialize WebRTCManager
   useEffect(() => {
-    // Try to get signaling service, but don't require it (fallback to BroadcastChannel)
-    let signaling = null;
+    // Offline-first: when no signaling URL is configured, connect() is a
+    // no-op that never opens a socket, and the manager runs purely on the
+    // local (BroadcastChannel) transport. When a URL is configured,
+    // connect() is bounded-retry and the manager joins the room whenever
+    // the socket comes up — construction order no longer matters.
+    const signaling = getSignalingService();
+    let unsubscribeState: (() => void) | undefined;
     try {
-      signaling = getSignalingService();
-      // Try to connect, but don't block on it
-      signaling.connect().catch(() => {
-        console.log('[useWebRTC] Signaling server not available, using fallback');
+      unsubscribeState = signaling.onStateChange((state) => {
+        setConnectionState(state);
       });
+      void signaling.connect();
     } catch {
-      console.log('[useWebRTC] Signaling service not available, using fallback');
+      setConnectionState('local');
     }
 
     const manager = new WebRTCManager(roomId, peerId, signaling);
@@ -37,6 +53,7 @@ export function useWebRTC(roomId: string) {
       setPeersCount(manager.getPeerCount());
       setPeerIds(manager.getPeerIds());
     };
+    updatePeers();
 
     // Poll for peer updates (in production, manager could emit events)
     const interval = setInterval(updatePeers, 500);
@@ -46,9 +63,23 @@ export function useWebRTC(roomId: string) {
       msgHandlers.current.forEach((h) => h(data, from));
     });
 
+    // The UI (ConnectionBadge, FabricDiagnostics, ExperienceControls)
+    // dispatches this event to re-announce presence; it previously had
+    // no listener anywhere. Route it to the manager.
+    const onReannounce = () => {
+      manager.reannounce();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('fabric:webrtc-reannounce', onReannounce);
+    }
+
     return () => {
       clearInterval(interval);
       unsubscribe();
+      if (unsubscribeState) unsubscribeState();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('fabric:webrtc-reannounce', onReannounce);
+      }
       manager.destroy();
       managerRef.current = null;
     };
@@ -67,5 +98,5 @@ export function useWebRTC(roomId: string) {
     };
   };
 
-  return { peerId, active, peersCount, peerIds, send, onMessage };
+  return { peerId, active, peersCount, peerIds, send, onMessage, connectionState };
 }
