@@ -1,9 +1,9 @@
 import React, { Suspense, useEffect, useState } from "react";
 import { Platform, View } from "react-native";
 
-type WebFluidComp = React.ComponentType;
+type WebFluidComp = React.ComponentType<{ onReady?: () => void }>;
 
-export default function WebFluidBackground() {
+export default function WebFluidBackground({ onReady }: { onReady?: () => void } = {}) {
   const [WebFluid, setWebFluid] = useState<WebFluidComp | null>(null);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function WebFluidBackground() {
     >
       {WebFluid ? (
         <Suspense fallback={null}>
-          <WebFluid />
+          <WebFluid onReady={onReady} />
         </Suspense>
       ) : null}
     </View>
