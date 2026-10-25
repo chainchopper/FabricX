@@ -3,6 +3,7 @@ import { Animated, Pressable, Text, View, ScrollView, TextInput, Platform } from
 import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
+import { useDemoData } from "../../utils/demoMode";
 
 interface ShopItem {
   id: string;
@@ -22,7 +23,9 @@ export default function ShopDrawer() {
   const { tx, width } = getAnim("shop");
   const haptics = useHaptics();
   const audio = useAudioCues();
-  
+  // Sample items/credits only render when the demo-data flag is on (Slice 1).
+  const demoData = useDemoData();
+
   const [activeTab, setActiveTab] = useState<"featured" | "experiences" | "assets" | "purchased">("featured");
   const [searchQuery, setSearchQuery] = useState("");
   const [userCredits] = useState(1250);
@@ -102,7 +105,10 @@ export default function ShopDrawer() {
     },
   ];
 
-  const filteredItems = mockItems.filter(
+  const items: ShopItem[] = demoData ? mockItems : [];
+  const displayedCredits = demoData ? userCredits : 0;
+
+  const filteredItems = items.filter(
     (item) =>
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.description.toLowerCase().includes(searchQuery.toLowerCase())
@@ -202,7 +208,7 @@ export default function ShopDrawer() {
             }}
           >
             <Text style={{ color: "#22d3ee", fontWeight: "700", fontSize: 12 }}>
-              💎 {userCredits} Credits
+              💎 {displayedCredits} Credits
             </Text>
           </View>
         </View>
@@ -266,7 +272,9 @@ export default function ShopDrawer() {
               <Text style={{ color: "#9ca3af", textAlign: "center", marginTop: 20 }}>
                 {activeTab === "purchased"
                   ? "No purchased items yet. Browse the shop to find great content!"
-                  : "No items found. Try a different search or category."}
+                  : !demoData && !searchQuery
+                    ? "Nothing in the shop yet — new experiences will appear here."
+                    : "No items found. Try a different search or category."}
               </Text>
             ) : (
               getTabItems().map((item) => (
