@@ -1,11 +1,21 @@
 /**
  * SignalingService - WebSocket-based signaling for WebRTC
- * 
+ *
  * Handles SDP offer/answer exchange, ICE candidate relay, and presence tracking
  * for distributed WebRTC peer connections.
+ *
+ * Offline-first (Hotfix 1.1): a missing signaling server is a first-class
+ * LOCAL mode, not an error state.
+ * - If no server URL is configured (EXPO_PUBLIC_SIGNALING_SERVER_URL unset,
+ *   or pointing at loopback while the page itself is served from a
+ *   non-loopback origin), connect() never opens a socket at all.
+ * - If a configured server is unreachable, connection attempts are bounded
+ *   (MAX_CONNECT_ATTEMPTS total, exponential backoff) and then stop for
+ *   good; the service settles into 'local' state and logs a single line.
+ * - connect() is idempotent: concurrent callers share one attempt, so
+ *   multiple hook instances can never spawn parallel reconnect chains.
  */
 
-// Get environment variable in a cross-platform way
 function getEnvVar(key: string): string | undefined {
   // For web, use process.env injected by bundler
   if (typeof process !== 'undefined' && process.env) {
@@ -27,110 +37,270 @@ export type SignalingMessage =
 
 export type SignalingEventHandler = (message: SignalingMessage) => void;
 
+/**
+ * Connection state surfaced to the UI:
+ * - 'online':     signaling socket is connected.
+ * - 'local':      no signaling in play (unconfigured, or attempts exhausted);
+ *                 local transports are the designed behavior, not an error.
+ * - 'connecting': a configured server is being tried (bounded attempts).
+ */
+export type SignalingConnectionState = 'online' | 'local' | 'connecting';
+export type SignalingStateHandler = (state: SignalingConnectionState) => void;
+
+const MAX_CONNECT_ATTEMPTS = 3;
+
+function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]';
+}
+
+/**
+ * Resolve the effective signaling URL. Returns null when signaling should
+ * be treated as unconfigured (local mode):
+ * - no explicit URL and EXPO_PUBLIC_SIGNALING_SERVER_URL is unset, or
+ * - the URL points at loopback but the page is served from a non-loopback
+ *   origin (a localhost default leaking into production), or
+ * - the URL cannot be parsed at all.
+ */
+function resolveSignalingUrl(explicit?: string): string | null {
+  const raw = explicit || getEnvVar('EXPO_PUBLIC_SIGNALING_SERVER_URL');
+  if (!raw) return null;
+
+  let host: string | null = null;
+  try {
+    if (typeof URL !== 'undefined') {
+      host = new URL(raw).hostname;
+    }
+  } catch {
+    return null;
+  }
+  if (host === null) {
+    // URL parsing unavailable in this runtime; fall back to substring checks.
+    if (!raw.includes('localhost') && !raw.includes('127.0.0.1')) return raw;
+    host = raw.includes('localhost') ? 'localhost' : '127.0.0.1';
+  }
+
+  if (isLoopbackHost(host) && typeof window !== 'undefined' && window.location) {
+    if (!isLoopbackHost(window.location.hostname)) {
+      return null;
+    }
+  }
+  return raw;
+}
+
 export class SignalingService {
   private ws: WebSocket | null = null;
   private handlers = new Set<SignalingEventHandler>();
+  private stateHandlers = new Set<SignalingStateHandler>();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectTimeout: number | null = null;
+  private maxReconnectAttempts = MAX_CONNECT_ATTEMPTS;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private connected = false;
-  private url: string;
+  private url: string | null;
+  private state: SignalingConnectionState;
+  private intentionalClose = false;
+  private connectPromise: Promise<boolean> | null = null;
 
   constructor(url?: string) {
-    // Use environment variable if available, otherwise use provided url or default to localhost
-    this.url = url || getEnvVar('EXPO_PUBLIC_SIGNALING_SERVER_URL') || 'ws://localhost:8080';
+    this.url = resolveSignalingUrl(url);
+    // No configured server -> local mode from the start; no socket is
+    // ever attempted. A configured server starts in 'connecting'.
+    this.state = this.url ? 'connecting' : 'local';
+  }
+
+  /** True when a remote signaling server is actually configured. */
+  hasServerUrl(): boolean {
+    return this.url !== null;
+  }
+
+  getState(): SignalingConnectionState {
+    return this.state;
   }
 
   /**
-   * Connect to the signaling server
+   * Subscribe to connection-state changes. The handler is invoked
+   * immediately with the current state. Returns an unsubscribe function.
    */
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+  onStateChange(handler: SignalingStateHandler): () => void {
+    this.stateHandlers.add(handler);
+    try {
+      handler(this.state);
+    } catch {
+      // A misbehaving subscriber must not break the service.
+    }
+    return () => {
+      this.stateHandlers.delete(handler);
+    };
+  }
+
+  private setState(next: SignalingConnectionState): void {
+    if (this.state === next) return;
+    this.state = next;
+    this.stateHandlers.forEach((handler) => {
       try {
-        // Check if WebSocket is available (web-only API)
-        if (typeof WebSocket === 'undefined') {
-          console.warn('[SignalingService] WebSocket not available in this environment');
-          reject(new Error('WebSocket not available'));
-          return;
-        }
-
-        this.ws = new WebSocket(this.url);
-
-        this.ws.onopen = () => {
-          console.log('[SignalingService] Connected to signaling server');
-          this.connected = true;
-          this.reconnectAttempts = 0;
-          resolve();
-        };
-
-        this.ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data) as SignalingMessage;
-            this.handlers.forEach(handler => handler(message));
-          } catch (error) {
-            console.error('[SignalingService] Failed to parse message:', error);
-          }
-        };
-
-        this.ws.onerror = (error) => {
-          console.error('[SignalingService] WebSocket error:', error);
-          if (!this.connected) {
-            reject(new Error('Failed to connect to signaling server'));
-          }
-        };
-
-        this.ws.onclose = () => {
-          console.log('[SignalingService] Disconnected from signaling server');
-          this.connected = false;
-          this.ws = null;
-
-          // Attempt to reconnect only if we haven't exceeded max attempts
-          if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-            console.log(`[SignalingService] Reconnecting in ${delay}ms...`);
-            
-            this.reconnectTimeout = window.setTimeout(() => {
-              this.reconnectAttempts++;
-              this.connect().catch(() => {
-                // Reconnection will be attempted again in onclose
-              });
-            }, delay);
-          } else {
-            console.log('[SignalingService] Max reconnection attempts reached');
-          }
-        };
-      } catch (error) {
-        reject(error);
+        handler(next);
+      } catch {
+        // Subscriber errors are isolated from the service.
       }
     });
   }
 
   /**
-   * Disconnect from the signaling server
+   * Connect to the signaling server.
+   *
+   * Never rejects. Resolves true when the socket is open, false when the
+   * service is (or settles into) local mode. Safe to call any number of
+   * times: concurrent calls share a single in-flight attempt.
+   */
+  connect(): Promise<boolean> {
+    if (!this.url) {
+      // Offline-first: no configured server means no socket attempt, ever.
+      this.setState('local');
+      return Promise.resolve(false);
+    }
+    if (this.connected && this.ws) {
+      return Promise.resolve(true);
+    }
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+    if (typeof WebSocket === 'undefined') {
+      console.warn('[SignalingService] WebSocket not available in this environment; continuing in local mode');
+      this.setState('local');
+      return Promise.resolve(false);
+    }
+
+    // A manual connect supersedes any pending scheduled retry.
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.intentionalClose = false;
+    this.setState('connecting');
+
+    this.connectPromise = new Promise<boolean>((resolve) => {
+      let settled = false;
+      const settle = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        this.connectPromise = null;
+        resolve(ok);
+      };
+
+      try {
+        const ws = new WebSocket(this.url as string);
+        this.ws = ws;
+
+        ws.onopen = () => {
+          this.connected = true;
+          this.reconnectAttempts = 0;
+          this.setState('online');
+          settle(true);
+        };
+
+        ws.onmessage = (event) => {
+          let message: SignalingMessage;
+          try {
+            message = JSON.parse(event.data) as SignalingMessage;
+          } catch {
+            console.warn('[SignalingService] Dropping malformed signaling message');
+            return;
+          }
+          this.handlers.forEach((handler) => {
+            try {
+              handler(message);
+            } catch (error) {
+              // One bad consumer must not break delivery to the others
+              // or propagate into the socket handler.
+              console.warn('[SignalingService] Message handler error (isolated):', error);
+            }
+          });
+        };
+
+        ws.onerror = () => {
+          // Kept quiet per attempt: onclose drives the bounded retry
+          // policy and the single settle log line.
+        };
+
+        ws.onclose = () => {
+          this.connected = false;
+          if (this.ws === ws) {
+            this.ws = null;
+          }
+          settle(false);
+
+          if (this.intentionalClose) {
+            return;
+          }
+
+          if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            const delay = Math.min(
+              1000 * Math.pow(2, this.reconnectAttempts - 1),
+              8000
+            );
+            this.setState('connecting');
+            this.reconnectTimeout = setTimeout(() => {
+              this.reconnectTimeout = null;
+              void this.connect();
+            }, delay);
+          } else {
+            // Bounded retries exhausted: settle into local mode and
+            // stop. Local transports are the designed fallback, so
+            // this is one quiet line, not an error.
+            console.info(
+              '[SignalingService] Signaling server unreachable; continuing in local mode'
+            );
+            this.setState('local');
+          }
+        };
+      } catch {
+        settle(false);
+        this.setState('local');
+      }
+    });
+
+    return this.connectPromise;
+  }
+
+  /**
+   * Disconnect from the signaling server. Stops any pending retry and
+   * prevents the close handler from scheduling a new one.
    */
   disconnect(): void {
+    this.intentionalClose = true;
+
     if (this.reconnectTimeout) {
-      window.clearTimeout(this.reconnectTimeout);
+      clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
 
     if (this.ws) {
-      this.ws.close();
+      try {
+        this.ws.close();
+      } catch {
+        // Already closing/closed.
+      }
       this.ws = null;
     }
 
     this.connected = false;
     this.reconnectAttempts = 0;
+    this.setState('local');
   }
 
   /**
-   * Send a message to the signaling server
+   * Send a message to the signaling server. Silently dropped when not
+   * connected: in local mode there is simply nowhere to send it, and
+   * that is by design (callers that care check isConnected()).
    */
   send(message: SignalingMessage): void {
     if (this.ws && this.connected && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
-    } else {
-      console.warn('[SignalingService] Cannot send message, not connected');
+      try {
+        this.ws.send(JSON.stringify(message));
+      } catch {
+        // Socket raced closed; the message is dropped, never thrown.
+      }
     }
   }
 

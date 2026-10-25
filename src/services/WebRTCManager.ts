@@ -1,11 +1,33 @@
 /**
  * WebRTCManager - Manages WebRTC peer connections for a room
- * 
+ *
  * Integrates with SignalingService for distributed signaling and manages
  * the lifecycle of peer connections, data channels, and messages.
+ *
+ * Hotfix 1.1 (offline-first fallback):
+ * - The BroadcastChannel fallback is a first-class LOCAL transport and is
+ *   always set up; the signaling subscription is layered on top and the
+ *   room is (re)joined whenever the socket comes up, so constructing the
+ *   manager before connect() resolves is no longer a race.
+ * - SDP payloads are normalized to plain { type, sdp } init objects.
+ *   createOffer()/createAnswer() resolve to plain RTCSessionDescriptionInit
+ *   dictionaries in spec-compliant browsers (e.g. Firefox), which have no
+ *   .toJSON() method — the old code called answer.toJSON() and crashed
+ *   before the answer was ever sent. No .toJSON() is called on anything
+ *   that arrives over a transport or comes out of create*() anymore.
+ * - ICE candidates are queued per peer until that peer's remote
+ *   description is set, then flushed in order. Candidates from a peer we
+ *   have not seen yet are buffered under its id.
+ * - Every transport dispatch and every consumer handler is isolated: a
+ *   malformed message or a throwing handler is logged and dropped, never
+ *   propagated toward the rendering/canvas code paths.
  */
 
-import { SignalingService, SignalingMessage } from './SignalingService';
+import {
+  SignalingService,
+  SignalingMessage,
+  SignalingConnectionState,
+} from './SignalingService';
 
 export type MessageHandler = (data: unknown, from: string) => void;
 
@@ -14,6 +36,43 @@ interface Peer {
   pc: RTCPeerConnection;
   dc: RTCDataChannel | null;
   ready: boolean;
+  /** ICE candidates waiting for this peer's remote description. */
+  pendingIce: RTCIceCandidateInit[];
+}
+
+/**
+ * Normalize anything SDP-shaped (plain JSON from a transport, an
+ * RTCSessionDescription instance, or the result of createOffer/createAnswer)
+ * into a plain RTCSessionDescriptionInit, or null when it is unusable.
+ * Deliberately never calls .toJSON(): plain init objects don't have one.
+ */
+function toSdpInit(value: unknown): RTCSessionDescriptionInit | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as { type?: unknown; sdp?: unknown };
+  if (typeof v.type !== 'string' || typeof v.sdp !== 'string') return null;
+  return { type: v.type as RTCSdpType, sdp: v.sdp };
+}
+
+/**
+ * Normalize anything ICE-candidate-shaped into a plain
+ * RTCIceCandidateInit, or null when it is unusable.
+ */
+function toCandidateInit(value: unknown): RTCIceCandidateInit | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as {
+    candidate?: unknown;
+    sdpMid?: unknown;
+    sdpMLineIndex?: unknown;
+    usernameFragment?: unknown;
+  };
+  if (typeof v.candidate !== 'string') return null;
+  const init: RTCIceCandidateInit = { candidate: v.candidate };
+  if (typeof v.sdpMid === 'string') init.sdpMid = v.sdpMid;
+  if (typeof v.sdpMLineIndex === 'number') init.sdpMLineIndex = v.sdpMLineIndex;
+  if (typeof v.usernameFragment === 'string') {
+    init.usernameFragment = v.usernameFragment;
+  }
+  return init;
 }
 
 export class WebRTCManager {
@@ -24,110 +83,209 @@ export class WebRTCManager {
   private messageHandlers = new Set<MessageHandler>();
   private fallbackChannel: BroadcastChannel | null = null;
   private unsubscribeSignaling: (() => void) | null = null;
+  private unsubscribeSignalingState: (() => void) | null = null;
+  /** Candidates received before we have a Peer for their sender. */
+  private earlyIce: Map<string, RTCIceCandidateInit[]> = new Map();
 
   constructor(roomId: string, peerId: string, signaling: SignalingService | null = null) {
     this.roomId = roomId;
     this.peerId = peerId;
     this.signaling = signaling;
 
-    if (signaling && signaling.isConnected()) {
+    // Local transport first: it works with zero network infrastructure
+    // and is the designed mode when no signaling server is configured.
+    this.setupFallback();
+
+    if (signaling) {
       this.setupSignaling();
-    } else {
-      // Fallback to BroadcastChannel for local testing
-      this.setupFallback();
     }
   }
 
   /**
-   * Setup signaling service handlers
+   * Setup signaling service handlers. The room is joined when the socket
+   * reaches 'online' (including late connections after construction), so
+   * callers never have to await connect() before creating the manager.
    */
   private setupSignaling(): void {
     if (!this.signaling) return;
 
     this.unsubscribeSignaling = this.signaling.onMessage((message: SignalingMessage) => {
-      if (message.roomId !== this.roomId) return;
-
-      switch (message.type) {
-        case 'peer-joined':
-          if (message.peerId !== this.peerId) {
-            // We initiate connection to the new peer
-            this.createPeer(message.peerId, true);
-          }
-          break;
-
-        case 'offer':
-          if (message.to === this.peerId) {
-            this.handleOffer(message.from, message.sdp);
-          }
-          break;
-
-        case 'answer':
-          if (message.to === this.peerId) {
-            this.handleAnswer(message.from, message.sdp);
-          }
-          break;
-
-        case 'ice-candidate':
-          if (message.to === this.peerId) {
-            this.handleIceCandidate(message.from, message.candidate);
-          }
-          break;
-
-        case 'peer-left':
-          if (message.peerId !== this.peerId) {
-            this.removePeer(message.peerId);
-          }
-          break;
-
-        case 'presence':
-          // Handle initial peer list
-          message.peers.forEach(otherId => {
-            if (otherId !== this.peerId && !this.peers.has(otherId)) {
-              // Determine who initiates based on peer ID comparison
-              const weInitiate = this.peerId > otherId;
-              if (weInitiate) {
-                this.createPeer(otherId, true);
-              }
-            }
-          });
-          break;
+      try {
+        this.handleSignalingMessage(message);
+      } catch (error) {
+        console.warn('[WebRTCManager] Dropped signaling message after error:', error);
       }
     });
 
-    // Join the room
-    this.signaling.joinRoom(this.roomId, this.peerId);
+    this.unsubscribeSignalingState = this.signaling.onStateChange(
+      (state: SignalingConnectionState) => {
+        if (state === 'online') {
+          this.signaling?.joinRoom(this.roomId, this.peerId);
+        }
+      }
+    );
+  }
+
+  private handleSignalingMessage(message: SignalingMessage): void {
+    if (!message || message.roomId !== this.roomId) return;
+
+    switch (message.type) {
+      case 'peer-joined':
+        if (message.peerId !== this.peerId) {
+          // We initiate connection to the new peer
+          this.createPeer(message.peerId, true);
+        }
+        break;
+
+      case 'offer':
+        if (message.to === this.peerId) {
+          void this.handleOffer(message.from, message.sdp);
+        }
+        break;
+
+      case 'answer':
+        if (message.to === this.peerId) {
+          void this.handleAnswer(message.from, message.sdp);
+        }
+        break;
+
+      case 'ice-candidate':
+        if (message.to === this.peerId) {
+          void this.handleIceCandidate(message.from, message.candidate);
+        }
+        break;
+
+      case 'peer-left':
+        if (message.peerId !== this.peerId) {
+          this.removePeer(message.peerId);
+        }
+        break;
+
+      case 'presence':
+        // Handle initial peer list
+        if (!Array.isArray(message.peers)) return;
+        message.peers.forEach(otherId => {
+          if (otherId !== this.peerId && !this.peers.has(otherId)) {
+            // Determine who initiates based on peer ID comparison
+            const weInitiate = this.peerId > otherId;
+            if (weInitiate) {
+              this.createPeer(otherId, true);
+            }
+          }
+        });
+        break;
+    }
   }
 
   /**
-   * Setup BroadcastChannel fallback for local testing
+   * Setup BroadcastChannel fallback (local transport: same-browser tabs).
+   * Every message is validated and handled inside a guard: a malformed
+   * message is logged and dropped, never thrown.
    */
   private setupFallback(): void {
-    if (!('BroadcastChannel' in window)) {
-      console.warn('[WebRTCManager] BroadcastChannel not available');
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) {
       return;
     }
 
-    this.fallbackChannel = new BroadcastChannel(`fabric-webrtc-${this.roomId}`);
-    
+    try {
+      this.fallbackChannel = new BroadcastChannel(`fabric-webrtc-${this.roomId}`);
+    } catch (error) {
+      console.warn('[WebRTCManager] BroadcastChannel unavailable:', error);
+      this.fallbackChannel = null;
+      return;
+    }
+
     this.fallbackChannel.onmessage = (event) => {
-      const message = event.data;
-      
-      if (message.type === 'hello' && message.from !== this.peerId) {
-        const weInitiate = this.peerId > message.from;
-        if (!this.peers.has(message.from)) {
-          this.createPeer(message.from, weInitiate);
+      try {
+        const message = event.data as {
+          type?: unknown;
+          from?: unknown;
+          to?: unknown;
+          sdp?: unknown;
+          candidate?: unknown;
+        } | null;
+
+        if (!message || typeof message !== 'object' || typeof message.type !== 'string') {
+          return;
         }
-      } else if (message.type === 'offer' && message.to === this.peerId) {
-        this.handleOffer(message.from, message.sdp);
-      } else if (message.type === 'answer' && message.to === this.peerId) {
-        this.handleAnswer(message.from, message.sdp);
-      } else if (message.type === 'ice-candidate' && message.to === this.peerId) {
-        this.handleIceCandidate(message.from, message.candidate);
+        const from = message.from;
+        if (typeof from !== 'string' || from === this.peerId) {
+          return;
+        }
+
+        switch (message.type) {
+          case 'hello':
+            if (!this.peers.has(from)) {
+              const weInitiate = this.peerId > from;
+              this.createPeer(from, weInitiate);
+            }
+            break;
+
+          case 'offer':
+            if (message.to === this.peerId) {
+              void this.handleOffer(from, message.sdp);
+            }
+            break;
+
+          case 'answer':
+            if (message.to === this.peerId) {
+              void this.handleAnswer(from, message.sdp);
+            }
+            break;
+
+          case 'ice-candidate':
+            if (message.to === this.peerId) {
+              void this.handleIceCandidate(from, message.candidate);
+            }
+            break;
+
+          case 'bye':
+            this.removePeer(from);
+            break;
+        }
+      } catch (error) {
+        console.warn('[WebRTCManager] Dropped malformed fallback message:', error);
       }
     };
 
     // Announce presence
-    this.fallbackChannel.postMessage({ type: 'hello', from: this.peerId });
+    this.postFallback({ type: 'hello', from: this.peerId });
+  }
+
+  private postFallback(payload: Record<string, unknown>): void {
+    if (!this.fallbackChannel) return;
+    try {
+      this.fallbackChannel.postMessage(payload);
+    } catch (error) {
+      console.warn('[WebRTCManager] Failed to post fallback message:', error);
+    }
+  }
+
+  /** Send an offer over whichever negotiation transport is live. */
+  private signalOffer(to: string, sdp: RTCSessionDescriptionInit): void {
+    if (this.signaling && this.signaling.isConnected()) {
+      this.signaling.sendOffer(this.roomId, this.peerId, to, sdp);
+    } else {
+      this.postFallback({ type: 'offer', from: this.peerId, to, sdp });
+    }
+  }
+
+  /** Send an answer over whichever negotiation transport is live. */
+  private signalAnswer(to: string, sdp: RTCSessionDescriptionInit): void {
+    if (this.signaling && this.signaling.isConnected()) {
+      this.signaling.sendAnswer(this.roomId, this.peerId, to, sdp);
+    } else {
+      this.postFallback({ type: 'answer', from: this.peerId, to, sdp });
+    }
+  }
+
+  /** Send an ICE candidate over whichever negotiation transport is live. */
+  private signalCandidate(to: string, candidate: RTCIceCandidateInit): void {
+    if (this.signaling && this.signaling.isConnected()) {
+      this.signaling.sendIceCandidate(this.roomId, this.peerId, to, candidate);
+    } else {
+      this.postFallback({ type: 'ice-candidate', from: this.peerId, to, candidate });
+    }
   }
 
   /**
@@ -146,26 +304,26 @@ export class WebRTCManager {
       iceCandidatePoolSize: 2
     });
 
-    const peer: Peer = { id: peerId, pc, dc: null, ready: false };
+    const peer: Peer = {
+      id: peerId,
+      pc,
+      dc: null,
+      ready: false,
+      pendingIce: this.earlyIce.get(peerId) ?? [],
+    };
+    this.earlyIce.delete(peerId);
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        if (this.signaling && this.signaling.isConnected()) {
-          this.signaling.sendIceCandidate(this.roomId, this.peerId, peerId, event.candidate.toJSON());
-        } else if (this.fallbackChannel) {
-          this.fallbackChannel.postMessage({
-            type: 'ice-candidate',
-            from: this.peerId,
-            to: peerId,
-            candidate: event.candidate.toJSON()
-          });
-        }
+      if (!event.candidate) return;
+      const init = toCandidateInit(event.candidate);
+      if (init) {
+        this.signalCandidate(peerId, init);
       }
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || 
-          pc.connectionState === 'disconnected' || 
+      if (pc.connectionState === 'failed' ||
+          pc.connectionState === 'disconnected' ||
           pc.connectionState === 'closed') {
         this.removePeer(peerId);
       }
@@ -184,24 +342,18 @@ export class WebRTCManager {
       peer.dc = dc;
       this.wireDataChannel(peer);
 
-      // Create and send offer
+      // Create and send offer. createOffer() resolves to a plain
+      // RTCSessionDescriptionInit in spec-compliant browsers, so the
+      // result is sent as-is (normalized) — no .toJSON() anywhere.
       pc.createOffer().then(offer => {
-        return pc.setLocalDescription(offer);
-      }).then(() => {
-        if (pc.localDescription) {
-          if (this.signaling && this.signaling.isConnected()) {
-            this.signaling.sendOffer(this.roomId, this.peerId, peerId, pc.localDescription.toJSON());
-          } else if (this.fallbackChannel) {
-            this.fallbackChannel.postMessage({
-              type: 'offer',
-              from: this.peerId,
-              to: peerId,
-              sdp: pc.localDescription.toJSON()
-            });
-          }
+        return pc.setLocalDescription(offer).then(() => offer);
+      }).then((offer) => {
+        const init = toSdpInit(offer) ?? toSdpInit(pc.localDescription);
+        if (init) {
+          this.signalOffer(peerId, init);
         }
       }).catch(error => {
-        console.error('[WebRTCManager] Failed to create offer:', error);
+        console.warn('[WebRTCManager] Failed to create offer:', error);
       });
     }
 
@@ -235,65 +387,110 @@ export class WebRTCManager {
       this.notifyMessage(data, peer.id);
     };
 
-    peer.dc.onerror = (error) => {
-      console.error(`[WebRTCManager] Data channel error with ${peer.id}:`, error);
+    peer.dc.onerror = () => {
+      console.warn(`[WebRTCManager] Data channel error with ${peer.id}`);
     };
   }
 
   /**
-   * Handle incoming offer
+   * Handle incoming offer. Accepts any SDP-shaped payload; the plain
+   * init object is handed to setRemoteDescription directly (the
+   * RTCSessionDescription constructor is deprecated and unnecessary).
    */
-  private async handleOffer(from: string, sdp: RTCSessionDescriptionInit): Promise<void> {
-    let peer = this.peers.get(from);
-    if (!peer) {
-      peer = this.createPeer(from, false);
+  private async handleOffer(from: string, rawSdp: unknown): Promise<void> {
+    const sdp = toSdpInit(rawSdp);
+    if (!sdp) {
+      console.warn('[WebRTCManager] Dropping offer with malformed SDP from', from);
+      return;
     }
 
     try {
-      await peer.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      let peer = this.peers.get(from);
+      if (!peer) {
+        peer = this.createPeer(from, false);
+      }
+
+      await peer.pc.setRemoteDescription(sdp);
+      await this.flushIce(peer);
+
       const answer = await peer.pc.createAnswer();
       await peer.pc.setLocalDescription(answer);
 
-      if (this.signaling && this.signaling.isConnected()) {
-        this.signaling.sendAnswer(this.roomId, this.peerId, from, answer.toJSON());
-      } else if (this.fallbackChannel) {
-        this.fallbackChannel.postMessage({
-          type: 'answer',
-          from: this.peerId,
-          to: from,
-          sdp: answer.toJSON()
-        });
+      // `answer` is a plain RTCSessionDescriptionInit in Firefox and an
+      // RTCSessionDescription in Chrome; normalize instead of .toJSON().
+      const init = toSdpInit(answer) ?? toSdpInit(peer.pc.localDescription);
+      if (init) {
+        this.signalAnswer(from, init);
       }
     } catch (error) {
-      console.error('[WebRTCManager] Failed to handle offer:', error);
+      console.warn('[WebRTCManager] Failed to handle offer:', error);
     }
   }
 
   /**
    * Handle incoming answer
    */
-  private async handleAnswer(from: string, sdp: RTCSessionDescriptionInit): Promise<void> {
+  private async handleAnswer(from: string, rawSdp: unknown): Promise<void> {
+    const sdp = toSdpInit(rawSdp);
+    if (!sdp) {
+      console.warn('[WebRTCManager] Dropping answer with malformed SDP from', from);
+      return;
+    }
+
     const peer = this.peers.get(from);
     if (!peer) return;
 
     try {
-      await peer.pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      await peer.pc.setRemoteDescription(sdp);
+      await this.flushIce(peer);
     } catch (error) {
-      console.error('[WebRTCManager] Failed to handle answer:', error);
+      console.warn('[WebRTCManager] Failed to handle answer:', error);
     }
   }
 
   /**
-   * Handle incoming ICE candidate
+   * Handle incoming ICE candidate. Candidates that arrive before the
+   * peer's remote description exists are queued per peer and flushed,
+   * in order, once setRemoteDescription succeeds — addIceCandidate
+   * before that point throws InvalidStateError.
    */
-  private async handleIceCandidate(from: string, candidate: RTCIceCandidateInit): Promise<void> {
+  private async handleIceCandidate(from: string, rawCandidate: unknown): Promise<void> {
+    const candidate = toCandidateInit(rawCandidate);
+    if (!candidate) return;
+
     const peer = this.peers.get(from);
-    if (!peer) return;
+    if (!peer) {
+      // Negotiation for this peer hasn't started yet on our side;
+      // buffer the candidate and hand it to createPeer later.
+      const buffered = this.earlyIce.get(from) ?? [];
+      buffered.push(candidate);
+      this.earlyIce.set(from, buffered);
+      return;
+    }
+
+    if (!peer.pc.remoteDescription) {
+      peer.pendingIce.push(candidate);
+      return;
+    }
 
     try {
-      await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      await peer.pc.addIceCandidate(candidate);
     } catch (error) {
-      console.error('[WebRTCManager] Failed to add ICE candidate:', error);
+      console.warn('[WebRTCManager] Failed to add ICE candidate:', error);
+    }
+  }
+
+  /**
+   * Apply a peer's queued ICE candidates, in arrival order.
+   */
+  private async flushIce(peer: Peer): Promise<void> {
+    const queued = peer.pendingIce.splice(0, peer.pendingIce.length);
+    for (const candidate of queued) {
+      try {
+        await peer.pc.addIceCandidate(candidate);
+      } catch (error) {
+        console.warn('[WebRTCManager] Failed to add queued ICE candidate:', error);
+      }
     }
   }
 
@@ -311,13 +508,34 @@ export class WebRTCManager {
       } catch {}
       this.peers.delete(peerId);
     }
+    this.earlyIce.delete(peerId);
   }
 
   /**
-   * Notify message handlers
+   * Notify message handlers. Each handler is isolated: a throwing
+   * consumer can neither break the other handlers nor propagate back
+   * into the transport (and from there toward rendering code).
    */
   private notifyMessage(data: unknown, from: string): void {
-    this.messageHandlers.forEach(handler => handler(data, from));
+    this.messageHandlers.forEach(handler => {
+      try {
+        handler(data, from);
+      } catch (error) {
+        console.warn('[WebRTCManager] Message handler error (isolated):', error);
+      }
+    });
+  }
+
+  /**
+   * Re-announce presence on all local transports (wired to the
+   * 'fabric:webrtc-reannounce' window event by useWebRTC; the event was
+   * previously dispatched by the UI with no listener).
+   */
+  reannounce(): void {
+    if (this.signaling && this.signaling.isConnected()) {
+      this.signaling.joinRoom(this.roomId, this.peerId);
+    }
+    this.postFallback({ type: 'hello', from: this.peerId });
   }
 
   /**
@@ -330,7 +548,7 @@ export class WebRTCManager {
         try {
           peer.dc.send(message);
         } catch (error) {
-          console.error(`[WebRTCManager] Failed to send to ${peer.id}:`, error);
+          console.warn(`[WebRTCManager] Failed to send to ${peer.id}:`, error);
         }
       }
     });
@@ -346,7 +564,7 @@ export class WebRTCManager {
       try {
         peer.dc.send(message);
       } catch (error) {
-        console.error(`[WebRTCManager] Failed to send to ${peerId}:`, error);
+        console.warn(`[WebRTCManager] Failed to send to ${peerId}:`, error);
       }
     }
   }
@@ -393,10 +611,17 @@ export class WebRTCManager {
       this.signaling.leaveRoom(this.roomId, this.peerId);
     }
 
+    // Say goodbye on the local transport so other tabs drop us at once
+    this.postFallback({ type: 'bye', from: this.peerId });
+
     // Unsubscribe from signaling
     if (this.unsubscribeSignaling) {
       this.unsubscribeSignaling();
       this.unsubscribeSignaling = null;
+    }
+    if (this.unsubscribeSignalingState) {
+      this.unsubscribeSignalingState();
+      this.unsubscribeSignalingState = null;
     }
 
     // Close all peer connections
@@ -409,6 +634,7 @@ export class WebRTCManager {
       } catch {}
     });
     this.peers.clear();
+    this.earlyIce.clear();
 
     // Close fallback channel
     if (this.fallbackChannel) {

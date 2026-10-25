@@ -1,9 +1,10 @@
 export type Transport = "webrtc" | "broadcast";
-export type RealtimeStatus = { transport: Transport; peers: number; latencyMs?: number; peerIds?: string[] };
+export type ConnectionMode = "online" | "local" | "connecting";
+export type RealtimeStatus = { transport: Transport; peers: number; latencyMs?: number; peerIds?: string[]; mode: ConnectionMode };
 
 type Listener = (s: RealtimeStatus) => void;
 
-const state: RealtimeStatus = { transport: "broadcast", peers: 0, latencyMs: undefined, peerIds: [] };
+const state: RealtimeStatus = { transport: "broadcast", peers: 0, latencyMs: undefined, peerIds: [], mode: "local" };
 const listeners = new Set<Listener>();
 
 export function getRealtimeStatus(): RealtimeStatus {
@@ -15,6 +16,7 @@ export function setRealtimeStatus(next: RealtimeStatus): void {
   state.peers = next.peers;
   state.latencyMs = next.latencyMs;
   state.peerIds = next.peerIds ? [...next.peerIds] : [];
+  state.mode = next.mode ?? state.mode;
   listeners.forEach((l) => l({ ...state, peerIds: state.peerIds ? [...state.peerIds] : [] }));
 }
 
