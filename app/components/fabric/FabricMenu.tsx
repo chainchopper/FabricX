@@ -339,6 +339,28 @@ export default function FabricMenu() {
     });
   };
 
+  // "Ambient life" — Slice 7. The idle contract (src/types/
+  // experience.ts) requires every layer to declare what it does
+  // when nobody is touching it; the base fluid declares `ambient`:
+  // left alone, it breathes, wanders, and blooms a little instead of
+  // dying (Terrell: "it should breathe and play a little and just be
+  // alone on its own"). Like the ghost toggle, the value lives in
+  // this layer's own config (specific.ambientEnabled), persisted per
+  // layer id by the settings mirror. Absent means on. LegacyFluid's
+  // ambient driver reads the same field; the life it makes is local
+  // to each device and never enters the room's send path.
+  const ambientInLayer =
+    (state.experienceConfig.specific as any)?.ambientEnabled !== false;
+  const setAmbientInLayer = (next: boolean) => {
+    noteActivity();
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        ambientEnabled: next,
+      },
+    });
+  };
+
   const openPanel = (name: DrawerName) => {
     noteActivity();
     drawers.open(name);
@@ -620,6 +642,57 @@ export default function FabricMenu() {
             Your ghost lives in this layer and plays along with the room.
             Off applies to this layer only — other layers keep their own
             setting, and your ghost preference in Universal still applies.
+          </Text>
+        </View>
+
+        {/* Ambient life in this layer — the idle contract's setting.
+            Same per-layer storage as the ghost toggle above. On: when
+            everyone goes quiet, this layer breathes and plays a
+            little on its own (locally only — nothing is sent to the
+            room, and any real touch takes over instantly). Off: the
+            layer is allowed to rest completely still. */}
+        <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+            Ambient life
+          </Text>
+          <View style={{ flexDirection: "row", gap: spacing.sm }}>
+            {([true, false] as const).map((val) => {
+              const selected = ambientInLayer === val;
+              return (
+                <Pressable
+                  key={String(val)}
+                  pointerEvents="auto"
+                  onPress={() => setAmbientInLayer(val)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`Ambient life ${val ? "on" : "off"}`}
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: selected ? colors.accent : colors.line,
+                    backgroundColor: selected ? colors.accentDim : "transparent",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selected ? colors.accent : colors.text,
+                      fontSize: typeScale.body,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {val ? "On" : "Off"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+            When everyone goes quiet, this layer breathes, drifts, and
+            blooms a little on its own — each device in its own rhythm,
+            nothing sent to the room. Any touch, note, or ghost gesture
+            takes over instantly. Off lets this layer rest still.
           </Text>
         </View>
 

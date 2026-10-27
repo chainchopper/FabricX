@@ -18,6 +18,7 @@ import {
   subscribeIdentity,
   type ParticipantIdentity,
 } from "../identity/identityStore";
+import { getSignalingService } from "../services/SignalingService";
 
 type TransportMsg =
   | { type: "fluid-interaction"; data: FluidInteraction }
@@ -679,6 +680,120 @@ export function useFluidMultiUser(roomId: string) {
     postRef.current({ type: "peer-request", from: userId });
     announceIdentityRef.current();
   }, [roomId, webrtc.active, humanPeers, userId]);
+
+  // ---- Slice 7 (Alive): session resilience -------------------------
+  // Two field failures from the 3-device test drive this block:
+  // devices that needed a manual refresh to join the room, and an
+  // iPhone that screen-locked and silently lost its session. iOS
+  // freezes a locked page — timers stall, the socket dies or the
+  // bounded reconnect budget burns down unobserved — so recovery
+  // cannot rely on anything that runs while the page is away. It
+  // has to happen on the way BACK in.
+
+  /**
+   * One discovery round: ask who hosts, ask who's who, offer our
+   * identity card, and (if we host) re-state our session. All of it
+   * is fire-and-forget over transports that may not be up yet — a
+   * dropped round is healed by the next round, a heartbeat, or the
+   * peer-arrival fast paths. Re-running a round is how a rejoined
+   * device becomes fully itself again: same mode, same role, same
+   * name and hue, no refresh.
+   */
+  const runAskRound = useCallback(() => {
+    postRef.current({ type: "session-request", from: userId });
+    postRef.current({ type: "peer-request", from: userId });
+    announceIdentityRef.current();
+    if (hostClaimRef.current) announceRef.current();
+  }, [userId]);
+  const askRoundRef = useRef(runAskRound);
+  askRoundRef.current = runAskRound;
+
+  /** Has this client heard ANY room life yet — a peer noted through
+   * any transport, a remote host's session, or its own host claim? */
+  const roomKnown = useCallback(
+    () =>
+      bcPeersRef.current.size > 0 ||
+      remoteSessionRef.current !== null ||
+      hostClaimRef.current !== null,
+    []
+  );
+
+  // Join backoff: until the room answers, re-run the discovery round
+  // on a short, bounded backoff — rounds at ~0s, 1.5s, 4.5s, 10.5s,
+  // 22.5s, then stop. Each round is a handful of tiny messages, and
+  // the standing heartbeats (host announce 3s, identity 10s while
+  // peers are present, ping 2s) own steady state afterwards, so a
+  // room full of late joiners cannot turn this into relay load. A
+  // client alone in a room simply runs the schedule out — there was
+  // nobody to discover, and nothing was owed.
+  useEffect(() => {
+    const delays = [0, 1500, 3000, 6000, 12000];
+    const timers: number[] = [];
+    let at = 0;
+    delays.forEach((d) => {
+      at += d;
+      const id = window.setTimeout(() => {
+        if (roomKnown()) return;
+        askRoundRef.current();
+      }, at);
+      timers.push(id);
+    });
+    return () => timers.forEach((id) => window.clearTimeout(id));
+  }, [roomId, roomKnown]);
+
+  // Return-from-background: the user unlocked the phone, switched
+  // back to the tab, or the network returned. Three triggers, one
+  // resume (debounced — a single return often fires all three):
+  //  1. If signaling is not online, redial WITH a fresh retry
+  //     budget (SignalingService.reconnect). When the socket
+  //     reaches 'online' the WebRTC manager re-joins the room on
+  //     its own via its state subscription, so transport presence
+  //     heals without help from here.
+  //  2. Re-announce transport presence regardless (the manager's
+  //     'fabric:webrtc-reannounce' path: re-join + local hello).
+  //     This also covers the socket that still READS 'online' but
+  //     silently died while the page was frozen: the re-join makes
+  //     the relay re-teach us presence, and if the socket truly is
+  //     dead the failed send surfaces as a close and step 1's next
+  //     trigger takes over.
+  //  3. One discovery round, so session mode, host claim, and
+  //     identity cards are re-stated now instead of at the next
+  //     heartbeat.
+  const lastResumeRef = useRef(0);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    const resume = () => {
+      const now = Date.now();
+      if (now - lastResumeRef.current < 1000) return;
+      lastResumeRef.current = now;
+      try {
+        const sig = getSignalingService();
+        if (sig.getState() !== "online") {
+          void sig.reconnect();
+        }
+      } catch {
+        // No signaling in this runtime (local-only): the session
+        // re-announce below still runs over local transports.
+      }
+      window.dispatchEvent(new Event("fabric:webrtc-reannounce"));
+      askRoundRef.current();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") resume();
+    };
+    const onFocus = () => resume();
+    const onOnline = () => resume();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
+    };
+  }, []);
 
   // Self-heal: menu intent says I host this room, but I hold no
   // claim and no live host exists (the corner case: I yielded to a

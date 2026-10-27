@@ -45,6 +45,8 @@ import {
   tintColorTowardHue,
   hueDyeColor,
 } from "../../identity/identityStore";
+import { useAmbientLife, type AmbientLifeStats } from "./useAmbientLife";
+import { noteBus } from "../../../shared/utils/noteBus";
 
 interface LegacyFluidProps {
   /**
@@ -99,6 +101,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     url: string | null;
     state: SignalingConnectionState;
   } | null>(null);
+  // Slice 7: ambient-life state for the same panel (see below).
+  const [diagAmbient, setDiagAmbient] = useState<AmbientLifeStats | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -186,6 +190,43 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   const ghostLayerEnabled =
     ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
       ?.ghostEnabled as boolean | undefined) !== false;
+
+  // ---- Ambient life (Slice 7, "Alive") --------------------------------
+  // The idle contract (src/types/experience.ts) requires every layer
+  // to declare its idle behavior; the base fluid declares `ambient`.
+  // The per-layer toggle lives in the same specific config as the
+  // ghost toggle ("Ambient life", THIS LAYER settings), persisted per
+  // layer id by the settings mirror. Absent means on — a layer may
+  // opt out of being alive, never the reverse.
+  const ambientLayerEnabled =
+    ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
+      ?.ambientEnabled as boolean | undefined) !== false;
+
+  // The room's last REAL activity — the ambient driver's idle clock.
+  // Every genuine input path feeds it below: local pointer input
+  // (the engine observer), remote + ghost interactions (the render
+  // path), verbs, pattern steps, and notes (noteBus). Ambient splats
+  // themselves deliberately never touch it: breathing is what the
+  // canvas does in activity's ABSENCE, and because every real thing
+  // moves this clock, ambient yields to all of them instantly and
+  // for free — including the ghost, whose gestures arrive through
+  // the render path like any peer's. The driver (useAmbientLife)
+  // renders locally through engine.splatAt only: it never sends,
+  // never calls a ghost API, and cannot eat the ghost's budget.
+  const activityRef = useRef(Date.now());
+  const markActivity = useCallback(() => {
+    activityRef.current = Date.now();
+  }, []);
+  const ambientStatsRef = useAmbientLife({
+    engineRef,
+    activityRef,
+    enabled: ambientLayerEnabled,
+  });
+
+  // Notes are room life too: a played note (local or a peer's)
+  // resets the idle clock, so the canvas never starts breathing
+  // over the top of a performance.
+  useEffect(() => noteBus.on(() => markActivity()), [markActivity]);
   const ghostPeerIdRef = useRef("");
   ghostPeerIdRef.current = ghostPeerIdFor(userId);
   const broadcastGhost = useCallback(
@@ -338,6 +379,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       const full = sendRef.current(interaction);
+      // Slice 7: a real local touch — the ambient driver stands down.
+      markActivity();
       // Feed the local user's touch to the ghost brain (it mirrors,
       // answers rhythms, notices petting, startles, sleeps/wakes).
       ghostRef.current.noteLocalInteraction(full);
@@ -363,6 +406,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       if (engine) setDiagStats(engine.getStats());
       const sig = getSignalingService();
       setDiagSig({ url: sig.getServerUrl(), state: sig.getState() });
+      // Slice 7: is the canvas breathing on its own, waiting for
+      // quiet, switched off by the layer, or rested by the ladder?
+      setDiagAmbient({ ...ambientStatsRef.current });
     }, 500);
     return () => window.clearInterval(id);
   }, []);
@@ -379,6 +425,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       if (!sessionRef.current.inputEnabled) return;
       const verb = getVerbById((ev as CustomEvent<string>).detail);
       if (!verb) return;
+      markActivity();
       sendRef.current(verbInteraction(verb));
       playVerbEffects(verb, true);
       ghostRef.current.noteUserActivity();
@@ -416,6 +463,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     patternPlayer.setStateListener(publishState);
 
     const dispatchStep = (step: PatternStep) => {
+      // Slice 7: a composed/performed pattern is real activity —
+      // ambient life stands down while the room is being played to.
+      markActivity();
       if (step.kind === "verb") {
         const verb = step.verbId ? getVerbById(step.verbId) : undefined;
         if (!verb) return;
@@ -492,6 +542,10 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       const key = `${i.userId}:${i.timestamp}`;
       if (seenRef.current.has(key)) return;
       seenRef.current.add(key);
+      // Slice 7: anything genuinely arriving — a peer's stroke, a
+      // verb, a pattern splat, a ghost's gesture (they all enter
+      // through this path) — is real activity; ambient yields.
+      markActivity();
       const isGhost = isGhostPeerId(i.userId);
       // Slice 6: a human sender's splats are TINTED by their
       // signature hue — the stamp on the interaction when present,
@@ -601,7 +655,8 @@ who     ${(() => {
               .map((p) => `${p.name || "?"}·${p.hue}°`)
               .join(", ");
             return `you ${snap.self ? `${snap.self.name}·${snap.self.hue}°` : "…"}${named ? ` | peers ${named}` : ""}`;
-          })()}`}
+          })()}
+ambient ${diagAmbient ? `${diagAmbient.state} · ${diagAmbient.breaths} breaths · ${diagAmbient.gestures} gestures` : "…"}`}
         </div>
       ) : null}
       {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled
