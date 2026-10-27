@@ -17,21 +17,11 @@ import { LockerProvider } from "./components/Locker";
 // New Drawers Controller
 import { NewDrawersProvider } from "./components/neo/NewDrawersContext";
 
-// New left-edge icons and drawers
-import ProfileDrawerButton from "./components/neo/ProfileDrawerButton";
-import NeoLockerButton from "./components/neo/NeoLockerButton";
-import LayerDrawerButton from "./components/neo/LayerDrawerButton";
-import StudioDrawerButton from "./components/neo/StudioDrawerButton";
-import PluginsDrawerButton from "./components/neo/PluginsDrawerButton";
-import CompanionDrawerButton from "./components/neo/CompanionDrawerButton";
-import ShopDrawerButton from "./components/neo/ShopDrawerButton";
-import CallDrawerButton from "./components/neo/CallDrawerButton";
-import WalletDrawerButton from "./components/neo/WalletDrawerButton";
-import FriendsDrawerButton from "./components/neo/FriendsDrawerButton";
-import SettingsDrawerButton from "./components/neo/SettingsDrawerButton";
-import AISettingsDrawerButton from "./components/neo/AISettingsDrawerButton";
-import AIChatDrawerButton from "./components/neo/AIChatDrawerButton";
-import VisionAIDrawerButton from "./components/neo/VisionAIDrawerButton";
+// Drawers. Slice 3: the left-edge emoji icon rail is retired — the
+// HUD's single menu button + MenuSheet home is the one entry point.
+// (The *DrawerButton components still exist in the repo for the AI
+// quick-access rows inside SettingsDrawer; the rail mounts are gone.)
+import MenuSheet from "./components/neo/MenuSheet";
 import VoiceInputButton from "./components/VoiceInputButton";
 
 import ProfileDrawer from "./components/neo/ProfileDrawer";
@@ -69,7 +59,7 @@ export default function RootLayout() {
                         {/* Fabric is the main event: persistent and always-on */}
                         <GlobalFabricBackground />
 
-                        {/* Foreground routes. Hotfix 1.3 (web): this
+                                                {/* Foreground routes. Hotfix 1.3 (web): this
                             wrapper used to cover the whole screen above
                             the global canvas (zIndex 0) with default
                             hit-testing, so every touch landed here and
@@ -91,18 +81,10 @@ export default function RootLayout() {
                         {/* Overlays (highest layer) */}
                         <OverlayRoot />
 
-                        {/* New left-edge icon menus (attached to drawers) */}
-                        <ProfileDrawerButton />
-                        <NeoLockerButton />
-                        <LayerDrawerButton />
-                        <StudioDrawerButton />
-                        <PluginsDrawerButton />
-                        <CompanionDrawerButton />
-                        <ShopDrawerButton />
-                        <CallDrawerButton />
-                        <WalletDrawerButton />
-                        <FriendsDrawerButton />
-                        <SettingsDrawerButton />
+                        {/* Slice 3: one menu entry point (HUD button
+                            dispatches fabric:menu; the sheet opens the
+                            drawers below). */}
+                        <MenuSheet />
 
                         {/* Left-side drawers */}
                         <NeoLocker />
