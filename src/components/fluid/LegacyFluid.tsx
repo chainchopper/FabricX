@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { LegacyFluidEngine } from "./LegacyFluidEngine";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useFluidMultiUser } from "../../hooks/useFluidMultiUser";
@@ -38,6 +38,13 @@ interface LegacyFluidProps {
 }
 
 export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
+  // Hotfix 1.3: engine failures used to be swallowed by a console.warn —
+  // the shell loaded, the canvas stayed blank, and nobody was told.
+  // Surface them as a small dismissible notice on the canvas layer and
+  // on the fabric:engine-error window event (the same event-bus style
+  // as fabric:background-ready).
+  const [engineError, setEngineError] = useState<string | null>(null);
+  const [engineErrorDismissed, setEngineErrorDismissed] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -202,15 +209,26 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   useEffect(() => {
     if (!canvasRef.current) return;
     let engine: LegacyFluidEngine | null = null;
+    const reportEngineError = (message: string) => {
+      setEngineError(message);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("fabric:engine-error", { detail: message })
+        );
+      }
+    };
     try {
       engine = new LegacyFluidEngine(canvasRef.current, containerRef.current);
     } catch (err) {
       // WebGL unavailable — leave onReady unfired; ExperienceRenderer's
-      // fallback timeout still sets the ready flag.
+      // fallback timeout still sets the ready flag. Hotfix 1.3: also
+      // tell the user (notice below) instead of only the console.
       console.warn("[LegacyFluid] Engine failed to initialize:", err);
+      reportEngineError("The canvas engine couldn't start on this device.");
       return;
     }
     engineRef.current = engine;
+    engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       const full = sendRef.current(interaction);
       // Feed the local user's touch to the ghost brain (it mirrors,
@@ -374,6 +392,50 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           touchAction: "none",
         }}
       />
+      {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled
+          to match the HUD (ExperienceHUD: rgba(2,8,23) panel, cyan
+          border, #e5e7eb text). Only ever renders after a real engine
+          failure — init throw or a persistently failing frame loop. */}
+      {engineError && !engineErrorDismissed ? (
+        <div
+          role="alert"
+          style={{
+            position: "absolute",
+            left: 12,
+            right: 12,
+            bottom: 12,
+            zIndex: 5,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 8,
+            background: "rgba(2,8,23,0.88)",
+            border: "1px solid rgba(34,211,238,0.45)",
+            borderRadius: 10,
+            padding: "8px 10px",
+          }}
+        >
+          <span style={{ flex: 1, color: "#e5e7eb", fontSize: 12, lineHeight: 1.45 }}>
+            {engineError} The fluid background is off — controls still work,
+            and peers will still feel your verbs.
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss canvas warning"
+            onClick={() => setEngineErrorDismissed(true)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#93c5fd",
+              fontSize: 16,
+              lineHeight: 1,
+              cursor: "pointer",
+              padding: 2,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
