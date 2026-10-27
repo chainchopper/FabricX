@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { ToastProvider } from "./components/Toast";
 import { LayersProvider } from "./context/LayersContext";
 import { PreferencesProvider } from "./context/PreferencesContext";
@@ -52,6 +53,27 @@ import VisionAIDrawer from "./components/neo/VisionAIDrawer";
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
 
+// Hotfix 1.4: React Navigation paints EVERY screen with the navigation
+// theme's background color (@react-navigation/elements' Background:
+// backgroundColor = theme.colors.background; DefaultTheme = the pale
+// rgb(242, 242, 242)). Fabric never overrode the theme, so that opaque
+// pale layer sat in the zIndex-10 routes stack above the global canvas
+// branch (zIndex 0) — permanently covering the fluid canvas, the HUD,
+// and the verb bar on every route, on web and native alike. It reads
+// on screen as a stuck splash: pale void plus Home's white "Fabric /
+// By Fanalogy" branding text showing faintly on top of it. Fabric's
+// design is the opposite — the global canvas IS the backdrop for every
+// route ("Fabric is the main event: persistent and always-on", below)
+// — so the navigator must not paint at all. Keep DefaultTheme, make
+// only its background transparent, and the canvas branch shows through
+// exactly as designed. (screenOptions.contentStyle cannot fix this:
+// in native-stack v7 it styles an inner container INSIDE the painted
+// Background, not the paint itself.)
+const FabricNavTheme = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: "transparent" },
+};
+
 export default function RootLayout() {
   return (
     <ToastProvider>
@@ -85,7 +107,9 @@ export default function RootLayout() {
                           pointerEvents={Platform.OS === "web" ? "none" : "auto"}
                           style={{ flex: 1, zIndex: 10 }}
                         >
-                          <Stack screenOptions={{ headerShown: false }} />
+                          <ThemeProvider value={FabricNavTheme}>
+                            <Stack screenOptions={{ headerShown: false }} />
+                          </ThemeProvider>
                         </View>
 
                         {/* Overlays (highest layer) */}
