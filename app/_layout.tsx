@@ -4,7 +4,7 @@ import { LayersProvider } from "./context/LayersContext";
 import { PreferencesProvider } from "./context/PreferencesContext";
 import { ARProvider } from "./context/ARContext";
 import React from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import GlobalFabricBackground from "./components/GlobalFabricBackground";
 import { ExperienceProvider } from "./context/ExperienceContext";
 import { OverlayProvider } from "./context/OverlayContext";
@@ -69,8 +69,22 @@ export default function RootLayout() {
                         {/* Fabric is the main event: persistent and always-on */}
                         <GlobalFabricBackground />
 
-                        {/* Foreground routes */}
-                        <View style={{ flex: 1, zIndex: 10 }}>
+                        {/* Foreground routes. Hotfix 1.3 (web): this
+                            wrapper used to cover the whole screen above
+                            the global canvas (zIndex 0) with default
+                            hit-testing, so every touch landed here and
+                            the canvas engine's own listeners never
+                            fired — no drawable canvas, anywhere. Pass
+                            touches through on web; each real page screen
+                            re-enables "auto" on its root (the house
+                            pattern: ExperienceHUD is "none" with "auto"
+                            controls). Native keeps default behavior —
+                            its input lives in the background layer's
+                            FabricCanvas responder, not under this stack. */}
+                        <View
+                          pointerEvents={Platform.OS === "web" ? "none" : "auto"}
+                          style={{ flex: 1, zIndex: 10 }}
+                        >
                           <Stack screenOptions={{ headerShown: false }} />
                         </View>
 
