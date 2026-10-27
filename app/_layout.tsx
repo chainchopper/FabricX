@@ -4,7 +4,7 @@ import { LayersProvider } from "./context/LayersContext";
 import { PreferencesProvider } from "./context/PreferencesContext";
 import { ARProvider } from "./context/ARContext";
 import React from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import GlobalFabricBackground from "./components/GlobalFabricBackground";
 import { ExperienceProvider } from "./context/ExperienceContext";
 import { OverlayProvider } from "./context/OverlayContext";
@@ -17,11 +17,21 @@ import { LockerProvider } from "./components/Locker";
 // New Drawers Controller
 import { NewDrawersProvider } from "./components/neo/NewDrawersContext";
 
-// Drawers. Slice 3: the left-edge emoji icon rail is retired — the
-// HUD's single menu button + MenuSheet home is the one entry point.
-// (The *DrawerButton components still exist in the repo for the AI
-// quick-access rows inside SettingsDrawer; the rail mounts are gone.)
-import MenuSheet from "./components/neo/MenuSheet";
+// New left-edge icons and drawers
+import ProfileDrawerButton from "./components/neo/ProfileDrawerButton";
+import NeoLockerButton from "./components/neo/NeoLockerButton";
+import LayerDrawerButton from "./components/neo/LayerDrawerButton";
+import StudioDrawerButton from "./components/neo/StudioDrawerButton";
+import PluginsDrawerButton from "./components/neo/PluginsDrawerButton";
+import CompanionDrawerButton from "./components/neo/CompanionDrawerButton";
+import ShopDrawerButton from "./components/neo/ShopDrawerButton";
+import CallDrawerButton from "./components/neo/CallDrawerButton";
+import WalletDrawerButton from "./components/neo/WalletDrawerButton";
+import FriendsDrawerButton from "./components/neo/FriendsDrawerButton";
+import SettingsDrawerButton from "./components/neo/SettingsDrawerButton";
+import AISettingsDrawerButton from "./components/neo/AISettingsDrawerButton";
+import AIChatDrawerButton from "./components/neo/AIChatDrawerButton";
+import VisionAIDrawerButton from "./components/neo/VisionAIDrawerButton";
 import VoiceInputButton from "./components/VoiceInputButton";
 
 import ProfileDrawer from "./components/neo/ProfileDrawer";
@@ -59,18 +69,40 @@ export default function RootLayout() {
                         {/* Fabric is the main event: persistent and always-on */}
                         <GlobalFabricBackground />
 
-                        {/* Foreground routes */}
-                        <View style={{ flex: 1, zIndex: 10 }}>
+                        {/* Foreground routes. Hotfix 1.3 (web): this
+                            wrapper used to cover the whole screen above
+                            the global canvas (zIndex 0) with default
+                            hit-testing, so every touch landed here and
+                            the canvas engine's own listeners never
+                            fired — no drawable canvas, anywhere. Pass
+                            touches through on web; each real page screen
+                            re-enables "auto" on its root (the house
+                            pattern: ExperienceHUD is "none" with "auto"
+                            controls). Native keeps default behavior —
+                            its input lives in the background layer's
+                            FabricCanvas responder, not under this stack. */}
+                        <View
+                          pointerEvents={Platform.OS === "web" ? "none" : "auto"}
+                          style={{ flex: 1, zIndex: 10 }}
+                        >
                           <Stack screenOptions={{ headerShown: false }} />
                         </View>
 
                         {/* Overlays (highest layer) */}
                         <OverlayRoot />
 
-                        {/* Slice 3: one menu entry point (HUD button
-                            dispatches fabric:menu; the sheet opens the
-                            drawers below). */}
-                        <MenuSheet />
+                        {/* New left-edge icon menus (attached to drawers) */}
+                        <ProfileDrawerButton />
+                        <NeoLockerButton />
+                        <LayerDrawerButton />
+                        <StudioDrawerButton />
+                        <PluginsDrawerButton />
+                        <CompanionDrawerButton />
+                        <ShopDrawerButton />
+                        <CallDrawerButton />
+                        <WalletDrawerButton />
+                        <FriendsDrawerButton />
+                        <SettingsDrawerButton />
 
                         {/* Left-side drawers */}
                         <NeoLocker />
