@@ -60,6 +60,12 @@ export default function GhostIndicator() {
 
   if (Platform.OS !== "web") return null;
 
+  // Per-layer feature toggle ("Ghost in this layer", THIS LAYER
+  // settings): when the loaded layer has the ghost off, the pill
+  // leaves the cluster entirely — no ghost chrome in a layer that
+  // doesn't have ghosts.
+  if (ghost.layerEnabled === false) return null;
+
   const dispatch = (type: string, detail: unknown) => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent(type, { detail }));

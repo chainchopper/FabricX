@@ -12,9 +12,18 @@
  * Two modes:
  *
  * - SOLO (default companion): the ghost lives only on this client,
- *   injected locally, never networked. Present only while no human peer
- *   is connected; when one joins it finishes its gesture, fades, and
- *   stays away.
+ *   injected locally, never networked. Alone, it is the full Slice 2
+ *   companion (drift / mirror / call-and-response / solo affection /
+ *   sleep). When human peers connect and it has NOT been summoned, it
+ *   no longer leaves: it shifts to the CROWD role — still local-only,
+ *   at a lower frequency (sparser drift, sampled responses, its own
+ *   tighter emit sub-budget), reacting to the room's energy: mirroring
+ *   finished strokes, answering rhythms, noticing petting from anyone,
+ *   dozing only when the whole room goes quiet. (Before the crowd
+ *   role existed, any connected human switched the solo ghost off
+ *   entirely — presence "away", zero emissions — and even a summoned
+ *   ghost starved, because its courtesy gates keyed on room-wide
+ *   activity; see the fix notes in tick()/noteInteraction.)
  *
  * - SESSION (summoned): any participant can summon THEIR OWN ghost into
  *   the shared session. The owner's client runs the brain; the ghost's
@@ -149,10 +158,15 @@ const PET_RADIUS = 0.17;
 const PET_BURST_COOLDOWN_MS = 2_500;
 const PET_PURR_COOLDOWN_MS = 20_000;
 const PET_HEART_COOLDOWN_MS = 150_000;
-const FADE_GRACE_MS = 1_200;
 const BIAS_TTL_MS = 90_000;
 const EMIT_BUDGET = 16; // max ghost interactions per EMIT_WINDOW_MS
 const EMIT_WINDOW_MS = 10_000;
+// Crowd role (humans present, not summoned): a tighter sub-budget and
+// sparser drift than solo, so the ghost plays along without competing
+// with the people in the room. Session (summoned) keeps EMIT_BUDGET.
+const CROWD_EMIT_BUDGET = 6; // max crowd-role interactions per EMIT_WINDOW_MS
+const CROWD_DRIFT_BASE_MS = 9_000;
+const CROWD_DRIFT_SPAN_MS = 6_000;
 const GHOST_STALE_MS = 20_000;
 const ANTICS_MIN_GAP_MS = 18_000;
 const STARTLE_COOLDOWN_MS = 6_000;
@@ -249,15 +263,22 @@ export class GhostPeer {
   private humansPresent = false;
   private mode: GhostMode = "solo";
   private dismissing = false;
-  private fading = false;
-  private fadeDeadline = 0;
 
   private presence: GhostPresence = "sleeping";
   private temperament: GhostTemperament = "curious";
   private temperamentSince = Date.now();
 
   private lastActivityAt: number;
-  private lastEventAt = 0;
+  /**
+   * Activity clocks, split by origin. The courtesy gates ("don't paint
+   * over a stroke in progress") key on the LOCAL user only: remote
+   * participants stream interactions continuously, and keying on any
+   * interaction — the pre-crowd behavior — left the gates shut ~100%
+   * of the time in a busy room, silencing the ghost exactly when the
+   * room was alive.
+   */
+  private lastLocalEventAt = 0;
+  private lastRemoteEventAt = 0;
   private lastVerbAt = 0;
   private lastPetBurstAt = 0;
   private lastPurrAt = 0;
@@ -275,6 +296,7 @@ export class GhostPeer {
   private taps = new Map<string, Tap[]>();
   private petTimes: number[] = [];
   private emitTimes: number[] = [];
+  private crowdEmitTimes: number[] = [];
 
   // Ghost society
   private otherGhosts = new Map<string, OtherGhost>();
@@ -351,20 +373,30 @@ export class GhostPeer {
     if (this.humansPresent === present) return;
     const now = Date.now();
     this.humansPresent = present;
-    if (present && this.mode === "solo" && this.timers.size > 0) {
-      // Let the in-flight gesture finish, then stay away.
-      this.fading = true;
-      this.fadeDeadline = now + FADE_GRACE_MS;
+    if (present && this.mode === "solo") {
+      // Crowd role begins: the ghost stays (it used to fade and stay
+      // away). Pull its next drift in close so the room sees it arrive
+      // promptly instead of whenever the solo schedule happened to land.
+      this.nextDriftAt = Math.min(
+        this.nextDriftAt,
+        now + 2_000 + this.rng() * 2_000
+      );
     }
-    if (!present) {
-      this.fading = false;
-      if (this.mode === "session") {
-        // Everyone left — the summoned ghost leaves with the session.
-        this.mode = "solo";
-        this.dismissing = false;
-      }
+    if (!present && this.mode === "session") {
+      // Everyone left — the summoned ghost leaves with the session.
+      this.mode = "solo";
+      this.dismissing = false;
     }
     this.publishPresence();
+  }
+
+  /**
+   * Crowd role: humans are connected but this ghost was not summoned.
+   * It acts locally only (emit() never broadcasts outside session
+   * mode), at crowd frequency and under the crowd sub-budget.
+   */
+  private inCrowd(): boolean {
+    return this.mode === "solo" && this.humansPresent;
   }
 
   /**
@@ -454,16 +486,23 @@ export class GhostPeer {
 
   /**
    * Feed one HUMAN participant interaction into the brain — the local
-   * user's strokes and, in session mode, every remote human peer's, so
-   * the ghost can react to anyone. Ghost-authored interactions must go
-   * through noteGhostSighting instead; verb interactions count as
-   * activity only.
+   * user's strokes and every remote human peer's, so the ghost can
+   * react to anyone in the room. `origin` says whose hand it was: the
+   * courtesy gates key on the local user alone (see lastLocalEventAt),
+   * while room activity still feeds the energy clocks (lastActivityAt
+   * drives sleep/temperament; lastRemoteEventAt marks a hot room).
+   * Ghost-authored interactions must go through noteGhostSighting
+   * instead; verb interactions count as activity only.
    */
-  noteInteraction(i: FluidInteraction): void {
+  noteInteraction(i: FluidInteraction, origin: "local" | "remote" = "remote"): void {
     if (isGhostPeerId(i.userId)) return;
     const now = i.timestamp || Date.now();
     this.lastActivityAt = now;
-    this.lastEventAt = now;
+    if (origin === "local") {
+      this.lastLocalEventAt = now;
+    } else {
+      this.lastRemoteEventAt = now;
+    }
     if (this.temperament === "sleepy") this.setTemperament("curious");
     if (i.verb) {
       this.publishPresence();
@@ -696,6 +735,9 @@ export class GhostPeer {
   /** Echo a softened, slightly offset copy of a finished stroke. */
   private scheduleMirror(points: ContactPoint[]): void {
     if (!this.canAct()) return;
+    // Crowd role samples its responses: playing along, not answering
+    // every stroke in the room. Summoned (session) ghosts answer all.
+    if (this.inCrowd() && this.rng() >= 0.6) return;
     const bias = this.currentBias();
     const delay =
       bias === "mirror" ? 500 + this.rng() * 300 : 700 + this.rng() * 450;
@@ -706,7 +748,7 @@ export class GhostPeer {
 
     sampled.forEach((p, idx) => {
       this.schedule(delay + idx * 50, () => {
-        if (!this.canAct() || this.userIsDrawing()) return;
+        if (!this.canAct() || this.localUserIsDrawing()) return;
         if (idx === 0) this.options.onSfx?.("mirror");
         this.emit({
           position: { x: clamp01(p.x + 0.055), y: clamp01(p.y - 0.035) },
@@ -721,6 +763,8 @@ export class GhostPeer {
   /** Answer a quick tap rhythm with a simple variation of it. */
   private scheduleResponse(taps: Tap[]): void {
     if (!this.canAct()) return;
+    // Crowd role samples its responses (see scheduleMirror).
+    if (this.inCrowd() && this.rng() >= 0.6) return;
     const bias = this.currentBias();
     const delay = 480 + this.rng() * 250;
     const extra =
@@ -742,7 +786,7 @@ export class GhostPeer {
 
     for (let k = 0; k < count; k++) {
       this.schedule(delay + k * interval, () => {
-        if (!this.canAct() || this.userIsDrawing()) return;
+        if (!this.canAct() || this.localUserIsDrawing()) return;
         this.emit({
           position: {
             x: clamp01(cx + (this.rng() - 0.5) * 0.07),
@@ -1061,15 +1105,23 @@ export class GhostPeer {
     const session = this.mode === "session";
 
     // Idle drift: gentle splats originating at the ghost's position.
-    // Solo: only while the user is around but quiet. Session: sparser
-    // ambience so the ghost reads as *there* without stealing the show.
-    const driftIdleOk = session
-      ? idleFor > 2_000
-      : idleFor > DRIFT_MIN_IDLE_MS && idleFor < SLEEP_AFTER_MS;
+    // Solo-alone: only while the user is around but quiet, and never
+    // once asleep (the original rule). Session and crowd are
+    // SCHEDULE-driven instead: the old session rule required the room
+    // to be idle for 2s, but every participant's interaction feeds
+    // lastActivityAt, so in a live room that was ~never true and the
+    // ghost never drifted — a core part of why it "died" in crowds.
+    // The pace is set by the per-role interval below (crowd sparsest)
+    // plus the emit budgets, not by room silence.
+    const crowd = this.inCrowd();
+    const driftIdleOk =
+      session || crowd
+        ? true
+        : idleFor > DRIFT_MIN_IDLE_MS && idleFor < SLEEP_AFTER_MS;
     if (driftIdleOk && now >= this.nextDriftAt) {
       const bias = this.currentBias();
-      const base = session ? 6_000 : 3_800;
-      const span = session ? 4_000 : 3_200;
+      const base = crowd ? CROWD_DRIFT_BASE_MS : session ? 6_000 : 3_800;
+      const span = crowd ? CROWD_DRIFT_SPAN_MS : session ? 4_000 : 3_200;
       let scale = bias === "drift" ? 0.6 : 1;
       if (this.temperament === "playful") scale *= 0.75;
       if (this.temperament === "sleepy") scale *= 1.5;
@@ -1100,7 +1152,7 @@ export class GhostPeer {
     const dy = this.wanderTarget.y - this.position.y;
     for (let k = 0; k < 3; k++) {
       this.schedule(k * 110, () => {
-        if (!this.canAct() || this.userIsDrawing()) return;
+        if (!this.canAct() || this.localUserIsDrawing()) return;
         this.emit({
           position: {
             x: clamp01(this.position.x + dx * 0.12 * k),
@@ -1133,7 +1185,9 @@ export class GhostPeer {
    * Emit one ghost interaction: rendered locally via injectLocal, and in
    * session mode also broadcast. Enforces the per-ghost emit budget so
    * ghost society can never flood human interaction; `essential`
-   * (hello/goodbye) bypasses the budget.
+   * (hello/goodbye) bypasses the budget. In the crowd role a tighter
+   * sub-budget applies on top: the ghost is a guest in a people's
+   * room, not a fourth participant.
    */
   private emit(
     payload: Omit<FluidInteraction, "userId" | "timestamp">,
@@ -1142,6 +1196,13 @@ export class GhostPeer {
     const now = Date.now();
     this.emitTimes = this.emitTimes.filter((t) => now - t < EMIT_WINDOW_MS);
     if (!essential && this.emitTimes.length >= EMIT_BUDGET) return;
+    if (!essential && this.inCrowd()) {
+      this.crowdEmitTimes = this.crowdEmitTimes.filter(
+        (t) => now - t < EMIT_WINDOW_MS
+      );
+      if (this.crowdEmitTimes.length >= CROWD_EMIT_BUDGET) return;
+      this.crowdEmitTimes.push(now);
+    }
     this.emitTimes.push(now);
 
     const full: FluidInteraction = {
@@ -1172,20 +1233,30 @@ export class GhostPeer {
   /** Fire-time gate for scheduled gestures. */
   private gateAllows(): boolean {
     if (this.mode === "session") return !this.dismissing;
-    if (!this.humansPresent) return true;
-    // Solo fade: in-flight gestures may finish within the grace window.
-    return this.fading && Date.now() <= this.fadeDeadline;
+    // Solo-alone: gestures fire freely. Crowd role: they also fire —
+    // the ghost stays in the room now; the crowd sub-budget and the
+    // response sampling are what keep it polite, not a closed gate.
+    // (The retired solo fade lived here: humans present used to mean
+    // every scheduled gesture died at fire time.)
+    return true;
   }
 
   private canAct(): boolean {
     if (!this.enabled || this.dismissing) return false;
     if (this.mode === "session") return true;
-    if (this.humansPresent) return false;
+    // Crowd role: present and playing along while humans are here.
+    if (this.humansPresent) return true;
     return Date.now() - this.lastActivityAt < SLEEP_AFTER_MS;
   }
 
-  private userIsDrawing(): boolean {
-    return Date.now() - this.lastEventAt < 250;
+  /**
+   * Courtesy gate: is the LOCAL user mid-stroke right now? Only the
+   * local hand counts — remote participants draw continuously in a
+   * live room, and the pre-crowd version of this gate (any hand, any
+   * origin) is what silenced the ghost in crowds.
+   */
+  private localUserIsDrawing(): boolean {
+    return Date.now() - this.lastLocalEventAt < 250;
   }
 
   private currentBias(): GhostMoodBias | null {
@@ -1199,7 +1270,11 @@ export class GhostPeer {
     if (!this.enabled) return "off";
     if (this.mode === "session") return "summoned";
     if (this.humansPresent) {
-      return this.fading && now <= this.fadeDeadline ? "present" : "away";
+      // Crowd role: here and playing along. It dozes only when the
+      // whole room has gone quiet — temperament follows the room-fed
+      // activity clock, so a live room keeps it awake. (This replaces
+      // the retired "away": humans present used to mean gone.)
+      return this.temperament === "sleepy" ? "sleeping" : "present";
     }
     if (now - this.lastActivityAt > SLEEP_AFTER_MS) return "sleeping";
     return "present";

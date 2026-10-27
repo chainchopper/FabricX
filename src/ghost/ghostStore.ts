@@ -29,6 +29,15 @@ export interface GhostPublicState {
   /** The user's manual on/off preference (persisted as fabric_ghost_v1). */
   enabled: boolean;
   /**
+   * The ACTIVE layer's own ghost feature toggle ("Ghost in this
+   * layer", THIS LAYER settings, stored per layer id under
+   * fabric_layer_settings_v1:<layerId>). Independent of the per-user
+   * preference above: the local ghost runs in a layer only when BOTH
+   * are on, and when this is off the indicator pill leaves the canvas
+   * cluster entirely — the feature simply isn't part of that layer.
+   */
+  layerEnabled: boolean;
+  /**
    * What the local ghost brain is doing right now:
    * - "present": here (solo), may drift / mirror / respond
    * - "sleeping": quiet after ~60s without user interaction
@@ -61,6 +70,7 @@ export const FABRIC_GHOST_SESSION_EVENT = "fabric:ghost-session";
 
 const state: GhostPublicState = {
   enabled: true,
+  layerEnabled: true,
   presence: "sleeping",
   sessionRole: "none",
   ghostName: null,

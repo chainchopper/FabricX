@@ -178,6 +178,14 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // through a fork. When summoned into a session, the same interactions
   // are ALSO broadcast under the ghost peer id so every participant
   // renders them through their own normal remote path.
+  // Per-layer ghost feature toggle ("Ghost in this layer", THIS LAYER
+  // settings): the value lives in the active layer's own config, which
+  // the settings mirror loads and persists per layer id
+  // (fabric_layer_settings_v1:<layerId>). Absent means on — the ghost
+  // is a default feature of a layer until that layer opts out.
+  const ghostLayerEnabled =
+    ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
+      ?.ghostEnabled as boolean | undefined) !== false;
   const ghostPeerIdRef = useRef("");
   ghostPeerIdRef.current = ghostPeerIdFor(userId);
   const broadcastGhost = useCallback(
@@ -192,6 +200,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     inject: injectRemoteInteraction,
     broadcast: broadcastGhost,
     humanPeers,
+    layerEnabled: ghostLayerEnabled,
     onSfx: (kind) => {
       // Own ghost: sounds are pitched from its signature hue.
       sfxRef.current.play(kind, ghostSelfHueRef.current);
@@ -281,7 +290,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     }
 
     const verb = getVerbById(i.verb);
-    if (!verb || !ghostRef.current.enabled) return;
+    // Muted when the user turned their ghost off (preference) or when
+    // this layer has the ghost feature off (per-layer toggle).
+    if (!verb || !ghostRef.current.enabled || !ghostLayerEnabled) return;
     if (typeof navigator !== "undefined" && navigator.vibrate) {
       navigator.vibrate(verb.vibration);
     }
