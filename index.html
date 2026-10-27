@@ -32,6 +32,21 @@
       }
       body { overflow: hidden; }
       canvas { touch-action: none; }
+      /* Hotfix 1.7: a long press in Fabric is a musical / drawing
+         gesture (hold a piano key, press the smoke) — never a text
+         gesture. Kill the iOS long-press selection callout and text
+         selection on the whole app surface, then opt real text
+         fields back in so typing/selecting in inputs still works. */
+      html, body, #root, #root * {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #root input, #root textarea, #root [contenteditable="true"] {
+        -webkit-touch-callout: default;
+        -webkit-user-select: text;
+        user-select: text;
+      }
     </style>
 
     <script>

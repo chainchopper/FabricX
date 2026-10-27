@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FluidInteraction } from "../types/fluid";
 import { useWebRTC } from "./useWebRTC";
+import { noteBus } from "../../shared/utils/noteBus";
 import { setRealtimeStatus } from "../../shared/utils/realtimeStatus";
 import {
   getHostIntent,
@@ -43,7 +44,14 @@ type TransportMsg =
   // to a peer-request, on edit, and on a slow heartbeat while peers
   // are present. Additive: older clients ignore unknown types.
   | { type: "peer-announce"; from: string; name: string; hue: number }
-  | { type: "peer-request"; from?: string };
+  | { type: "peer-request"; from?: string }
+  // Hotfix 1.7: discrete musical notes. Fluid interactions carry
+  // splats, not pitch — a peer's piano note arrived as colored
+  // streams but never SOUNDED on the receiving client. A note is
+  // two tiny messages total (on, then off), not a stream: MIDI-
+  // sized, as the medium deserves. Older clients ignore the types.
+  | { type: "note-on"; from: string; note: string; velocity: number }
+  | { type: "note-off"; from: string; note: string };
 
 /** How long a BroadcastChannel peer counts as present after last contact. */
 const BC_PEER_TTL_MS = 6000;
@@ -410,6 +418,27 @@ export function useFluidMultiUser(roomId: string) {
         // Everyone answers with their own card — cheap and complete.
         noteBcPeer(msg.from);
         announceIdentityRef.current();
+      } else if (msg.type === "note-on" || msg.type === "note-off") {
+        // Hotfix 1.7: a peer's piano note. Hand it to this client's
+        // note pipeline as a REMOTE bus event: useToneSynth sounds
+        // it through the shared synth (via useRemoteNotes), while
+        // useVirtualNotes ignores remote events — the note is heard
+        // here, never re-streamed into the fluid or re-broadcast.
+        // Hearing is NOT gated by session mode; only sending is
+        // (see sendNote) — a view-only guest still hears the host's
+        // piano, exactly as they see the host's splats.
+        if (typeof msg.from !== "string" || msg.from === userId) return;
+        if (typeof msg.note !== "string" || !msg.note) return;
+        noteBcPeer(msg.from);
+        if (msg.type === "note-on") {
+          const v =
+            typeof msg.velocity === "number"
+              ? Math.max(0.05, Math.min(1, msg.velocity))
+              : 0.8;
+          noteBus.emitRemoteNoteOn(msg.note, v);
+        } else {
+          noteBus.emitRemoteNoteOff(msg.note);
+        }
       } else if (msg.type === "fabric-ping") {
         noteBcPeer(msg.from);
         const pong: TransportMsg = { type: "fabric-pong", seq: msg.seq, t: msg.t, from: userId };
@@ -692,6 +721,27 @@ export function useFluidMultiUser(roomId: string) {
     });
   }, [roomId, userId, session, humanPeers, webrtc.connectionState, knownPeerIds]);
 
+  /**
+   * Hotfix 1.7: send a discrete note on/off to the room (the send
+   * half of the note pipeline — useMIDIFluid diffs its held-note set
+   * and calls this on transitions). Gated by the SAME session rule
+   * as interactions (sessionRef.canSend, from computeCanSend): a
+   * mirror/view guest or a control-mode non-driver never puts notes
+   * on the wire, exactly like their splats. Receiving is ungated —
+   * see the note-on/note-off branch in handleTransportMsg.
+   */
+  const sendNote = useCallback(
+    (note: string, velocity: number, phase: "on" | "off") => {
+      if (!sessionRef.current.canSend) return;
+      if (phase === "on") {
+        postRef.current({ type: "note-on", from: userId, note, velocity });
+      } else {
+        postRef.current({ type: "note-off", from: userId, note });
+      }
+    },
+    [userId]
+  );
+
   const sendInteraction = useCallback(
     (
       interaction: Omit<FluidInteraction, "userId" | "timestamp">,
@@ -752,6 +802,8 @@ export function useFluidMultiUser(roomId: string) {
     userId,
     remoteInteractions,
     sendInteraction,
+    /** Hotfix 1.7: discrete note send (session-gated like sendInteraction). */
+    sendNote,
     injectRemoteInteraction,
     humanPeers,
     /** Human userIds heard from in this room (Slice 5, pass-control). */

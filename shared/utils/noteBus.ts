@@ -25,6 +25,15 @@ export interface NoteEvent {
   note: string; // e.g. "C#4"
   velocity: number; // 0..1 (meaningful on note-on)
   t: number; // timestamp (ms)
+  /**
+   * Hotfix 1.7: true when the note originated on ANOTHER client and
+   * arrived over the room transport (see useFluidMultiUser). Remote
+   * notes are for the ears: useRemoteNotes folds only these, and
+   * useVirtualNotes ignores them — so a received note sounds on this
+   * client but is never re-streamed into the fluid or re-broadcast
+   * to the room (no echo, no amplification loop).
+   */
+  remote?: boolean;
 }
 
 type NoteListener = (e: NoteEvent) => void;
@@ -49,6 +58,15 @@ class NoteBus {
 
   emitNoteOff(note: string) {
     this.emit({ type: "off", note, velocity: 0, t: Date.now() });
+  }
+
+  /** A note heard from a peer (Hotfix 1.7) — sounds locally only. */
+  emitRemoteNoteOn(note: string, velocity = 0.8) {
+    this.emit({ type: "on", note, velocity, t: Date.now(), remote: true });
+  }
+
+  emitRemoteNoteOff(note: string) {
+    this.emit({ type: "off", note, velocity: 0, t: Date.now(), remote: true });
   }
 }
 

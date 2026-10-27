@@ -115,7 +115,14 @@ export default function PianoKeyboard() {
   if (Platform.OS !== "web") return null;
 
   return (
-    <View pointerEvents="box-none" style={{ width: 560, maxWidth: "100%", marginTop: spacing.sm }}>
+    <View
+      pointerEvents="box-none"
+      // touchAction none (web): holding or sliding across keys is a
+      // performance gesture — the browser must never reinterpret it
+      // as scroll/zoom (Hotfix 1.7, alongside the index.html callout
+      // rules that stop the long-press selection popover).
+      style={{ width: 560, maxWidth: "100%", marginTop: spacing.sm, touchAction: "none" }}
+    >
       <Text
         style={{
           color: colors.textDim,

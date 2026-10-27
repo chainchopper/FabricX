@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as Tone from "tone";
 import { useMIDI, type NoteName } from "./useMIDI";
-import { useVirtualNotes } from "./useVirtualNotes";
+import { useVirtualNotes, useRemoteNotes } from "./useVirtualNotes";
 import { usePreferences } from "../../app/context/PreferencesContext";
 import { useExperience } from "../contexts/ExperienceContext";
 
@@ -19,9 +19,25 @@ export function useToneSynth(enabled: boolean) {
   // sound through this one synth — previously they were inaudible
   // here: PianoScene ran a private synth and nothing else heard them.
   const virtual = useVirtualNotes();
+  // Hotfix 1.7: notes played by PEERS arrive over the transport and
+  // land on the noteBus as remote events (useFluidMultiUser ->
+  // useRemoteNotes). They merge into the sounding set here — the
+  // shared synth is the one instrument every end hears — so a piano
+  // note is audible on the player's device AND on every other
+  // browser in the room. Set semantics keep a note attacked once
+  // even when more than one source holds it, and it releases only
+  // when every source has let go.
+  const remote = useRemoteNotes();
   const activeNotes = useMemo(
-    () => Array.from(new Set<NoteName>([...hardwareNotes, ...(virtual.activeNotes as NoteName[])])),
-    [hardwareNotes, virtual.activeNotes]
+    () =>
+      Array.from(
+        new Set<NoteName>([
+          ...hardwareNotes,
+          ...(virtual.activeNotes as NoteName[]),
+          ...(remote.activeNotes as NoteName[]),
+        ])
+      ),
+    [hardwareNotes, virtual.activeNotes, remote.activeNotes]
   );
   const { audioEnabled } = usePreferences();
   const { state } = useExperience();
