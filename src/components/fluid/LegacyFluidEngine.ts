@@ -154,10 +154,33 @@ export class LegacyFluidEngine {
   private splatStack: number[] = [];
   private lastUpdateTime = Date.now();
 
+  // Hotfix 1.5 telemetry: counters read back through getStats() by the
+  // ?diag=1 on-canvas panel in LegacyFluid, so the owner and the agent
+  // can share ground truth ("did the canvas even SEE my finger? did a
+  // splat land?") from a single screenshot instead of guessing.
+  private statsInputEvents = 0;
+  private statsPointerSplats = 0;
+  private statsApiSplats = 0;
+  private statsLastError: string | null = null;
+  private statsFps = 0;
+  private frameEmaMs = 16.7;
+  private formatLabel = "unknown";
+
+  // Hotfix 1.5 perf: sustained-slow-frame auto-degrade (see update()).
+  // The drawing buffer used to be sized at the raw devicePixelRatio —
+  // 3x on current iPhones (~3M pixels through the composite pass) —
+  // while the frame watchdog did not exist at all. When frames run
+  // slow for a sustained stretch the engine now steps DOWN a quality
+  // ladder (sunrays, then bloom + a DPR cap) instead of crawling.
+  // It never steps back up mid-session.
+  private dprCap = Number.POSITIVE_INFINITY;
+  private slowFrameStreak = 0;
+  private degradeRung = 0;
+
   constructor(canvas: HTMLCanvasElement, container: HTMLDivElement | null) {
     this.canvas = canvas;
     this.container = container;
-    this.dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    this.dpr = this.effectiveDpr();
     this.initGL();
     this.initPrograms();
     this.updateKeywords();
@@ -174,7 +197,36 @@ export class LegacyFluidEngine {
   // PUBLIC: programmatic splats using normalized coords
   public splatAt(xNorm: number, yNorm: number, dx = 0, dy = 0, color?: { r: number; g: number; b: number }) {
     const col = color ?? { r: 1, g: 1, b: 1 };
+    this.statsApiSplats += 1;
     this.splat(xNorm, yNorm, dx, dy, col);
+  }
+
+  private effectiveDpr() {
+    const raw = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    return Math.min(raw, this.dprCap);
+  }
+
+  /**
+   * Hotfix 1.5 telemetry snapshot for the diagnostics panel.
+   * inputEvents counts DOM pointer/touch events the canvas element
+   * itself received; pointerSplats counts local drags actually applied
+   * to the simulation; apiSplats counts programmatic splats (remote
+   * peers, the ghost, verbs, composed patterns). If inputEvents stays
+   * at 0 while the owner swirls, the touch never reached the canvas —
+   * the argument is over, and the overlay stack is where to look.
+   */
+  public getStats() {
+    return {
+      format: this.formatLabel,
+      webgl2: this.isWebGL2,
+      fps: this.statsFps,
+      inputEvents: this.statsInputEvents,
+      pointerSplats: this.statsPointerSplats,
+      apiSplats: this.statsApiSplats,
+      lastError: this.statsLastError,
+      degradeRung: this.degradeRung,
+      dpr: this.effectiveDpr(),
+    };
   }
 
   /**
@@ -308,6 +360,19 @@ export class LegacyFluidEngine {
 
     this.ext = { formatRGBA, formatRG, formatR, halfFloatTexType: effectiveTexType, supportLinearFiltering, colorBufferFloat, colorBufferHalfFloat };
 
+    // Hotfix 1.5: name the path this device actually got, for the
+    // diagnostics panel. Note the filtering check above probes
+    // OES_texture_float_linear (32F); most mobile GPUs lack it even
+    // though their 16F targets filter fine, so "nearest" here is
+    // common on phones and also drives the BLOOM/SUNRAYS/SHADING
+    // shutdown further up — the panel makes that visible at last.
+    this.formatLabel =
+      `${this.isWebGL2 ? "WebGL2" : "WebGL1"} · ` +
+      (effectiveTexType === (gl as WebGLRenderingContext).UNSIGNED_BYTE
+        ? "RGBA8 byte fallback"
+        : "RGBA16F half-float") +
+      ` · ${supportLinearFiltering ? "linear filtering" : "nearest (no float-linear)"}`;
+
     bindFullScreenQuad(gl);
   }
 
@@ -418,8 +483,9 @@ export class LegacyFluidEngine {
   }
 
   private resizeCanvas() {
-    const width = Math.floor((this.canvas.clientWidth || window.innerWidth) * this.dpr);
-    const height = Math.floor((this.canvas.clientHeight || window.innerHeight) * this.dpr);
+    const dpr = this.effectiveDpr();
+    const width = Math.floor((this.canvas.clientWidth || window.innerWidth) * dpr);
+    const height = Math.floor((this.canvas.clientHeight || window.innerHeight) * dpr);
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
@@ -436,13 +502,45 @@ export class LegacyFluidEngine {
     }
   };
 
+  // Hotfix 1.5 perf watchdog: ~90 consecutive frames slower than
+  // 26ms (i.e. sustained sub-38fps) step the quality ladder down one
+  // rung — rung 1 drops SUNRAYS, rung 2 drops BLOOM and caps the
+  // drawing-buffer DPR at 1.5. The simulation's own dt stays clamped
+  // (below), which at low fps makes the fluid advance at less than
+  // real-time speed — the "slow, no hardware acceleration" feel —
+  // so the honest fix is making frames cheaper, not unclamping dt.
+  private perfWatchdog(rawDtMs: number) {
+    if (rawDtMs > 0) {
+      this.frameEmaMs = this.frameEmaMs * 0.95 + rawDtMs * 0.05;
+      this.statsFps = Math.round(1000 / Math.max(1, this.frameEmaMs));
+    }
+    if (this.degradeRung >= 2) return;
+    if (rawDtMs > 26) this.slowFrameStreak += 1;
+    else this.slowFrameStreak = 0;
+    if (this.slowFrameStreak < 90) return;
+    this.slowFrameStreak = 0;
+    this.degradeRung += 1;
+    if (this.degradeRung === 1) {
+      this.config.SUNRAYS = false;
+    } else {
+      this.config.BLOOM = false;
+      this.dprCap = 1.5;
+    }
+    this.updateKeywords();
+    // The DPR cap changes resizeCanvas()'s target size, so the next
+    // update() rebuilds the framebuffers at the cheaper size on its
+    // own; the feature flags gate their render passes immediately.
+  }
+
   private updateErrorCount = 0;
   private update = () => {
     try {
       const now = Date.now();
-      let dt = (now - this.lastUpdateTime) / 1000;
+      const rawDtMs = now - this.lastUpdateTime;
+      let dt = rawDtMs / 1000;
       dt = Math.min(dt, 0.016666);
       this.lastUpdateTime = now;
+      this.perfWatchdog(rawDtMs);
 
       if (this.resizeCanvas()) this.initFramebuffers();
       this.applyInputs();
@@ -458,6 +556,7 @@ export class LegacyFluidEngine {
       // loop and surface the failure via onError instead of spinning
       // a dead canvas at 60fps.
       this.updateErrorCount += 1;
+      this.statsLastError = err instanceof Error ? err.message : String(err);
       if (this.updateErrorCount === 1) {
         console.error("[LegacyFluidEngine] update() failed; retrying — will degrade if it persists:", err);
       }
@@ -479,6 +578,7 @@ export class LegacyFluidEngine {
         p.moved = false;
         const dx = p.deltaX * this.config.SPLAT_FORCE;
         const dy = p.deltaY * this.config.SPLAT_FORCE;
+        this.statsPointerSplats += 1;
         this.splat(p.texcoordX, p.texcoordY, dx, dy, p.color);
         this.onLocalInteraction?.({
           position: { x: p.texcoordX, y: p.texcoordY },
@@ -714,14 +814,34 @@ export class LegacyFluidEngine {
 
   private bindEvents() {
     const canvas = this.canvas;
-    const dpr = this.dpr;
 
-    const updatePointerDownData = (pointer: any, id: number, posX: number, posY: number) => {
+    // Hotfix 1.5: pointer coordinates are normalized from the
+    // canvas's own bounding rect in CSS pixels, so the device pixel
+    // ratio never enters the math at all. The old touch path used
+    // pageX/pageY — DOCUMENT coordinates, scroll offset included —
+    // divided by the device-pixel buffer size, and the mouse path
+    // used offsetX×dpr against the same buffer; both only agree with
+    // reality while the canvas sits exactly at the document origin,
+    // unscrolled, at the DPR the constructor happened to capture.
+    // Any scroll (mobile browser chrome collapsing, a bounced page)
+    // shifted every touch splat by the scroll amount. The rect is
+    // ground truth on every event. (This matches the reference
+    // implementation this engine derives from, which the Fabric port
+    // had drifted away from.)
+    const rectNorm = (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        nx: rect.width > 0 ? (clientX - rect.left) / rect.width : 0,
+        ny: rect.height > 0 ? (clientY - rect.top) / rect.height : 0,
+      };
+    };
+
+    const updatePointerDownData = (pointer: any, id: number, nx: number, ny: number) => {
       pointer.id = id;
       pointer.down = true;
       pointer.moved = false;
-      pointer.texcoordX = posX / canvas.width;
-      pointer.texcoordY = 1.0 - posY / canvas.height;
+      pointer.texcoordX = nx;
+      pointer.texcoordY = 1.0 - ny;
       pointer.prevTexcoordX = pointer.texcoordX;
       pointer.prevTexcoordY = pointer.texcoordY;
       pointer.deltaX = 0;
@@ -730,33 +850,33 @@ export class LegacyFluidEngine {
       pointer.color = { r: c.r * 0.15, g: c.g * 0.15, b: c.b * 0.15 };
     };
 
-    const updatePointerMoveData = (pointer: any, posX: number, posY: number) => {
+    const updatePointerMoveData = (pointer: any, nx: number, ny: number) => {
       pointer.prevTexcoordX = pointer.texcoordX;
       pointer.prevTexcoordY = pointer.texcoordY;
-      pointer.texcoordX = posX / canvas.width;
-      pointer.texcoordY = 1.0 - posY / canvas.height;
+      pointer.texcoordX = nx;
+      pointer.texcoordY = 1.0 - ny;
       pointer.deltaX = this.correctDeltaX(pointer.texcoordX - pointer.prevTexcoordX);
       pointer.deltaY = this.correctDeltaY(pointer.texcoordY - pointer.prevTexcoordY);
       pointer.moved = Math.abs(pointer.deltaX) > 0 || Math.abs(pointer.deltaY) > 0;
     };
 
     this.canvas.addEventListener("mousedown", (e) => {
-      const posX = e.offsetX * dpr;
-      const posY = e.offsetY * dpr;
+      this.statsInputEvents += 1;
+      const { nx, ny } = rectNorm(e.clientX, e.clientY);
       let pointer = this.pointers.find((p) => p.id === -1);
       if (!pointer) {
         pointer = { id: -1, texcoordX: 0, texcoordY: 0, prevTexcoordX: 0, prevTexcoordY: 0, deltaX: 0, deltaY: 0, down: false, moved: false, color: { r: 1, g: 0, b: 0 } };
         this.pointers.push(pointer);
       }
-      updatePointerDownData(pointer, -1, posX, posY);
+      updatePointerDownData(pointer, -1, nx, ny);
     });
 
     this.canvas.addEventListener("mousemove", (e) => {
       const pointer = this.pointers[0];
       if (!pointer.down) return;
-      const posX = e.offsetX * dpr;
-      const posY = e.offsetY * dpr;
-      updatePointerMoveData(pointer, posX, posY);
+      this.statsInputEvents += 1;
+      const { nx, ny } = rectNorm(e.clientX, e.clientY);
+      updatePointerMoveData(pointer, nx, ny);
     });
 
     window.addEventListener("mouseup", () => {
@@ -765,37 +885,42 @@ export class LegacyFluidEngine {
 
     this.canvas.addEventListener("touchstart", (e) => {
       e.preventDefault();
+      this.statsInputEvents += 1;
       const touches = e.targetTouches;
       while (touches.length >= this.pointers.length) {
         this.pointers.push({ id: -2, texcoordX: 0, texcoordY: 0, prevTexcoordX: 0, prevTexcoordY: 0, deltaX: 0, deltaY: 0, down: false, moved: false, color: { r: 1, g: 1, b: 1 } });
       }
       for (let i = 0; i < touches.length; i++) {
-        const posX = touches[i].pageX * this.dpr;
-        const posY = touches[i].pageY * this.dpr;
-        updatePointerDownData(this.pointers[i + 1], touches[i].identifier, posX, posY);
+        const { nx, ny } = rectNorm(touches[i].clientX, touches[i].clientY);
+        updatePointerDownData(this.pointers[i + 1], touches[i].identifier, nx, ny);
       }
     }, { passive: false });
 
     this.canvas.addEventListener("touchmove", (e) => {
       e.preventDefault();
+      this.statsInputEvents += 1;
       const touches = e.targetTouches;
       for (let i = 0; i < touches.length; i++) {
         const pointer = this.pointers[i + 1];
         if (!pointer.down) continue;
-        const posX = touches[i].pageX * this.dpr;
-        const posY = touches[i].pageY * this.dpr;
-        updatePointerMoveData(pointer, posX, posY);
+        const { nx, ny } = rectNorm(touches[i].clientX, touches[i].clientY);
+        updatePointerMoveData(pointer, nx, ny);
       }
     }, { passive: false });
 
-    window.addEventListener("touchend", (e) => {
+    const releaseTouches = (e: TouchEvent) => {
       const touches = e.changedTouches;
       for (let i = 0; i < touches.length; i++) {
         const pointer = this.pointers.find((p) => p.id === touches[i].identifier);
         if (!pointer) continue;
         pointer.down = false;
       }
-    });
+    };
+    window.addEventListener("touchend", releaseTouches);
+    // Hotfix 1.5: touchcancel (system gesture, browser scroll
+    // takeover, interruption) used to leave pointers stuck "down"
+    // forever — release them exactly like touchend.
+    window.addEventListener("touchcancel", releaseTouches);
 
     window.addEventListener("keydown", (e) => {
       if (e.code === "KeyP") this.config.PAUSED = !this.config.PAUSED;

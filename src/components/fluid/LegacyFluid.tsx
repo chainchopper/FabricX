@@ -37,6 +37,31 @@ interface LegacyFluidProps {
   onReady?: () => void;
 }
 
+type EngineStats = ReturnType<LegacyFluidEngine["getStats"]>;
+
+/**
+ * Hotfix 1.5 diagnostics gate — same convention the modern UI pass
+ * uses for its FPS meter: ?diag=1 in the URL, or the
+ * fabric_diagnostics_v1 localStorage flag. The panel below is the
+ * shared ground truth for canvas debugging: one screenshot shows
+ * the engine's format, its own measured FPS, how many input events
+ * the canvas element actually received, how many local vs
+ * remote/ghost splats were applied, and the last engine error.
+ * It renders pointerEvents:"none" — after this project's history,
+ * a debug layer that could eat a touch is not a debug layer.
+ */
+function diagEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    if (new URLSearchParams(window.location.search).get("diag") === "1") {
+      return true;
+    }
+    return window.localStorage.getItem("fabric_diagnostics_v1") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // Hotfix 1.3: engine failures used to be swallowed by a console.warn —
   // the shell loaded, the canvas stayed blank, and nobody was told.
@@ -45,6 +70,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // as fabric:background-ready).
   const [engineError, setEngineError] = useState<string | null>(null);
   const [engineErrorDismissed, setEngineErrorDismissed] = useState(false);
+  // Hotfix 1.5: diagnostics panel state (null unless diag mode is on).
+  const [diagStats, setDiagStats] = useState<EngineStats | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -242,6 +269,18 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
   }, []);
 
+  // Hotfix 1.5: poll the engine's telemetry while diagnostics mode
+  // is on (see diagEnabled above). Zero cost when off — the effect
+  // returns before creating the interval.
+  useEffect(() => {
+    if (!diagEnabled()) return;
+    const id = window.setInterval(() => {
+      const engine = engineRef.current;
+      if (engine) setDiagStats(engine.getStats());
+    }, 500);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Outgoing sensory verbs: the VerbBar dispatches FABRIC_VERB_EVENT.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -392,6 +431,36 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           touchAction: "none",
         }}
       />
+      {/* Hotfix 1.5: diagnostics telemetry panel (diag mode only).
+          pointerEvents none by design — it observes the input path,
+          it must never join it. */}
+      {diagStats ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 12,
+            bottom: 12,
+            zIndex: 6,
+            pointerEvents: "none",
+            background: "rgba(2,8,23,0.88)",
+            border: "1px solid rgba(34,211,238,0.45)",
+            borderRadius: 10,
+            padding: "8px 10px",
+            color: "#e5e7eb",
+            fontSize: 11,
+            lineHeight: 1.55,
+            fontFamily: "monospace",
+            whiteSpace: "pre",
+          }}
+        >
+          {`FABRIC ENGINE · diag
+format  ${diagStats.format}
+fps     ${diagStats.fps} (engine loop) · dpr ${diagStats.dpr} · rung ${diagStats.degradeRung}
+input   ${diagStats.inputEvents} events → ${diagStats.pointerSplats} local splats
+api     ${diagStats.apiSplats} remote/ghost splats
+error   ${diagStats.lastError ?? "—"}`}
+        </div>
+      ) : null}
       {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled
           to match the HUD (ExperienceHUD: rgba(2,8,23) panel, cyan
           border, #e5e7eb text). Only ever renders after a real engine
