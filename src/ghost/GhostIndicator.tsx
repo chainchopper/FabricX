@@ -12,12 +12,17 @@
  * owns the brain. The ghost is always labeled as what it is — an AI
  * agent peer — and never appears in any people/peer list.
  *
+ * Slice 3: presentation only — drawn ghost icon tinted with the ghost's
+ * own signature hue (violet fallback), token surfaces, >= 44px targets.
+ * All state, events and copy semantics are unchanged from Slice 2.
+ *
  * Powered by Nirvana
  */
 
 import React, { useEffect, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { subscribeRealtimeStatus } from "../../shared/utils/realtimeStatus";
+import { getJSON } from "../../app/utils/storage";
 import {
   FABRIC_GHOST_SESSION_EVENT,
   FABRIC_GHOST_TOGGLE_EVENT,
@@ -26,19 +31,29 @@ import {
   type GhostPublicState,
 } from "./ghostStore";
 import { MAX_GHOSTS_PER_ROOM } from "./GhostPeer";
+import Icon from "../components/ui/Icon";
+import { colors, hit, radius, spacing, type } from "../theme/tokens";
 
 const VISITING_FRESH_MS = 15_000;
 
 const pillStyle = (pressed: boolean) => ({
-  backgroundColor: pressed
-    ? "rgba(167,139,250,0.35)"
-    : "rgba(167,139,250,0.14)",
-  borderColor: "rgba(167,139,250,0.5)",
+  flexDirection: "row" as const,
+  alignItems: "center" as const,
+  gap: spacing.sm,
+  minHeight: hit,
+  backgroundColor: pressed ? "rgba(167,139,250,0.30)" : colors.ghostDim,
+  borderColor: colors.ghostLine,
   borderWidth: 1,
-  borderRadius: 999,
-  paddingVertical: 4,
-  paddingHorizontal: 10,
+  borderRadius: radius.pill,
+  paddingVertical: spacing.sm,
+  paddingHorizontal: spacing.md,
 });
+
+const labelStyle = {
+  color: colors.text,
+  fontSize: type.body,
+  fontWeight: type.semibold,
+} as const;
 
 export default function GhostIndicator() {
   const [ghost, setGhost] = useState<GhostPublicState>(() =>
@@ -46,6 +61,7 @@ export default function GhostIndicator() {
   );
   const [peers, setPeers] = useState(0);
   const [, setTick] = useState(0);
+  const [hue, setHue] = useState<number | null>(null);
 
   useEffect(() => subscribeGhostState(setGhost), []);
   useEffect(
@@ -57,8 +73,31 @@ export default function GhostIndicator() {
     const id = setInterval(() => setTick((t) => t + 1), 5_000);
     return () => clearInterval(id);
   }, []);
+  // Best-effort read of this ghost's signature hue for its icon tint.
+  // Identity loads async (fabric_ghost_v1), so re-check when the name
+  // lands; any failure keeps the established ghost violet.
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const pref = await getJSON<{ identity?: { hue?: unknown } } | null>(
+          "fabric_ghost_v1",
+          null
+        );
+        const h = pref?.identity?.hue;
+        if (live && typeof h === "number" && Number.isFinite(h)) setHue(h);
+      } catch {
+        // storage unavailable — fallback tint stays
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [ghost.ghostName]);
 
   if (Platform.OS !== "web") return null;
+
+  const tint = hue !== null ? `hsl(${hue}, 85%, 72%)` : colors.ghost;
 
   const dispatch = (type: string, detail: unknown) => {
     if (typeof window !== "undefined") {
@@ -75,18 +114,18 @@ export default function GhostIndicator() {
   let label: string;
   if (!ghost.enabled) {
     label = visiting
-      ? "👻 Ghost visiting · muted for you"
-      : `👻 ${name} · off`;
+      ? "Ghost visiting · muted for you"
+      : `${name} · off`;
   } else if (ghost.sessionRole === "host") {
-    label = `👻 ${name} · summoned${ghost.temperament ? ` · ${ghost.temperament}` : ""}`;
+    label = `${name} · summoned${ghost.temperament ? ` · ${ghost.temperament}` : ""}`;
   } else if (visiting) {
-    label = "👻 A ghost is visiting";
+    label = "A ghost is visiting";
   } else if (ghost.presence === "sleeping") {
-    label = `👻 ${name} · asleep`;
+    label = `${name} · asleep`;
   } else if (ghost.presence === "away") {
-    label = `👻 ${name} · away`;
+    label = `${name} · away`;
   } else {
-    label = `👻 ${name} · ${ghost.temperament ?? "here"}`;
+    label = `${name} · ${ghost.temperament ?? "here"}`;
   }
 
   // Room cap: my ghost would be one more on top of the sensed others.
@@ -98,7 +137,7 @@ export default function GhostIndicator() {
   return (
     <View
       pointerEvents="auto"
-      style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}
+      style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}
     >
       <Pressable
         onPress={() =>
@@ -112,9 +151,8 @@ export default function GhostIndicator() {
         }
         style={({ pressed }) => pillStyle(pressed)}
       >
-        <Text style={{ color: "#e5e7eb", fontSize: 12, fontWeight: "700" }}>
-          {label}
-        </Text>
+        <Icon name="ghost" size={20} color={tint} />
+        <Text style={labelStyle}>{label}</Text>
       </Pressable>
 
       {showSummon && !roomFull ? (
@@ -124,19 +162,17 @@ export default function GhostIndicator() {
           accessibilityLabel={`Summon your ghost ${name} into the session`}
           style={({ pressed }) => pillStyle(pressed)}
         >
-          <Text style={{ color: "#e5e7eb", fontSize: 12, fontWeight: "700" }}>
-            Summon {name}
-          </Text>
+          <Text style={labelStyle}>Summon {name}</Text>
         </Pressable>
       ) : null}
 
       {showSummon && roomFull ? (
         <Text
           style={{
-            color: "#9ca3af",
-            fontSize: 11,
+            color: colors.textDim,
+            fontSize: type.caption,
             alignSelf: "center",
-            paddingHorizontal: 4,
+            paddingHorizontal: spacing.xs,
           }}
         >
           Too many ghosts ({MAX_GHOSTS_PER_ROOM} max)
@@ -150,9 +186,7 @@ export default function GhostIndicator() {
           accessibilityLabel={`Dismiss your ghost ${name}`}
           style={({ pressed }) => pillStyle(pressed)}
         >
-          <Text style={{ color: "#e5e7eb", fontSize: 12, fontWeight: "700" }}>
-            Dismiss {name}
-          </Text>
+          <Text style={labelStyle}>Dismiss {name}</Text>
         </Pressable>
       ) : null}
     </View>
