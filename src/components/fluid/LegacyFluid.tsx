@@ -12,11 +12,18 @@ import {
   FABRIC_COMPOSE_EVENT,
   FABRIC_COMPOSE_STATE_EVENT,
   FABRIC_COMPOSE_STOP_EVENT,
+  FABRIC_PLAY_PATTERN_EVENT,
   composePattern,
   getHapticPattern,
   hueToRgb,
+  type Pattern,
   type PatternStep,
 } from "../../ai/PatternComposer";
+import {
+  getSessionPublicState,
+  subscribeSessionState,
+  type SessionPublicState,
+} from "../../session/sessionStore";
 import { patternPlayer } from "../../ai/PatternPlayer";
 import { useAudioCues } from "../../../app/hooks/useAudioCues";
 import type { FluidInteraction } from "../../types/fluid";
@@ -119,6 +126,24 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const seenRef = useRef<Set<string>>(new Set());
+
+  // ---- Share & Session (Slice 5) ------------------------------------
+  // The session store is published by useFluidMultiUser (mode, host,
+  // driver, and this client's enforcement results). Here it drives
+  // two things: the engine's local-input switch (a view-only guest's
+  // canvas is a pure audience surface) and the verb gate below.
+  // Broadcast enforcement itself lives in the hook's sendInteraction
+  // — every send path (engine input, verbs, patterns, the ghost)
+  // funnels through it, so nothing here can leak a gated splat.
+  const sessionRef = useRef<SessionPublicState>(getSessionPublicState());
+  useEffect(() => {
+    return subscribeSessionState((s) => {
+      sessionRef.current = s;
+      if (engineRef.current) {
+        engineRef.current.localInputEnabled = s.inputEnabled;
+      }
+    });
+  }, []);
 
   // ---- Ghost (Slice 2) -------------------------------------------------
   // The ghost is a local agent peer with its own peer id
@@ -268,6 +293,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       return;
     }
     engineRef.current = engine;
+    // Slice 5: honor the current session input gate from birth (a
+    // view-only guest who reloads mid-session starts disabled).
+    engine.localInputEnabled = sessionRef.current.inputEnabled;
     engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       const full = sendRef.current(interaction);
@@ -304,6 +332,12 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onVerb = (ev: Event) => {
+      // Slice 5: a view-only guest's verbs are disabled outright —
+      // no send (the hook would gate it anyway) and no local splat:
+      // an audience member's tap must not paint even their own
+      // canvas with a verb burst. Mirror guests fall through: their
+      // verb renders locally and the send gate keeps it home.
+      if (!sessionRef.current.inputEnabled) return;
       const verb = getVerbById((ev as CustomEvent<string>).detail);
       if (!verb) return;
       sendRef.current(verbInteraction(verb));
@@ -385,12 +419,24 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         }
       })();
     };
+    // Slice 5 "Share live": play an already-composed Pattern into
+    // the room. Same dispatchStep as a fresh composition, so verb /
+    // splat steps broadcast through sendInteraction — under session
+    // enforcement, the host's shared pattern reaches every guest,
+    // while a gated guest's replay stays on their own canvas.
+    const onPlayPattern = (ev: Event) => {
+      const p = (ev as CustomEvent<Pattern>).detail;
+      if (!p || typeof p.name !== "string" || !Array.isArray(p.steps)) return;
+      patternPlayer.play(p, dispatchStep);
+    };
     const onStop = () => patternPlayer.stop();
     window.addEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
     window.addEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
+    window.addEventListener(FABRIC_PLAY_PATTERN_EVENT, onPlayPattern as EventListener);
     return () => {
       window.removeEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
       window.removeEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
+      window.removeEventListener(FABRIC_PLAY_PATTERN_EVENT, onPlayPattern as EventListener);
       patternPlayer.stop();
       patternPlayer.setStateListener(null);
     };

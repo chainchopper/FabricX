@@ -33,6 +33,17 @@ export class PatternPlayer {
     return this.playingName !== null;
   }
 
+  /**
+   * The most recent pattern handed to play() (Slice 5): lets "Share
+   * live" replay a pattern composed earlier this session into a
+   * shared room without re-composing it.
+   */
+  private lastPlayed: Pattern | null = null;
+
+  get lastPattern(): Pattern | null {
+    return this.lastPlayed;
+  }
+
   get currentName(): string | null {
     return this.playingName;
   }
@@ -44,6 +55,7 @@ export class PatternPlayer {
    */
   play(pattern: Pattern, dispatch: PatternDispatch): void {
     this.stop();
+    this.lastPlayed = pattern;
     this.playingName = pattern.name;
     this.listener?.(pattern.name);
     for (const step of pattern.steps) {

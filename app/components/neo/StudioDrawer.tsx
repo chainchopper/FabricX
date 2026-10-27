@@ -4,6 +4,7 @@ import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { useExperience } from "../../context/ExperienceContext";
+import { FABRIC_SHARE_LIVE_EVENT } from "../../../src/session/sessionStore";
 
 interface Timeline {
   id: string;
@@ -26,7 +27,7 @@ interface Clip {
 }
 
 export default function StudioDrawer() {
-  const { back, getAnim } = useNewDrawers();
+  const { back, closeAll, getAnim } = useNewDrawers();
   const { tx, width } = getAnim("studio");
   const haptics = useHaptics();
   const audio = useAudioCues();
@@ -245,9 +246,8 @@ export default function StudioDrawer() {
               >
                 <Text style={{ color: "white", fontWeight: "700", marginBottom: 8 }}>Saved Compositions</Text>
                 {mockCompositions.map((comp) => (
-                  <Pressable
+                  <View
                     key={comp.id}
-                    onPress={() => { haptics.impactLight(); audio.click(); }}
                     style={{
                       padding: 10,
                       borderRadius: 8,
@@ -255,13 +255,54 @@ export default function StudioDrawer() {
                       borderWidth: 1,
                       borderColor: "rgba(148,163,184,0.2)",
                       marginBottom: 8,
+                      flexDirection: "row",
+                      alignItems: "center",
                     }}
                   >
-                    <Text style={{ color: "white", fontWeight: "600" }}>{comp.name}</Text>
-                    <Text style={{ color: "#9ca3af", fontSize: 11 }}>
-                      {comp.duration}s • {comp.tracks} tracks
-                    </Text>
-                  </Pressable>
+                    <Pressable
+                      onPress={() => { haptics.impactLight(); audio.click(); }}
+                      style={{ flex: 1 }}
+                    >
+                      <Text style={{ color: "white", fontWeight: "600" }}>{comp.name}</Text>
+                      <Text style={{ color: "#9ca3af", fontSize: 11 }}>
+                        {comp.duration}s • {comp.tracks} tracks
+                      </Text>
+                    </Pressable>
+                    {/* Share live (Slice 5): hands off to the Fabric
+                        menu, which hosts a session (minting a room
+                        if needed) and surfaces the invite link. The
+                        saved list is still demo data — the menu's
+                        notice states plainly that playing a saved
+                        composition arrives with Studio persistence;
+                        the room, mode and link are fully live. */}
+                    <Pressable
+                      pointerEvents="auto"
+                      onPress={() => {
+                        haptics.impactMedium();
+                        audio.success();
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(
+                            new CustomEvent(FABRIC_SHARE_LIVE_EVENT, {
+                              detail: { name: comp.name },
+                            })
+                          );
+                        }
+                        closeAll();
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: "rgba(34,211,238,0.6)",
+                        backgroundColor: "rgba(34,211,238,0.12)",
+                      }}
+                    >
+                      <Text style={{ color: "#22d3ee", fontWeight: "700", fontSize: 12 }}>
+                        Share live
+                      </Text>
+                    </Pressable>
+                  </View>
                 ))}
               </View>
             </View>

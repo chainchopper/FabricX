@@ -23,7 +23,7 @@
  * Powered by Nirvana
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Platform,
@@ -39,11 +39,31 @@ import { useNewDrawers } from "../neo/NewDrawersContext";
 import { useExperience } from "../../context/ExperienceContext";
 import { usePreferences } from "../../context/PreferencesContext";
 import { getJSON } from "../../utils/storage";
+import { buildInviteUrl } from "../../utils/invite";
+import * as Clipboard from "expo-clipboard";
 import {
   getGhostPublicState,
   subscribeGhostState,
   type GhostPublicState,
 } from "../../../src/ghost/ghostStore";
+import {
+  FABRIC_SHARE_LIVE_EVENT,
+  SESSION_MODES,
+  SESSION_MODE_BLURB,
+  SESSION_MODE_LABEL,
+  getSessionPublicState,
+  mintRoomId,
+  parseInviteHint,
+  requestHostSession,
+  requestPassControl,
+  requestStopHosting,
+  shortPeerId,
+  subscribeSessionState,
+  type SessionMode,
+  type SessionPublicState,
+} from "../../../src/session/sessionStore";
+import { patternPlayer } from "../../../src/ai/PatternPlayer";
+import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
 import BackgroundControls from "../controls/BackgroundControls";
 import FluidQualityControls from "../controls/FluidQualityControls";
 import ParticleDensityControls from "../controls/ParticleDensityControls";
@@ -154,7 +174,7 @@ export default function FabricMenu() {
   const { menuOpen, setMenuOpen, setHoldVisible, voiceOpen, setVoiceOpen, noteActivity } =
     useFabricChrome();
   const drawers = useNewDrawers();
-  const { state, switchExperience } = useExperience();
+  const { state, switchExperience, updateConfig } = useExperience();
   const prefs = usePreferences();
 
   const [ghost, setGhost] = useState<GhostPublicState>(() => getGhostPublicState());
@@ -162,6 +182,24 @@ export default function FabricMenu() {
   const [showDiag, setShowDiag] = useState(false);
 
   useEffect(() => subscribeGhostState(setGhost), []);
+
+  // ---- Share & Session (Slice 5) -----------------------------------
+  // The session truth (mode / host / driver / enforcement results) is
+  // published by the canvas's transport hook into the session store;
+  // this menu only reads it and records host intent. It never guesses
+  // presence and never enforces anything itself — enforcement lives
+  // in useFluidMultiUser.sendInteraction and the fluid engine.
+  const [session, setSession] = useState<SessionPublicState>(() =>
+    getSessionPublicState()
+  );
+  const [pickedMode, setPickedMode] = useState<SessionMode>("collab");
+  const [mintedRoom, setMintedRoom] = useState<string | null>(null);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => subscribeSessionState(setSession), []);
+
+  const pickedModeRef = useRef(pickedMode);
+  pickedModeRef.current = pickedMode;
 
   // Read the AI Services config summary each time the menu opens, so
   // the agent-tier line never shows stale provider/model text.
@@ -183,6 +221,65 @@ export default function FabricMenu() {
     };
   }, [menuOpen]);
 
+  // Move this client to a room: experience config (the transport
+  // rebinds to it) + the URL, the same way ExperienceControls has
+  // always switched rooms, so a reload keeps the room.
+  const moveRoom = (id: string) => {
+    updateConfig({
+      specific: { ...(state.experienceConfig.specific as any), roomId: id },
+    });
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const loc = new URL(window.location.href);
+      loc.searchParams.set("room", id);
+      if (state.activeExperience?.id) {
+        loc.searchParams.set("exp", state.activeExperience.id);
+      }
+      window.history.replaceState({}, "", loc.toString());
+    }
+  };
+
+  // Mint a fresh room, claim hosting of it in the picked mode, and
+  // move into it. The intent is recorded BEFORE the move: the
+  // transport hook for the new room reads it on bind (sessionStore).
+  const startHosting = (mode: SessionMode) => {
+    noteActivity();
+    const id = mintRoomId();
+    requestHostSession(id, mode);
+    setMintedRoom(id);
+    setShareNotice(null);
+    moveRoom(id);
+  };
+  const startHostingRef = useRef(startHosting);
+  startHostingRef.current = startHosting;
+
+  // Studio's "Share live" (FABRIC_SHARE_LIVE_EVENT): make sure a
+  // hosted session exists, close the drawer, and open this menu on
+  // the SHARE section with the link ready. The notice is honest
+  // about playback: Studio's saved list is demo data until Studio
+  // persists real patterns (see sessionStore).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onShareLive = (ev: Event) => {
+      const name =
+        (ev as CustomEvent<{ name?: string }>).detail?.name ?? "Composition";
+      drawers.closeAll();
+      if (getSessionPublicState().role !== "host") {
+        startHostingRef.current(pickedModeRef.current);
+      }
+      setShareNotice(
+        `“${name}” is live — send the invite link under SHARE and guests land in this room. ` +
+          `One honest note: Studio's saved list is still demo data, so this share opens the live room today; ` +
+          `playing a saved composition itself arrives when Studio saves real patterns. ` +
+          `Patterns you compose on the canvas can be shared live right now (see STUDIO below).`
+      );
+      setMenuOpen(true);
+    };
+    window.addEventListener(FABRIC_SHARE_LIVE_EVENT, onShareLive as EventListener);
+    return () => {
+      window.removeEventListener(FABRIC_SHARE_LIVE_EVENT, onShareLive as EventListener);
+    };
+  }, [drawers, setMenuOpen]);
+
   // While a legacy panel is open, hold the chrome fade and keep the
   // menu itself closed — one surface at a time.
   const drawerOpen = drawers.openName !== null;
@@ -199,12 +296,129 @@ export default function FabricMenu() {
   const roomId = String(
     ((state.experienceConfig.specific as any)?.roomId as string) || "main"
   );
+  // The last pattern composed this session (Slice 4/5): the one real
+  // artifact "Share live" can replay into the room right now. Read at
+  // render — the menu re-renders on open, so this is never stale.
+  const lastPattern = patternPlayer.lastPattern;
 
   const openPanel = (name: DrawerName) => {
     noteActivity();
     drawers.open(name);
     setMenuOpen(false);
   };
+
+  // ---- Slice 5 handlers -------------------------------------------
+  const copyInvite = async (url: string) => {
+    noteActivity();
+    try {
+      if (
+        typeof navigator !== "undefined" &&
+        (navigator as any).clipboard?.writeText
+      ) {
+        await (navigator as any).clipboard.writeText(url);
+      } else {
+        await Clipboard.setStringAsync(url);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — the link stays visible as text,
+      // which is the designed last-resort copy path.
+    }
+  };
+
+  const shareInvite = async (url: string) => {
+    noteActivity();
+    const nav = typeof navigator !== "undefined" ? (navigator as any) : null;
+    if (nav?.share) {
+      try {
+        await nav.share({ title: "Fabric", text: "Join my Fabric canvas", url });
+      } catch {
+        // Share sheet dismissed — nothing to do, the link is below.
+      }
+      return;
+    }
+    void copyInvite(url);
+  };
+
+  const leaveSession = () => {
+    noteActivity();
+    setMintedRoom(null);
+    setShareNotice(null);
+    moveRoom("main");
+  };
+
+  // Replay the last pattern composed this session into the room so
+  // guests feel it — hosting first if needed. Playback rides
+  // FABRIC_PLAY_PATTERN_EVENT into LegacyFluid's pattern dispatch,
+  // which broadcasts through sendInteraction like live input.
+  const sharePatternLive = () => {
+    const p = patternPlayer.lastPattern;
+    if (!p || typeof window === "undefined") return;
+    noteActivity();
+    if (getSessionPublicState().role !== "host") {
+      startHosting(pickedMode);
+    }
+    window.dispatchEvent(
+      new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, { detail: p })
+    );
+    setShareNotice(
+      `Playing “${p.name}” into the room now — everyone here feels it. Send the invite link under SHARE so others can join live.`
+    );
+  };
+
+  const renderModeRows = (
+    current: SessionMode,
+    onPick: (m: SessionMode) => void
+  ) => (
+    <View style={{ gap: spacing.xs, marginBottom: spacing.sm }}>
+      {SESSION_MODES.map((m) => {
+        const selected = m === current;
+        return (
+          <Pressable
+            key={m}
+            pointerEvents="auto"
+            onPress={() => {
+              noteActivity();
+              onPick(m);
+            }}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: spacing.md,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: radius.card,
+              borderWidth: 1,
+              borderColor: selected ? colors.accent : colors.line,
+              backgroundColor: selected || pressed ? colors.accentDim : "transparent",
+            })}
+          >
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                borderWidth: 1,
+                borderColor: colors.accent,
+                backgroundColor: selected ? colors.accent : "transparent",
+              }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                {SESSION_MODE_LABEL[m]}
+              </Text>
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                {SESSION_MODE_BLURB[m]}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 
   return (
     <Animated.View
@@ -323,6 +537,279 @@ export default function FabricMenu() {
           <LayerControls />
         ) : null}
 
+        {/* ---------------- SHARE ---------------- */}
+        <SectionHeader>SHARE — SESSION</SectionHeader>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          Room {roomId} ·{" "}
+          {session.online === "online"
+            ? "Online"
+            : session.online === "connecting"
+              ? "Connecting…"
+              : "Local"}{" "}
+          · {session.peers} {session.peers === 1 ? "peer" : "peers"} here
+          {session.hostId ? ` · ${SESSION_MODE_LABEL[session.mode]} session` : " · open room"}
+        </Text>
+
+        {shareNotice ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.accentLine,
+              borderRadius: radius.card,
+              padding: spacing.md,
+              marginBottom: spacing.sm,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.caption }}>
+              {shareNotice}
+            </Text>
+          </View>
+        ) : null}
+
+        {(() => {
+          const isHost =
+            session.role === "host" ||
+            (mintedRoom !== null && mintedRoom === roomId && session.role !== "guest");
+          const hostMode = session.role === "host" ? session.mode : pickedMode;
+          const inviteUrl = buildInviteUrl(roomId, active?.id, hostMode);
+
+          if (isHost) {
+            return (
+              <View>
+                <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginBottom: spacing.xs }}>
+                  You're hosting this room
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                  The mode is the room's live law — enforced on every
+                  guest's device, not just displayed. Change it any time.
+                </Text>
+                {renderModeRows(hostMode, (m) => {
+                  setPickedMode(m);
+                  requestHostSession(roomId, m);
+                })}
+
+                {session.mode === "control" || (session.role !== "host" && pickedMode === "control") ? (
+                  <View style={{ marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.xs }}>
+                      Driver:{" "}
+                      {session.driverId === session.selfId || session.role !== "host"
+                        ? "you"
+                        : shortPeerId(session.driverId)}
+                    </Text>
+                    {session.guestIds.length === 0 ? (
+                      <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                        No guests yet — send the invite link, then pass
+                        the brush from here.
+                      </Text>
+                    ) : (
+                      session.guestIds.map((gid) => {
+                        const driving = session.driverId === gid;
+                        return (
+                          <View
+                            key={gid}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              paddingVertical: 6,
+                            }}
+                          >
+                            <Text style={{ color: colors.text, fontSize: typeScale.body }}>
+                              {shortPeerId(gid)}
+                            </Text>
+                            {driving ? (
+                              <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                                Driving
+                              </Text>
+                            ) : (
+                              <Pressable
+                                pointerEvents="auto"
+                                onPress={() => {
+                                  noteActivity();
+                                  requestPassControl(gid);
+                                }}
+                                accessibilityRole="button"
+                                style={{ paddingVertical: 4, paddingHorizontal: 8 }}
+                              >
+                                <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                                  Give control
+                                </Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        );
+                      })
+                    )}
+                    {session.role === "host" &&
+                    session.driverId &&
+                    session.driverId !== session.selfId ? (
+                      <Pressable
+                        pointerEvents="auto"
+                        onPress={() => {
+                          noteActivity();
+                          requestPassControl(null);
+                        }}
+                        accessibilityRole="button"
+                        style={{ paddingVertical: 6 }}
+                      >
+                        <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                          Take back control
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                <Text
+                  selectable
+                  style={{
+                    color: colors.text,
+                    fontSize: typeScale.caption,
+                    borderWidth: 1,
+                    borderColor: colors.line,
+                    borderRadius: radius.card,
+                    padding: spacing.md,
+                    marginBottom: spacing.sm,
+                  }}
+                >
+                  {inviteUrl}
+                </Text>
+                <View style={{ flexDirection: "row", gap: spacing.sm, marginBottom: spacing.sm }}>
+                  <Pressable
+                    pointerEvents="auto"
+                    onPress={() => void shareInvite(inviteUrl)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      flex: 1,
+                      alignItems: "center",
+                      paddingVertical: 10,
+                      borderRadius: radius.card,
+                      backgroundColor: pressed ? colors.accentDim : colors.accent,
+                    })}
+                  >
+                    <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
+                      Share link
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    pointerEvents="auto"
+                    onPress={() => void copyInvite(inviteUrl)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      flex: 1,
+                      alignItems: "center",
+                      paddingVertical: 10,
+                      borderRadius: radius.card,
+                      borderWidth: 1,
+                      borderColor: colors.line,
+                      backgroundColor: pressed ? colors.accentDim : "transparent",
+                    })}
+                  >
+                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                      {copied ? "Copied" : "Copy link"}
+                    </Text>
+                  </Pressable>
+                </View>
+                <Pressable
+                  pointerEvents="auto"
+                  onPress={() => {
+                    noteActivity();
+                    setMintedRoom(null);
+                    requestStopHosting();
+                  }}
+                  accessibilityRole="button"
+                  style={{ paddingVertical: 6 }}
+                >
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.body, fontWeight: "600" }}>
+                    Stop hosting — room becomes open collab
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          }
+
+          if (session.role === "guest") {
+            const driving = session.mode === "control" && session.driverId === session.selfId;
+            const guestLine =
+              session.mode === "mirror"
+                ? "You see the host's canvas live. Your touches paint only your own screen — the host never sees them."
+                : session.mode === "view"
+                  ? "Audience mode: your canvas input is off. What the host makes is what you feel."
+                  : session.mode === "control"
+                    ? driving
+                      ? "You're driving — the whole room feels your touches."
+                      : `${shortPeerId(session.driverId)} is driving. Your touches stay on your screen until the brush comes to you.`
+                    : "Everyone draws on the shared canvas here.";
+            return (
+              <View>
+                <View
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.accentLine,
+                    borderRadius: radius.card,
+                    padding: spacing.md,
+                    marginBottom: spacing.sm,
+                    gap: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                    {SESSION_MODE_LABEL[session.mode]} · hosted by {shortPeerId(session.hostId)}
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                    {guestLine}
+                  </Text>
+                </View>
+                <Pressable
+                  pointerEvents="auto"
+                  onPress={leaveSession}
+                  accessibilityRole="button"
+                  style={{ paddingVertical: 6 }}
+                >
+                  <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                    Leave — back to the main room
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          }
+
+          // Open room: nobody hosts. Offer the mint-and-host flow.
+          const hint = parseInviteHint();
+          return (
+            <View>
+              {hint && hint.roomId === roomId && hint.mode ? (
+                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                  You arrived with a {SESSION_MODE_LABEL[hint.mode]} invite —
+                  your host hasn't opened this room yet. When they do, the
+                  mode applies automatically; until then this room is open.
+                </Text>
+              ) : null}
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                Invite people to this canvas. Hosting mints a fresh room
+                and moves you into it — your canvas comes with you, and
+                guests land beside you through the link.
+              </Text>
+              {renderModeRows(pickedMode, setPickedMode)}
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => startHosting(pickedMode)}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  alignItems: "center",
+                  paddingVertical: 12,
+                  borderRadius: radius.card,
+                  backgroundColor: pressed ? colors.accentDim : colors.accent,
+                  marginBottom: spacing.sm,
+                })}
+              >
+                <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
+                  Invite to this canvas
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })()}
+
         {/* ---------------- STUDIO ---------------- */}
         <SectionHeader>STUDIO — CREATE</SectionHeader>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
@@ -363,6 +850,38 @@ export default function FabricMenu() {
             </Pressable>
           ))}
         </View>
+
+        {/* Share live (Slice 5): replay the pattern composed this
+            session into the room — hosting first if nobody does, so
+            guests actually feel it. Saved Studio compositions get
+            their own Share live in the Studio panel; until Studio
+            persists real patterns, that share opens this room + link
+            (the notice under SHARE says so plainly). */}
+        {lastPattern ? (
+          <Pressable
+            pointerEvents="auto"
+            onPress={sharePatternLive}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: spacing.md,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: radius.card,
+              borderWidth: 1,
+              borderColor: colors.accentLine,
+              backgroundColor: pressed ? colors.accentDim : "transparent",
+              marginTop: spacing.sm,
+            })}
+          >
+            <Icon name="people" size={20} color={colors.accent} />
+            <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+              Share live — play “{lastPattern.name}” to the room
+            </Text>
+            <Icon name="chevronRight" size={16} color={colors.textDim} />
+          </Pressable>
+        ) : null}
 
         {/* ---------------- UNIVERSAL ---------------- */}
         <SectionHeader>UNIVERSAL</SectionHeader>
