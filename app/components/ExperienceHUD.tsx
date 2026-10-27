@@ -8,6 +8,7 @@ import VerbBar from "../../src/components/sensory/VerbBar";
 import ComposeBar from "../../src/components/sensory/ComposeBar";
 import GhostIndicator from "../../src/ghost/GhostIndicator";
 import { useFabricChrome } from "./fabric/FabricChromeContext";
+import PianoKeyboard from "./PianoKeyboard";
 import { colors, radius, spacing } from "../../src/theme/tokens";
 import {
   SESSION_MODE_LABEL,
@@ -155,6 +156,13 @@ export default function ExperienceHUD() {
             </View>
           ) : null}
         </View>
+
+        {/* AR Piano's playable surface (piano-surface hotfix): the 3D
+            keybed renders edge-on and invisible from the scene camera,
+            so the layer's real keys live here in the cluster — the
+            doctrine's home for layer controls. Notes ride the noteBus
+            into the same sound + fluid pipeline hardware MIDI uses. */}
+        {isARPiano && midiEnabled ? <PianoKeyboard /> : null}
 
         {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
         <VerbBar />

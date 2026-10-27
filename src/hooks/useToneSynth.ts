@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as Tone from "tone";
 import { useMIDI, type NoteName } from "./useMIDI";
+import { useVirtualNotes } from "./useVirtualNotes";
 import { usePreferences } from "../../app/context/PreferencesContext";
 import { useExperience } from "../contexts/ExperienceContext";
 
@@ -12,7 +13,16 @@ function volumeToDb(v: number) {
 }
 
 export function useToneSynth(enabled: boolean) {
-  const { activeNotes } = useMIDI();
+  const { activeNotes: hardwareNotes } = useMIDI();
+  // On-screen notes arrive over the noteBus (see useVirtualNotes) and
+  // merge with hardware notes, so the 2D keyboard and 3D PianoScene
+  // sound through this one synth — previously they were inaudible
+  // here: PianoScene ran a private synth and nothing else heard them.
+  const virtual = useVirtualNotes();
+  const activeNotes = useMemo(
+    () => Array.from(new Set<NoteName>([...hardwareNotes, ...(virtual.activeNotes as NoteName[])])),
+    [hardwareNotes, virtual.activeNotes]
+  );
   const { audioEnabled } = usePreferences();
   const { state } = useExperience();
   const vol = Number(state.experienceConfig?.common?.audioVolume ?? 0.7);
