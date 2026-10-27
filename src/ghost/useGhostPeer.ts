@@ -7,8 +7,11 @@
  *   seed) and the manual on/off preference live together in AsyncStorage
  *   under `fabric_ghost_v1`; a first-run identity is generated and
  *   persisted immediately, so the same ghost greets you next visit.
- * - Feeds it the human-peer count (solo ghost steps back while humans
- *   are connected; session summon becomes available).
+ * - Feeds it the human-peer count (with people connected, the ghost
+ *   shifts to its crowd role — or session, once summoned).
+ * - Applies the ACTIVE layer's ghost feature toggle ("Ghost in this
+ *   layer", stored per layer id): the brain runs only when the
+ *   per-user preference AND the layer toggle are both on.
  * - Translates HUD window events into brain calls: the indicator's
  *   toggle (FABRIC_GHOST_TOGGLE_EVENT) and Summon/Dismiss
  *   (FABRIC_GHOST_SESSION_EVENT) — the same event pattern the VerbBar
@@ -74,6 +77,13 @@ export interface UseGhostPeerOptions {
   ) => void;
   /** Number of connected HUMAN peers (ghost ids never counted). */
   humanPeers: number;
+  /**
+   * The active layer's ghost feature toggle ("Ghost in this layer",
+   * THIS LAYER settings, persisted per layer id by the settings
+   * mirror). Default true. When false the local ghost does not run
+   * in this layer at all, whatever the per-user preference says.
+   */
+  layerEnabled?: boolean;
   /** Semantic sound events from the brain (see useGhostSfx). */
   onSfx?: (kind: GhostSfxKind) => void;
 }
@@ -145,6 +155,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   onSfxRef.current = options.onSfx;
   const humanPeersRef = useRef(options.humanPeers);
   humanPeersRef.current = options.humanPeers;
+  const layerEnabledRef = useRef(options.layerEnabled !== false);
+  layerEnabledRef.current = options.layerEnabled !== false;
 
   const persist = useCallback(
     (nextEnabled: boolean, id: GhostIdentityFull) => {
@@ -199,7 +211,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         },
         onSfx: (kind) => onSfxRef.current?.(kind),
       });
-      peer.setEnabled(en);
+      peer.setEnabled(en && layerEnabledRef.current);
+      setGhostPublicState({ layerEnabled: layerEnabledRef.current });
       // The brain is born after an async storage load — bring it up to
       // date with the room as it is right now.
       peer.setHumansPresent(humanPeersRef.current > 0);
@@ -216,12 +229,22 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Solo presence rule: humans connected -> ghost steps back (or, in
-  // session mode, the session ends when everyone leaves).
+  // Room rule: humans connected -> crowd role (or, in session mode,
+  // the session ends when everyone leaves).
   const { humanPeers } = options;
   useEffect(() => {
     peerRef.current?.setHumansPresent(humanPeers > 0);
   }, [humanPeers]);
+
+  // Per-layer feature gate: the brain's effective enabled state is
+  // the per-user preference AND the active layer's toggle. Switching
+  // layers re-applies it (each layer's stored setting was loaded by
+  // the settings mirror before this value changes).
+  const layerEnabled = options.layerEnabled !== false;
+  useEffect(() => {
+    setGhostPublicState({ layerEnabled });
+    peerRef.current?.setEnabled(enabledRef.current && layerEnabled);
+  }, [layerEnabled]);
 
   // HUD controls travel as window events (VerbBar pattern).
   useEffect(() => {
@@ -231,7 +254,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
       const next = typeof detail === "boolean" ? detail : !enabledRef.current;
       enabledRef.current = next;
       setEnabled(next);
-      peerRef.current?.setEnabled(next);
+      peerRef.current?.setEnabled(next && layerEnabledRef.current);
       setGhostPublicState({ enabled: next });
       const id = identityRef.current;
       if (id) persist(next, id);
@@ -303,14 +326,14 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   }, []);
 
   const noteLocalInteraction = useCallback((i: FluidInteraction) => {
-    peerRef.current?.noteInteraction(i);
+    peerRef.current?.noteInteraction(i, "local");
   }, []);
 
   const noteRemoteInteraction = useCallback((i: FluidInteraction) => {
     if (isGhostPeerId(i.userId)) {
       peerRef.current?.noteGhostSighting(i);
     } else {
-      peerRef.current?.noteInteraction(i);
+      peerRef.current?.noteInteraction(i, "remote");
     }
   }, []);
 
