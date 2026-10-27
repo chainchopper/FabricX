@@ -51,6 +51,11 @@ import ConnectionBadge from "./components/ConnectionBadge";
 
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
+import { getSignalingService } from "../src/services/SignalingService";
+import {
+  getRealtimeStatus,
+  setRealtimeStatus,
+} from "../shared/utils/realtimeStatus";
 
 // Hotfix 1.4: React Navigation paints EVERY screen with the navigation
 // theme's background color (@react-navigation/elements' Background:
@@ -112,6 +117,48 @@ function ChromeLayer() {
   );
 }
 
+/**
+ * Slice 6 join latency: warm the signaling socket at app start.
+ *
+ * Until now the socket's first connect() happened inside useWebRTC's
+ * effect — which runs inside useFluidMultiUser, inside LegacyFluid,
+ * a LAZILY imported chunk behind the experience renderer. The whole
+ * page-load waterfall (providers, chunk fetch, engine init) had to
+ * finish before the TLS + WebSocket handshake even BEGAN, and the
+ * connection badge sat on its "Local • 0" default the entire time,
+ * reading as broken local mode (Terrell's "takes a bit to sync").
+ *
+ * The service is a singleton and connect() is idempotent, so
+ * starting it here — at the root layout's first effect — overlaps
+ * the handshake with the chunk download instead of sequencing after
+ * it, and the canvas hook simply finds the socket already coming up
+ * (its own connect() call shares the same in-flight attempt).
+ *
+ * The state mirror gives the badge an honest "Connecting…" from
+ * first paint when a server resolves, instead of the Local default.
+ * It only ever writes the mode field of the realtime status (the
+ * canvas hook owns the rest and derives mode from this same state,
+ * so the two writers can never disagree). Web only: the fluid
+ * session layer is web-verified, and native keeps its existing
+ * lazy path untouched.
+ */
+function SignalingWarmup() {
+  React.useEffect(() => {
+    if (Platform.OS !== "web") return;
+    try {
+      const sig = getSignalingService();
+      void sig.connect();
+      return sig.onStateChange((s) => {
+        const cur = getRealtimeStatus();
+        if (cur.mode !== s) setRealtimeStatus({ ...cur, mode: s });
+      });
+    } catch {
+      return undefined;
+    }
+  }, []);
+  return null;
+}
+
 export default function RootLayout() {
   return (
     <ToastProvider>
@@ -127,6 +174,10 @@ export default function RootLayout() {
                         {/* Sanitize console errors to prevent Metro's <anonymous> ENOENT spam */}
                         <LogboxSanitizer />
                         <View style={{ flex: 1 }}>
+                          {/* Slice 6: start the signaling handshake
+                              now, in parallel with the canvas chunk
+                              loading below — not after it. */}
+                          <SignalingWarmup />
                           {/* Fabric is the main event: persistent and always-on.
                               Single-canvas authority: this branch mounts once
                               and chrome state (menu, idle fade) never remounts it. */}

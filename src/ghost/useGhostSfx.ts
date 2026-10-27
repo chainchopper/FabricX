@@ -217,6 +217,45 @@ export function useGhostSfx() {
     [audioEnabled, ensureCtx]
   );
 
+  /**
+   * Slice 6: a HUMAN participant's stroke voice. One soft blip pitched
+   * by the sender's signature hue — the same ghostBaseFreq mapping the
+   * ghosts use (300–660 Hz) — so every person in the room sounds like
+   * themselves and nobody sounds like a ghost (triangle, shorter and
+   * drier than any ghost cue). Deliberately separate limiter from the
+   * ghost cues: a drawing peer produces stroke ONSETS (the caller
+   * detects them), and this cap (~5/s) only guards against a burst of
+   * onsets stacking into noise. Respects the same audioEnabled
+   * preference and lazy AudioContext as every cue here.
+   */
+  const peerLastAtRef = useRef(0);
+  const playPeer = useCallback(
+    (hue: number) => {
+      if (!audioEnabled) return;
+      const now = performance.now();
+      if (now - peerLastAtRef.current < 200) return;
+      const ctx = ensureCtx();
+      if (!ctx) return;
+      peerLastAtRef.current = now;
+      const base = ghostBaseFreq(hue);
+      const t0 = ctx.currentTime;
+      const dur = 0.09;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(base, t0);
+      const peak = MASTER_GAIN * 0.9;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(peak, t0 + 0.01);
+      gain.gain.linearRampToValueAtTime(0, t0 + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    },
+    [audioEnabled, ensureCtx]
+  );
+
   const stopPurr = useCallback((immediate = false) => {
     const purr = purrRef.current;
     purrRef.current = null;
@@ -315,7 +354,7 @@ export function useGhostSfx() {
     [stopPurr]
   );
 
-  return { play, startPurr, stopPurr };
+  return { play, startPurr, stopPurr, playPeer };
 }
 
 export type GhostSfxApi = ReturnType<typeof useGhostSfx>;

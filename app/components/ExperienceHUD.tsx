@@ -12,10 +12,11 @@ import { colors, radius, spacing } from "../../src/theme/tokens";
 import {
   SESSION_MODE_LABEL,
   getSessionPublicState,
-  shortPeerId,
   subscribeSessionState,
   type SessionPublicState,
 } from "../../src/session/sessionStore";
+import { displayNameFor } from "../../src/identity/identityStore";
+import { useIdentitySnapshot } from "../../src/identity/useIdentity";
 
 /**
  * ExperienceHUD — the collapsed state of the F doctrine.
@@ -64,6 +65,10 @@ export default function ExperienceHUD() {
     getSessionPublicState()
   );
   useEffect(() => subscribeSessionState(setSession), []);
+  // Slice 6: subscribing to identity changes is what lets the driver
+  // line below swap a peer's short id for their name the moment
+  // their card lands — the snapshot itself is read via the resolver.
+  useIdentitySnapshot();
 
   // Platform const guard is safe; never changes across renders.
   if (Platform.OS !== "web") return null;
@@ -130,7 +135,7 @@ export default function ExperienceHUD() {
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               {session.driverId === session.selfId
                 ? "you're driving"
-                : `${shortPeerId(session.driverId)} driving`}
+                : `${displayNameFor(session.driverId, session.selfId)} driving`}
             </Text>
           ) : null}
           {isARCameraActive ? (
