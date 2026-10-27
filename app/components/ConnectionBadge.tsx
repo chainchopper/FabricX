@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text } from "react-native";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../shared/utils/realtimeStatus";
+import {
+  SESSION_MODE_LABEL,
+  getSessionPublicState,
+  subscribeSessionState,
+  type SessionPublicState,
+} from "../../src/session/sessionStore";
 import { useToast } from "./Toast";
 
 const RETRY_SECONDS = 8;
@@ -10,6 +16,9 @@ export default function ConnectionBadge() {
 
   const toast = useToast();
   const [rt, setRt] = useState<RealtimeStatus>(() => getRealtimeStatus());
+  const [session, setSession] = useState<SessionPublicState>(() =>
+    getSessionPublicState()
+  );
   const [countdown, setCountdown] = useState<number>(RETRY_SECONDS);
   const timerRef = useRef<number | null>(null);
 
@@ -20,6 +29,8 @@ export default function ConnectionBadge() {
     const unsub = subscribeRealtimeStatus((next) => setRt(next));
     return () => unsub();
   }, []);
+
+  useEffect(() => subscribeSessionState(setSession), []);
 
   // Manage auto-retry loop. It only runs in 'online' mode with no peers
   // (signaling is up, re-announcing may still find someone). In 'local'
@@ -120,6 +131,20 @@ export default function ConnectionBadge() {
       <Text style={{ color: warn ? "#fde68a" : "#9ca3af", fontSize: 10, marginTop: 2 }}>
         {subline}
       </Text>
+      {/* Slice 5: presence truth — when a session is live, the badge
+          names the room and the mode instead of stopping at a bare
+          peer count. */}
+      {session.hostId ? (
+        <Text style={{ color: "#22d3ee", fontSize: 10, marginTop: 2, fontWeight: "700" }}>
+          {`room ${session.roomId} · ${SESSION_MODE_LABEL[session.mode]}${
+            session.role === "host"
+              ? " · hosting"
+              : session.role === "guest"
+                ? " · guest"
+                : ""
+          }`}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }

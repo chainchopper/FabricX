@@ -42,6 +42,14 @@ export const FABRIC_COMPOSE_EVENT = "fabric:compose";
 export const FABRIC_COMPOSE_STOP_EVENT = "fabric:compose-stop";
 /** Canvas -> HUD: playback state (detail: pattern name or null). */
 export const FABRIC_COMPOSE_STATE_EVENT = "fabric:compose-state";
+/**
+ * Any UI -> canvas: play this already-composed Pattern now (detail:
+ * Pattern). Slice 5's "Share live" uses it to play a pattern into a
+ * shared room through the exact dispatch path the composer uses —
+ * verb/splat steps broadcast via sendInteraction, so session mode
+ * enforcement applies to shared playback exactly as to live input.
+ */
+export const FABRIC_PLAY_PATTERN_EVENT = "fabric:play-pattern";
 
 const AI_CONFIG_KEY = "fabric_ai_config_v1";
 

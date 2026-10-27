@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Animated, Platform, View, Text } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useAR } from "../context/ARContext";
@@ -9,6 +9,13 @@ import ComposeBar from "../../src/components/sensory/ComposeBar";
 import GhostIndicator from "../../src/ghost/GhostIndicator";
 import { useFabricChrome } from "./fabric/FabricChromeContext";
 import { colors, radius, spacing } from "../../src/theme/tokens";
+import {
+  SESSION_MODE_LABEL,
+  getSessionPublicState,
+  shortPeerId,
+  subscribeSessionState,
+  type SessionPublicState,
+} from "../../src/session/sessionStore";
 
 /**
  * ExperienceHUD — the collapsed state of the F doctrine.
@@ -50,6 +57,13 @@ export default function ExperienceHUD() {
   const { isARCameraActive } = useAR();
   const midi = useMIDI();
   const { idle, chromeOpacity } = useFabricChrome();
+  // Slice 5: the session chip lives in this status row precisely
+  // because the row already obeys the idle fade — a guest's mode
+  // badge must melt away with the rest of the chrome.
+  const [session, setSession] = useState<SessionPublicState>(() =>
+    getSessionPublicState()
+  );
+  useEffect(() => subscribeSessionState(setSession), []);
 
   // Platform const guard is safe; never changes across renders.
   if (Platform.OS !== "web") return null;
@@ -102,6 +116,23 @@ export default function ExperienceHUD() {
           <Text style={{ color: colors.textDim, fontSize: 11 }}>
             {activeExperience?.type ?? "no-experience"}
           </Text>
+          {session.hostId ? (
+            <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "700" }}>
+              {SESSION_MODE_LABEL[session.mode]}
+              {session.role === "host"
+                ? " · hosting"
+                : session.role === "guest"
+                  ? " · guest"
+                  : ""}
+            </Text>
+          ) : null}
+          {session.hostId && session.mode === "control" && session.driverId ? (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              {session.driverId === session.selfId
+                ? "you're driving"
+                : `${shortPeerId(session.driverId)} driving`}
+            </Text>
+          ) : null}
           {isARCameraActive ? (
             <Text style={{ color: "#34d399", fontSize: 11 }}>AR On</Text>
           ) : null}

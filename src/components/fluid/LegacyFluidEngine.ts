@@ -243,6 +243,18 @@ export class LegacyFluidEngine {
   }) => void;
 
   /**
+   * Slice 5 (Share & Session): when false, local pointer input is
+   * inert — pointer handlers still track (and the diag panel still
+   * counts raw input events honestly), but applyInputs() produces
+   * neither a local splat nor an onLocalInteraction call. This is
+   * how a view-only session guest's canvas becomes a true audience
+   * surface. Remote/API splats (splatAt) are unaffected — receiving
+   * is the whole point of view mode. Toggled by LegacyFluid from the
+   * session store; defaults to true (every pre-Slice-5 behavior).
+   */
+  public localInputEnabled = true;
+
+  /**
    * Optional fatal-error observer (Hotfix 1.3). Called once when the
    * frame loop fails persistently and degrades (see update()), so the
    * React wrapper can show the user a notice instead of leaving a
@@ -576,6 +588,9 @@ export class LegacyFluidEngine {
     this.pointers.forEach((p) => {
       if (p.moved) {
         p.moved = false;
+        // Slice 5: view-only guests — input disabled outright. The
+        // moved flag is still consumed so pointers never wedge.
+        if (!this.localInputEnabled) return;
         const dx = p.deltaX * this.config.SPLAT_FORCE;
         const dy = p.deltaY * this.config.SPLAT_FORCE;
         this.statsPointerSplats += 1;

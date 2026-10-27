@@ -6,6 +6,13 @@ import { useHaptics } from "../hooks/useHaptics";
 import { useToast } from "./Toast";
 import { useMIDI } from "../../src/hooks/useMIDI";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../shared/utils/realtimeStatus";
+import {
+  SESSION_MODE_LABEL,
+  getSessionPublicState,
+  shortPeerId,
+  subscribeSessionState,
+  type SessionPublicState,
+} from "../../src/session/sessionStore";
 import * as Clipboard from "expo-clipboard";
 import { getAudioReactive } from "../../src/shared/utils/audioReactive";
 
@@ -28,6 +35,11 @@ export default function FabricDiagnostics() {
   });
 
   const [rt, setRt] = useState<RealtimeStatus>(() => getRealtimeStatus());
+  const [session, setSession] = useState<SessionPublicState>(() =>
+    getSessionPublicState()
+  );
+
+  useEffect(() => subscribeSessionState(setSession), []);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -112,6 +124,18 @@ export default function FabricDiagnostics() {
         </Text>
       ) : null}
       <Text style={{ color: "#93c5fd" }}>Room: {roomId}</Text>
+      {/* Slice 5: session truth next to the room line — mode, role,
+          driver, and this client's enforcement result. */}
+      <Text style={{ color: "#93c5fd" }}>
+        Session:{" "}
+        {session.hostId
+          ? `${SESSION_MODE_LABEL[session.mode]} · ${session.role} · host ${shortPeerId(session.hostId)}${
+              session.mode === "control"
+                ? ` · driver ${session.driverId === session.selfId ? "you" : shortPeerId(session.driverId)}`
+                : ""
+            } · canSend ${session.canSend ? "yes" : "no"} · input ${session.inputEnabled ? "on" : "off"}`
+          : "open (no host) · canSend yes · input on"}
+      </Text>
 
       <Text style={{ color: "#e5e7eb" }}>
         Experience: {activeExperience ? activeExperience.name : "None"}
