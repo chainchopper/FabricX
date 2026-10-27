@@ -32,7 +32,7 @@ export default function NewFabricLayer() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+    <View pointerEvents="auto" style={{ flex: 1, backgroundColor: "transparent" }}>
       <BackToFabric />
       <View
         style={{

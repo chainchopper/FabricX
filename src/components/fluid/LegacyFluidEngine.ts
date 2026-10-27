@@ -190,6 +190,15 @@ export class LegacyFluidEngine {
     color: { r: number; g: number; b: number };
   }) => void;
 
+  /**
+   * Optional fatal-error observer (Hotfix 1.3). Called once when the
+   * frame loop fails persistently and degrades (see update()), so the
+   * React wrapper can show the user a notice instead of leaving a
+   * silent dead canvas. Init failures still throw out of the
+   * constructor — the wrapper catches those separately.
+   */
+  public onError?: (message: string) => void;
+
   private initGL() {
     const params: WebGLContextAttributes = {
       alpha: true, depth: false, stencil: false, antialias: false,
@@ -204,8 +213,18 @@ export class LegacyFluidEngine {
 
     let halfFloat: any;
     let supportLinearFiltering: boolean;
+    let colorBufferFloat = false;
+    let colorBufferHalfFloat = false;
     if (this.isWebGL2) {
-      (gl as WebGL2RenderingContext).getExtension("EXT_color_buffer_float");
+      // Hotfix 1.3: request BOTH float color-buffer extensions and check
+      // the results. The old code requested EXT_color_buffer_float,
+      // discarded the result, and never tried EXT_color_buffer_half_float
+      // — the one iOS Safari's WebGL2 actually ships. Without either,
+      // every float framebuffer probe below fails, getSupportedFormat
+      // falls through to null, and initFramebuffers dies on
+      // rgba.internalFormat inside the constructor (silent blank canvas).
+      colorBufferFloat = !!(gl as WebGL2RenderingContext).getExtension("EXT_color_buffer_float");
+      colorBufferHalfFloat = !!(gl as WebGL2RenderingContext).getExtension("EXT_color_buffer_half_float");
       supportLinearFiltering = !!(gl as WebGL2RenderingContext).getExtension("OES_texture_float_linear");
     } else {
       halfFloat = (gl as any).getExtension("OES_texture_half_float");
@@ -260,6 +279,23 @@ export class LegacyFluidEngine {
       formatR = getSupportedFormat(gl1 as unknown as GL, gl1.RGBA, gl1.RGBA, halfFloatTexType);
     }
 
+    // Hotfix 1.3: a null format must never reach initFramebuffers (it
+    // dereferences .internalFormat and throws). If this device has no
+    // renderable float/half-float target at all, fall back to plain
+    // RGBA8 / UNSIGNED_BYTE targets — lower dynamic range, but a living
+    // canvas instead of a silent blank. Byte textures are linearly
+    // filterable everywhere, so the filtering-dependent features stay on.
+    let effectiveTexType = halfFloatTexType;
+    if (!formatRGBA || !formatRG || !formatR) {
+      const glc = gl as WebGLRenderingContext;
+      const byteInternal = this.isWebGL2 ? (gl as WebGL2RenderingContext).RGBA8 : glc.RGBA;
+      formatRGBA = { internalFormat: byteInternal, format: glc.RGBA };
+      formatRG = { internalFormat: byteInternal, format: glc.RGBA };
+      formatR = { internalFormat: byteInternal, format: glc.RGBA };
+      effectiveTexType = glc.UNSIGNED_BYTE;
+      supportLinearFiltering = true;
+    }
+
     if (isMobile()) this.config.DYE_RESOLUTION = 512;
 
     // reuse computed supportLinearFiltering; do not redeclare
@@ -270,7 +306,7 @@ export class LegacyFluidEngine {
       this.config.SUNRAYS = false;
     }
 
-    this.ext = { formatRGBA, formatRG, formatR, halfFloatTexType: halfFloatTexType, supportLinearFiltering };
+    this.ext = { formatRGBA, formatRG, formatR, halfFloatTexType: effectiveTexType, supportLinearFiltering, colorBufferFloat, colorBufferHalfFloat };
 
     bindFullScreenQuad(gl);
   }
@@ -400,16 +436,37 @@ export class LegacyFluidEngine {
     }
   };
 
+  private updateErrorCount = 0;
   private update = () => {
-    const now = Date.now();
-    let dt = (now - this.lastUpdateTime) / 1000;
-    dt = Math.min(dt, 0.016666);
-    this.lastUpdateTime = now;
+    try {
+      const now = Date.now();
+      let dt = (now - this.lastUpdateTime) / 1000;
+      dt = Math.min(dt, 0.016666);
+      this.lastUpdateTime = now;
 
-    if (this.resizeCanvas()) this.initFramebuffers();
-    this.applyInputs();
-    if (!this.config.PAUSED) this.step(dt);
-    this.render(null);
+      if (this.resizeCanvas()) this.initFramebuffers();
+      this.applyInputs();
+      if (!this.config.PAUSED) this.step(dt);
+      this.render(null);
+      this.updateErrorCount = 0;
+    } catch (err) {
+      // Hotfix 1.3: one throw used to kill the rAF chain permanently —
+      // the loop simply never rescheduled, leaving a frozen canvas and
+      // no error anywhere. Now: log the first failure, keep retrying
+      // (transient GL errors — resize races, context hiccups — do
+      // recover), and after ~30 consecutive failed frames stop the
+      // loop and surface the failure via onError instead of spinning
+      // a dead canvas at 60fps.
+      this.updateErrorCount += 1;
+      if (this.updateErrorCount === 1) {
+        console.error("[LegacyFluidEngine] update() failed; retrying — will degrade if it persists:", err);
+      }
+      if (this.updateErrorCount >= 30) {
+        this.raf = null;
+        this.onError?.("The canvas engine stopped on this device.");
+        return;
+      }
+    }
     this.raf = requestAnimationFrame(this.update);
   };
 

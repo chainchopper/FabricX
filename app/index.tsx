@@ -17,13 +17,22 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+    // Hotfix 1.3 (web): Home is a transparent shell over the global
+    // canvas — its root must not eat touches or the canvas below can
+    // never be drawn on. Pass through on web (native unchanged); the
+    // branding overlay opts back in below so its one-tap dismiss
+    // behaves exactly as before.
+    <View
+      pointerEvents={Platform.OS === "web" ? "none" : "auto"}
+      style={{ flex: 1, backgroundColor: "transparent" }}
+    >
       {/* Safety: if global background isn’t ready, use a local fallback on Home */}
       <SafetyBackground />
 
       {/* Branding overlay */}
       {overlayActive ? (
         <Animated.View
+          pointerEvents="auto"
           style={{
             position: "absolute",
             top: 0, right: 0, bottom: 0, left: 0,

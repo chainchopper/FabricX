@@ -39,7 +39,7 @@ export default function FabricRoom() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+    <View pointerEvents="auto" style={{ flex: 1, backgroundColor: "transparent" }}>
       <SafeAreaView
         pointerEvents="box-none"
         style={{

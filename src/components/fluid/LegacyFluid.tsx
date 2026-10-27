@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { LegacyFluidEngine } from "./LegacyFluidEngine";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useFluidMultiUser } from "../../hooks/useFluidMultiUser";
@@ -8,6 +8,16 @@ import {
   verbInteraction,
   type SensoryVerb,
 } from "../../sensory/verbs";
+import {
+  FABRIC_COMPOSE_EVENT,
+  FABRIC_COMPOSE_STATE_EVENT,
+  FABRIC_COMPOSE_STOP_EVENT,
+  composePattern,
+  getHapticPattern,
+  hueToRgb,
+  type PatternStep,
+} from "../../ai/PatternComposer";
+import { patternPlayer } from "../../ai/PatternPlayer";
 import { useAudioCues } from "../../../app/hooks/useAudioCues";
 import type { FluidInteraction } from "../../types/fluid";
 import { useGhostPeer } from "../../ghost/useGhostPeer";
@@ -28,6 +38,13 @@ interface LegacyFluidProps {
 }
 
 export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
+  // Hotfix 1.3: engine failures used to be swallowed by a console.warn —
+  // the shell loaded, the canvas stayed blank, and nobody was told.
+  // Surface them as a small dismissible notice on the canvas layer and
+  // on the fabric:engine-error window event (the same event-bus style
+  // as fabric:background-ready).
+  const [engineError, setEngineError] = useState<string | null>(null);
+  const [engineErrorDismissed, setEngineErrorDismissed] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -192,15 +209,26 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   useEffect(() => {
     if (!canvasRef.current) return;
     let engine: LegacyFluidEngine | null = null;
+    const reportEngineError = (message: string) => {
+      setEngineError(message);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("fabric:engine-error", { detail: message })
+        );
+      }
+    };
     try {
       engine = new LegacyFluidEngine(canvasRef.current, containerRef.current);
     } catch (err) {
       // WebGL unavailable — leave onReady unfired; ExperienceRenderer's
-      // fallback timeout still sets the ready flag.
+      // fallback timeout still sets the ready flag. Hotfix 1.3: also
+      // tell the user (notice below) instead of only the console.
       console.warn("[LegacyFluid] Engine failed to initialize:", err);
+      reportEngineError("The canvas engine couldn't start on this device.");
       return;
     }
     engineRef.current = engine;
+    engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       const full = sendRef.current(interaction);
       // Feed the local user's touch to the ghost brain (it mirrors,
@@ -226,6 +254,88 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
     window.addEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
     return () => window.removeEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
+  }, []);
+
+  // ---- Pattern composer (Slice 4) --------------------------------------
+  // The HUD's ComposeBar dispatches FABRIC_COMPOSE_EVENT with a
+  // plain-language prompt. Composition lives here because this
+  // component owns the transport: PatternComposer turns the prompt
+  // into a validated Pattern (Muse Spark via the existing LLMService
+  // config, or a built-in offline pattern), and patternPlayer
+  // dispatches its steps through the sinks below —
+  //   verb steps:  sendInteraction(verbInteraction) + playVerbEffects,
+  //                the exact path the VerbBar uses, so every peer feels
+  //                the verb's vibration + cue through their remote path.
+  //   splat steps: sendInteraction + a local engine.splatAt with the
+  //                same fields, so this canvas renders what peers
+  //                render from the broadcast interaction.
+  //   haptic steps: local navigator.vibrate only. The transport has
+  //                no haptic-only payload (a verb-less interaction
+  //                would paint dye on peers); verbs are the broadcast
+  //                haptic channel.
+  // Playback state is relayed to the HUD on FABRIC_COMPOSE_STATE_EVENT;
+  // FABRIC_COMPOSE_STOP_EVENT cancels globally via the shared player.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const publishState = (name: string | null) => {
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_COMPOSE_STATE_EVENT, { detail: name })
+      );
+    };
+    patternPlayer.setStateListener(publishState);
+
+    const dispatchStep = (step: PatternStep) => {
+      if (step.kind === "verb") {
+        const verb = step.verbId ? getVerbById(step.verbId) : undefined;
+        if (!verb) return;
+        sendRef.current(verbInteraction(verb));
+        playVerbEffects(verb, true);
+      } else if (step.kind === "splat") {
+        const color = hueToRgb(step.hue ?? 200, step.intensity);
+        const interaction: Omit<FluidInteraction, "userId" | "timestamp"> = {
+          position: { x: step.x ?? 0.5, y: step.y ?? 0.5 },
+          force: { x: 0, y: -((step.radius ?? 0.3) * 220) },
+          pressure: step.intensity,
+          color,
+        };
+        sendRef.current(interaction);
+        engineRef.current?.splatAt(
+          interaction.position.x,
+          interaction.position.y,
+          interaction.force.x,
+          interaction.force.y,
+          color
+        );
+      } else {
+        const haptic = getHapticPattern(step.hapticId);
+        if (haptic && typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(haptic);
+        }
+      }
+      ghostRef.current.noteUserActivity();
+    };
+
+    const onCompose = (ev: Event) => {
+      const prompt = (ev as CustomEvent<string>).detail;
+      if (typeof prompt !== "string" || !prompt.trim()) return;
+      void (async () => {
+        const pattern = await composePattern(prompt);
+        if (pattern) {
+          patternPlayer.play(pattern, dispatchStep);
+        } else {
+          publishState(null);
+        }
+      })();
+    };
+    const onStop = () => patternPlayer.stop();
+    window.addEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
+    window.addEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
+    return () => {
+      window.removeEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
+      window.removeEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
+      patternPlayer.stop();
+      patternPlayer.setStateListener(null);
+    };
   }, []);
 
   // Incoming remote interactions -> splats (+ verb haptics/audio).
@@ -282,6 +392,50 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           touchAction: "none",
         }}
       />
+      {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled
+          to match the HUD (ExperienceHUD: rgba(2,8,23) panel, cyan
+          border, #e5e7eb text). Only ever renders after a real engine
+          failure — init throw or a persistently failing frame loop. */}
+      {engineError && !engineErrorDismissed ? (
+        <div
+          role="alert"
+          style={{
+            position: "absolute",
+            left: 12,
+            right: 12,
+            bottom: 12,
+            zIndex: 5,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 8,
+            background: "rgba(2,8,23,0.88)",
+            border: "1px solid rgba(34,211,238,0.45)",
+            borderRadius: 10,
+            padding: "8px 10px",
+          }}
+        >
+          <span style={{ flex: 1, color: "#e5e7eb", fontSize: 12, lineHeight: 1.45 }}>
+            {engineError} The fluid background is off — controls still work,
+            and peers will still feel your verbs.
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss canvas warning"
+            onClick={() => setEngineErrorDismissed(true)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#93c5fd",
+              fontSize: 16,
+              lineHeight: 1,
+              cursor: "pointer",
+              padding: 2,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

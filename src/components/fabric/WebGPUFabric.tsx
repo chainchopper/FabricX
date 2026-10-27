@@ -315,7 +315,7 @@ export default function WebGPUFabric({ width, height }: Props) {
   }, [width, height]);
 
   return (
-    <div ref={hostRef} style={{ position: "absolute", inset: 0, background: "transparent" }}>
+    <div ref={hostRef} style={{ position: "absolute", inset: 0, background: "transparent", pointerEvents: "auto" }}>
       <div
         style={{
           position: "absolute",

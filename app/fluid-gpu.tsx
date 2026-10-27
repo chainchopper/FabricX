@@ -12,7 +12,7 @@ if (typeof window !== "undefined" && Platform.OS === "web") {
 
 export default function FluidGPUPage() {
   return (
-    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+    <View pointerEvents="auto" style={{ flex: 1, backgroundColor: "transparent" }}>
       <BackToFabric />
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         {Platform.OS !== "web" ? (
