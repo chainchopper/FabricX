@@ -6,9 +6,13 @@
  *
  * Offline-first (Hotfix 1.1): a missing signaling server is a first-class
  * LOCAL mode, not an error state.
- * - If no server URL is configured (EXPO_PUBLIC_SIGNALING_SERVER_URL unset,
- *   or pointing at loopback while the page itself is served from a
- *   non-loopback origin), connect() never opens a socket at all.
+ * - The production relay is the baked-in default (Hotfix 1.6, see
+ *   PROD_SIGNALING_URL below): on any non-local origin, signaling resolves
+ *   to it unless an explicit URL or EXPO_PUBLIC_SIGNALING_SERVER_URL
+ *   overrides it. Local mode therefore results only from a local dev
+ *   origin with nothing configured, a loopback URL leaking into a
+ *   non-loopback page, or exhausted connection attempts — and in local
+ *   mode connect() never opens a socket at all.
  * - If a configured server is unreachable, connection attempts are bounded
  *   (MAX_CONNECT_ATTEMPTS total, exponential backoff) and then stop for
  *   good; the service settles into 'local' state and logs a single line.
@@ -16,13 +20,44 @@
  *   multiple hook instances can never spawn parallel reconnect chains.
  */
 
-function getEnvVar(key: string): string | undefined {
-  // For web, use process.env injected by bundler
+/**
+ * The production signaling relay (Cloudflare Worker + Durable Object).
+ * It is a public endpoint — clients must know its address to connect —
+ * so baking it in as the default is not a secret leak. Doing so means
+ * production never depends on dashboard env state being set correctly.
+ */
+const PROD_SIGNALING_URL = 'wss://fabric-signaling.iaminc.workers.dev';
+
+/**
+ * Read EXPO_PUBLIC_SIGNALING_SERVER_URL as inlined by the bundler.
+ *
+ * Hotfix 1.6: this MUST stay a static member access
+ * (process.env.EXPO_PUBLIC_SIGNALING_SERVER_URL). Metro/Expo inline
+ * EXPO_PUBLIC_* variables by rewriting static member expressions at
+ * bundle time. The previous implementation did a dynamic lookup
+ * (process.env[key] through a getEnvVar(key) helper), which is never
+ * rewritten, and in the web bundle process.env is a shim — so the
+ * value was always undefined in the shipped bundle no matter what the
+ * Vercel dashboard said, and the service settled into local mode by
+ * design. Verified in the production bundle: no wss:// URL, no
+ * "workers.dev", not even the env var name.
+ */
+function envSignalingUrl(): string | undefined {
   if (typeof process !== 'undefined' && process.env) {
-    return process.env[key];
+    return process.env.EXPO_PUBLIC_SIGNALING_SERVER_URL;
   }
-  // For native, Constants should be used (but we keep process.env as fallback for web)
   return undefined;
+}
+
+/**
+ * True when the page itself is served from a loopback origin (local dev).
+ */
+function isLocalPageOrigin(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    !!window.location &&
+    isLoopbackHost(window.location.hostname)
+  );
 }
 
 export type SignalingMessage =
@@ -55,15 +90,27 @@ function isLoopbackHost(host: string): boolean {
 }
 
 /**
- * Resolve the effective signaling URL. Returns null when signaling should
- * be treated as unconfigured (local mode):
- * - no explicit URL and EXPO_PUBLIC_SIGNALING_SERVER_URL is unset, or
+ * Resolve the effective signaling URL. Resolution order:
+ * 1. an explicit URL passed to the constructor,
+ * 2. EXPO_PUBLIC_SIGNALING_SERVER_URL (statically inlined at bundle time),
+ * 3. the baked-in production relay — EXCEPT on a local dev origin, where
+ *    an unconfigured service still means local mode: a developer running
+ *    the app on localhost keeps the existing behavior (a local dev
+ *    server, or plain local mode) and never lands on the production
+ *    relay by accident.
+ *
+ * Returns null when signaling should be treated as unconfigured
+ * (local mode):
+ * - nothing resolved by the chain above, or
  * - the URL points at loopback but the page is served from a non-loopback
  *   origin (a localhost default leaking into production), or
  * - the URL cannot be parsed at all.
  */
 function resolveSignalingUrl(explicit?: string): string | null {
-  const raw = explicit || getEnvVar('EXPO_PUBLIC_SIGNALING_SERVER_URL');
+  const raw =
+    explicit ||
+    envSignalingUrl() ||
+    (isLocalPageOrigin() ? undefined : PROD_SIGNALING_URL);
   if (!raw) return null;
 
   let host: string | null = null;
@@ -111,6 +158,15 @@ export class SignalingService {
   /** True when a remote signaling server is actually configured. */
   hasServerUrl(): boolean {
     return this.url !== null;
+  }
+
+  /**
+   * The resolved signaling URL, or null when in local mode. Surfaced in
+   * the ?diag=1 telemetry panel (Hotfix 1.6) so a "stuck in local mode"
+   * report shows exactly what resolution produced.
+   */
+  getServerUrl(): string | null {
+    return this.url;
   }
 
   getState(): SignalingConnectionState {
