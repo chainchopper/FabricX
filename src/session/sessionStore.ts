@@ -255,13 +255,13 @@ export function requestStopHosting(): void {
 
 /**
  * Window event: a saved composition's "Share live" was tapped in
- * Studio. Detail: { name: string }. The Fabric menu listens, makes
- * sure a hosted session exists, opens itself on the SHARE section,
- * and shows the invite link. Playback honesty: Studio's saved list is
- * still demo data (no persisted Pattern per entry yet), so this event
- * carries identity only — the menu states the playback follow-up
- * plainly instead of pretending to play something that doesn't
- * exist. Real patterns composed this session share live through
- * FABRIC_PLAY_PATTERN_EVENT instead (see PatternComposer).
+ * Studio. Detail: { name: string, id: string }. The Fabric menu
+ * listens, makes sure a hosted session exists, opens itself on the
+ * SHARE section, and shows the invite link. Since Slice 8 the saved
+ * list is the real compositions store (fabric_compositions_v1), so
+ * the menu resolves the id to its persisted Pattern and plays it
+ * into the room through FABRIC_PLAY_PATTERN_EVENT (see
+ * PatternComposer) — the event itself stays identity-only and the
+ * store remains the single source of the pattern data.
  */
 export const FABRIC_SHARE_LIVE_EVENT = "fabric:share-live";
