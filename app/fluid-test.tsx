@@ -5,7 +5,7 @@ import FabricDiagnostics from "./components/FabricDiagnostics";
 
 export default function FluidTest() {
   return (
-    <View style={{ flex: 1, backgroundColor: "transparent" }}>
+    <View pointerEvents="auto" style={{ flex: 1, backgroundColor: "transparent" }}>
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         <Text style={{ color: "white", textAlign: "center", paddingHorizontal: 16 }}>
           {Platform.OS === "web"
