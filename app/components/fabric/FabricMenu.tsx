@@ -30,6 +30,7 @@ import {
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { colors, radius, spacing, type as typeScale } from "../../../src/theme/tokens";
@@ -57,11 +58,18 @@ import {
   requestHostSession,
   requestPassControl,
   requestStopHosting,
-  shortPeerId,
   subscribeSessionState,
   type SessionMode,
   type SessionPublicState,
 } from "../../../src/session/sessionStore";
+import {
+  displayNameFor,
+  hueCss,
+} from "../../../src/identity/identityStore";
+import {
+  useIdentitySnapshot,
+  useLocalIdentity,
+} from "../../../src/identity/useIdentity";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
 import BackgroundControls from "../controls/BackgroundControls";
@@ -197,6 +205,16 @@ export default function FabricMenu() {
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => subscribeSessionState(setSession), []);
+
+  // ---- Who's Who (Slice 6) ---------------------------------------
+  // Participant identity: the snapshot carries my own face (once the
+  // store has loaded/generated it) and every peer face learned from
+  // announces and interaction stamps. The roster and every peer
+  // label below read names/colors from here — the session store
+  // still owns roles and enforcement; identity owns who's who.
+  const identity = useIdentitySnapshot();
+  const localIdentity = useLocalIdentity();
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
 
   const pickedModeRef = useRef(pickedMode);
   pickedModeRef.current = pickedMode;
@@ -550,6 +568,67 @@ export default function FabricMenu() {
           {session.hostId ? ` · ${SESSION_MODE_LABEL[session.mode]} session` : " · open room"}
         </Text>
 
+        {/* Who's Who roster (Slice 6): everyone in the room by name
+            and signature color — you first, then each known guest.
+            Roles ride the session state; faces ride the identity
+            store. A peer whose card hasn't landed yet keeps their
+            short id and a grey dot — a person is never a blank row. */}
+        {session.guestIds.length > 0 ? (
+          <View style={{ marginBottom: spacing.sm, gap: 4 }}>
+            {[session.selfId, ...session.guestIds.filter((g) => g !== session.selfId)].map(
+              (pid) => {
+                const isSelf = pid === session.selfId;
+                const hue = isSelf
+                  ? identity.self?.hue
+                  : identity.peers[pid]?.hue;
+                const tag = isSelf
+                  ? session.role === "host"
+                    ? "you · host"
+                    : session.driverId === pid
+                      ? "you · driving"
+                      : "you"
+                  : pid === session.hostId
+                    ? "host"
+                    : pid === session.driverId
+                      ? "driving"
+                      : session.hostId
+                        ? "guest"
+                        : "here";
+                return (
+                  <View
+                    key={pid}
+                    style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                  >
+                    <View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor:
+                          typeof hue === "number" ? hueCss(hue) : colors.textDim,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: typeScale.body,
+                        fontWeight: isSelf ? "700" : "400",
+                      }}
+                    >
+                      {isSelf
+                        ? (identity.self?.name ?? "you")
+                        : displayNameFor(pid, session.selfId)}
+                    </Text>
+                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                      {tag}
+                    </Text>
+                  </View>
+                );
+              }
+            )}
+          </View>
+        ) : null}
+
         {shareNotice ? (
           <View
             style={{
@@ -594,7 +673,7 @@ export default function FabricMenu() {
                       Driver:{" "}
                       {session.driverId === session.selfId || session.role !== "host"
                         ? "you"
-                        : shortPeerId(session.driverId)}
+                        : displayNameFor(session.driverId, session.selfId)}
                     </Text>
                     {session.guestIds.length === 0 ? (
                       <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
@@ -614,9 +693,21 @@ export default function FabricMenu() {
                               paddingVertical: 6,
                             }}
                           >
-                            <Text style={{ color: colors.text, fontSize: typeScale.body }}>
-                              {shortPeerId(gid)}
-                            </Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                              <View
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: 5,
+                                  backgroundColor: identity.peers[gid]
+                                    ? hueCss(identity.peers[gid].hue)
+                                    : colors.textDim,
+                                }}
+                              />
+                              <Text style={{ color: colors.text, fontSize: typeScale.body }}>
+                                {displayNameFor(gid, session.selfId)}
+                              </Text>
+                            </View>
                             {driving ? (
                               <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
                                 Driving
@@ -738,7 +829,7 @@ export default function FabricMenu() {
                   : session.mode === "control"
                     ? driving
                       ? "You're driving — the whole room feels your touches."
-                      : `${shortPeerId(session.driverId)} is driving. Your touches stay on your screen until the brush comes to you.`
+                      : `${displayNameFor(session.driverId, session.selfId)} is driving. Your touches stay on your screen until the brush comes to you.`
                     : "Everyone draws on the shared canvas here.";
             return (
               <View>
@@ -753,7 +844,7 @@ export default function FabricMenu() {
                   }}
                 >
                   <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-                    {SESSION_MODE_LABEL[session.mode]} · hosted by {shortPeerId(session.hostId)}
+                    {SESSION_MODE_LABEL[session.mode]} · hosted by {displayNameFor(session.hostId, session.selfId)}
                   </Text>
                   <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
                     {guestLine}
@@ -944,8 +1035,92 @@ export default function FabricMenu() {
           </Pressable>
         </View>
 
-        {/* Identity — the ghost IS the v0 LifePacket: a persistent,
-            device-bound identity (name + signature hue + seed). */}
+        {/* You (Slice 6) — the human LifePacket v0: the name and
+            signature hue the room sees and hears. Your color tints
+            your strokes on every screen; your stroke sound is
+            pitched by it. Editing announces the new face to the
+            room immediately. Only name + color ever leave this
+            device — the seed stays home. */}
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: colors.accentLine,
+            borderRadius: radius.card,
+            padding: spacing.md,
+            marginBottom: spacing.sm,
+            gap: 4,
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+            You are {identity.self ? identity.self.name : "…"}
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <View
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 6,
+                backgroundColor: identity.self
+                  ? hueCss(identity.self.hue)
+                  : colors.textDim,
+              }}
+            />
+            <Text style={{ flex: 1, color: colors.textDim, fontSize: typeScale.caption }}>
+              {identity.self
+                ? `Signature color · hue ${identity.self.hue}° — your strokes and your sound`
+                : "Generating your identity…"}
+            </Text>
+            <Pressable
+              pointerEvents="auto"
+              onPress={() => {
+                noteActivity();
+                localIdentity.shuffleHue();
+              }}
+              accessibilityRole="button"
+              style={{ paddingVertical: 4, paddingHorizontal: 8 }}
+            >
+              <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                Shuffle
+              </Text>
+            </Pressable>
+          </View>
+          <TextInput
+            pointerEvents="auto"
+            value={nameDraft ?? identity.self?.name ?? ""}
+            onChangeText={setNameDraft}
+            onEndEditing={() => {
+              if (nameDraft !== null) localIdentity.setName(nameDraft);
+              setNameDraft(null);
+            }}
+            onSubmitEditing={() => {
+              if (nameDraft !== null) localIdentity.setName(nameDraft);
+              setNameDraft(null);
+            }}
+            placeholder="Your name in the room"
+            placeholderTextColor={colors.textDim}
+            maxLength={40}
+            style={{
+              color: colors.text,
+              fontSize: typeScale.body,
+              borderWidth: 1,
+              borderColor: colors.line,
+              borderRadius: radius.card,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              marginTop: spacing.xs,
+            }}
+          />
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+            Shown in the room roster and carried on your strokes.
+            Renaming or re-coloring updates the room live.
+          </Text>
+        </View>
+
+        {/* Identity — the ghost keeps its OWN persistent, device-bound
+            identity (name + signature hue + seed, fabric_ghost_v1).
+            Deriving the ghost from the human packet above is the
+            designed LifePacket step; until then the two faces are
+            parallel, and the ghost is always labeled an agent. */}
         <View
           style={{
             borderWidth: 1,

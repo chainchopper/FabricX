@@ -9,6 +9,14 @@ import {
   type HostIntent,
   type SessionMode,
 } from "../session/sessionStore";
+import {
+  ensureLocalIdentity,
+  notePeerHue,
+  prunePeerIdentities,
+  setPeerIdentity,
+  subscribeIdentity,
+  type ParticipantIdentity,
+} from "../identity/identityStore";
 
 type TransportMsg =
   | { type: "fluid-interaction"; data: FluidInteraction }
@@ -28,7 +36,14 @@ type TransportMsg =
       since: number;
     }
   | { type: "session-request"; from?: string }
-  | { type: "session-clear"; from: string; hostId: string };
+  | { type: "session-clear"; from: string; hostId: string }
+  // Slice 6 identity cards ("Who's Who"). A participant announces
+  // the public face of their LifePacket v0 — name + signature hue;
+  // the seed never leaves the device. Announced on arrival, in reply
+  // to a peer-request, on edit, and on a slow heartbeat while peers
+  // are present. Additive: older clients ignore unknown types.
+  | { type: "peer-announce"; from: string; name: string; hue: number }
+  | { type: "peer-request"; from?: string };
 
 /** How long a BroadcastChannel peer counts as present after last contact. */
 const BC_PEER_TTL_MS = 6000;
@@ -108,6 +123,14 @@ export function useFluidMultiUser(roomId: string) {
   const bcPeersRef = useRef<Map<string, number>>(new Map());
   const [bcPeerIds, setBcPeerIds] = useState<string[]>([]);
 
+  // Slice 6 identity: this client's participant identity (loaded
+  // async from the identity store) and the announce trigger. The ref
+  // indirection is the same late-binding pattern as postRef below —
+  // callbacks defined earlier in this hook must be able to announce
+  // before the announce function itself is defined.
+  const identityRef = useRef<ParticipantIdentity | null>(null);
+  const announceIdentityRef = useRef<() => void>(() => {});
+
   // Slice 5 session state. Despite the legacy name, bcPeersRef is fed
   // from EVERY transport's messages (see noteBcPeer calls in
   // handleTransportMsg), so it doubles as the room's known-human set
@@ -133,6 +156,10 @@ export function useFluidMultiUser(roomId: string) {
       const ids = Array.from(bcPeersRef.current.keys());
       setBcPeerIds(ids);
       setKnownPeerIds(ids);
+      // Slice 6: a face we haven't seen needs our identity card
+      // without waiting for their request or the heartbeat — names
+      // and colors land with the first strokes, not seconds later.
+      announceIdentityRef.current();
     }
   }, [userId]);
 
@@ -213,6 +240,9 @@ export function useFluidMultiUser(roomId: string) {
       setKnownPeerIds((prev) =>
         prev.length === ids.length && prev.every((p, i) => p === ids[i]) ? prev : ids
       );
+      // Slice 6: learned identities expire with presence (the store
+      // applies its own grace TTL for the WebRTC transport flip).
+      prunePeerIdentities(ids);
       // Slice 5: a host that stopped announcing is gone — degrade
       // the room to open collab rather than enforcing a dead session.
       if (
@@ -271,6 +301,56 @@ export function useFluidMultiUser(roomId: string) {
   const postRef = useRef(postViaCurrent);
   postRef.current = postViaCurrent;
 
+  // Slice 6: announce this client's identity card (name + hue) to
+  // the room. No-op until the identity has loaded; the public face
+  // only — the seed never leaves the device.
+  const announceIdentity = useCallback(() => {
+    const id = identityRef.current;
+    if (!id) return;
+    postRef.current({
+      type: "peer-announce",
+      from: userId,
+      name: id.name,
+      hue: id.hue,
+    });
+  }, [userId]);
+  announceIdentityRef.current = announceIdentity;
+
+  // Load the local identity once, keep the ref current, and
+  // re-announce immediately when the user edits their name or hue
+  // in the menu — the room sees the new face with the next stroke.
+  useEffect(() => {
+    void ensureLocalIdentity().then((id) => {
+      identityRef.current = id;
+      // Peers who arrived before the identity finished loading
+      // still get the card now, not at the next heartbeat.
+      if (bcPeersRef.current.size > 0) announceIdentityRef.current();
+    });
+    return subscribeIdentity((snap) => {
+      const prev = identityRef.current;
+      identityRef.current = snap.self;
+      if (
+        snap.self &&
+        prev &&
+        (prev.name !== snap.self.name || prev.hue !== snap.self.hue)
+      ) {
+        announceIdentityRef.current();
+      }
+    });
+  }, []);
+
+  // Identity heartbeat: while anyone is here, re-announce on a slow
+  // cadence so a missed card (a dropped first message, a peer whose
+  // request raced our load) always heals. Steady-state is polite —
+  // the fast paths (arrival, request, edit) carry the experience.
+  const anyoneHere = humanPeers > 0;
+  useEffect(() => {
+    if (!anyoneHere) return;
+    announceIdentity();
+    const id = window.setInterval(announceIdentity, 10_000);
+    return () => window.clearInterval(id);
+  }, [anyoneHere, announceIdentity]);
+
   /** Announce this client's host claim to the room (no-op if not hosting). */
   const announceClaim = useCallback(() => {
     const claim = hostClaimRef.current;
@@ -311,7 +391,25 @@ export function useFluidMultiUser(roomId: string) {
         const data = msg.data;
         if (!data || typeof data.userId !== "string") return;
         noteBcPeer(data.userId);
+        // Slice 6: an interaction's hue stamp teaches the sender's
+        // color (and sound pitch) even before their card arrives.
+        if (typeof data.hue === "number") notePeerHue(data.userId, data.hue);
         acceptRemote(data);
+      } else if (msg.type === "peer-announce") {
+        // Slice 6: a participant's identity card. Validate before
+        // learning — a malformed card is dropped like any bad payload.
+        if (typeof msg.from !== "string" || msg.from === userId) return;
+        if (typeof msg.hue !== "number") return;
+        noteBcPeer(msg.from);
+        setPeerIdentity(msg.from, {
+          name: typeof msg.name === "string" ? msg.name : "",
+          hue: msg.hue,
+        });
+      } else if (msg.type === "peer-request") {
+        // Slice 6: someone (usually a fresh joiner) asks who's who.
+        // Everyone answers with their own card — cheap and complete.
+        noteBcPeer(msg.from);
+        announceIdentityRef.current();
       } else if (msg.type === "fabric-ping") {
         noteBcPeer(msg.from);
         const pong: TransportMsg = { type: "fabric-pong", seq: msg.seq, t: msg.t, from: userId };
@@ -455,14 +553,21 @@ export function useFluidMultiUser(roomId: string) {
     const canSend = webrtc.active || !!bcRef.current;
     if (!canSend) return;
 
-    pingTimerRef.current = window.setInterval(() => {
+    // Slice 6 join latency: the first ping used to wait out the
+    // full 2s interval, so on the BroadcastChannel transport a fresh
+    // tab was invisible to the room (no presence, no session/identity
+    // discovery) until it drew or the first tick landed. Ping once
+    // immediately, then on the steady 2s cadence as before.
+    const sendPing = () => {
       const seq = ++pingSeqRef.current;
       const now = performance.now();
       pendingRef.current.set(seq, now);
       const ping: TransportMsg = { type: "fabric-ping", seq, t: now, from: userId };
       postViaCurrent(ping);
       window.setTimeout(() => pendingRef.current.delete(seq), 5000);
-    }, 2000) as unknown as number;
+    };
+    sendPing();
+    pingTimerRef.current = window.setInterval(sendPing, 2000) as unknown as number;
 
     return () => {
       if (pingTimerRef.current) {
@@ -532,6 +637,9 @@ export function useFluidMultiUser(roomId: string) {
   // Ask the room who hosts it whenever a transport path to peers
   // (re)appears — a host answers with an announce. The heartbeat
   // covers any race this misses within a few seconds.
+  // Slice 6: the same moment asks who's who (peer-request) and
+  // offers our own card (peer-announce), so names and hues resolve
+  // in the same round trip as the session mode.
   const askedKeyRef = useRef("");
   useEffect(() => {
     if (humanPeers <= 0) return;
@@ -539,6 +647,8 @@ export function useFluidMultiUser(roomId: string) {
     if (askedKeyRef.current === key) return;
     askedKeyRef.current = key;
     postRef.current({ type: "session-request", from: userId });
+    postRef.current({ type: "peer-request", from: userId });
+    announceIdentityRef.current();
   }, [roomId, webrtc.active, humanPeers, userId]);
 
   // Self-heal: menu intent says I host this room, but I hold no
@@ -591,6 +701,14 @@ export function useFluidMultiUser(roomId: string) {
         ...interaction,
         userId: fromUserId ?? userId,
         timestamp: Date.now(),
+        // Slice 6: stamp the local human's signature hue on their
+        // own sends (engine input, verbs, pattern steps — everything
+        // that funnels through here as self). Proxy sends under
+        // another id (the ghost) are NOT stamped: a ghost's color
+        // already rides its color field and its voice is its own.
+        ...(!fromUserId && identityRef.current
+          ? { hue: identityRef.current.hue }
+          : {}),
       };
 
       const msg: TransportMsg = { type: "fluid-interaction", data: full };

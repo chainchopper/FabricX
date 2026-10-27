@@ -255,6 +255,19 @@ export class LegacyFluidEngine {
   public localInputEnabled = true;
 
   /**
+   * Slice 6 (Who's Who): the local participant's signature hue
+   * (degrees), or null for the legacy behavior. When set, a fresh
+   * pointer press paints in this hue instead of a random one — your
+   * strokes are recognizably YOUR color on your own screen, and the
+   * color carried by onLocalInteraction (hence broadcast to the
+   * room) matches the hue stamped on the interaction. Ambient
+   * effects (multipleSplats fireworks) keep their random palette —
+   * identity is for hands, not weather. Set by LegacyFluid from the
+   * identity store; null default preserves every prior behavior.
+   */
+  public localHue: number | null = null;
+
+  /**
    * Optional fatal-error observer (Hotfix 1.3). Called once when the
    * frame loop fails persistently and degrades (see update()), so the
    * React wrapper can show the user a notice instead of leaving a
@@ -861,7 +874,15 @@ export class LegacyFluidEngine {
       pointer.prevTexcoordY = pointer.texcoordY;
       pointer.deltaX = 0;
       pointer.deltaY = 0;
-      const c = HSVtoRGB(Math.random(), 1.0, 1.0);
+      // Slice 6: your press, your color — when an identity hue is
+      // set it replaces the random draw, at the same 0.15 dye
+      // intensity, so an identity stroke sits in the fluid exactly
+      // like the strokes it replaces.
+      const hue01 =
+        this.localHue != null
+          ? (((this.localHue % 360) + 360) % 360) / 360
+          : Math.random();
+      const c = HSVtoRGB(hue01, 1.0, 1.0);
       pointer.color = { r: c.r * 0.15, g: c.g * 0.15, b: c.b * 0.15 };
     };
 

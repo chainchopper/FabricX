@@ -38,6 +38,13 @@ import {
   getSignalingService,
   type SignalingConnectionState,
 } from "../../services/SignalingService";
+import {
+  getIdentitySnapshot,
+  getPeerIdentity,
+  subscribeIdentity,
+  tintColorTowardHue,
+  hueDyeColor,
+} from "../../identity/identityStore";
 
 interface LegacyFluidProps {
   /**
@@ -144,6 +151,24 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       }
     });
   }, []);
+
+  // ---- Who's Who (Slice 6) -------------------------------------------
+  // The participant identity drives the engine's pointer color: your
+  // press paints in your signature hue. The subscription also covers
+  // menu edits (a new hue repaints the very next press) and the
+  // identity's async first load. Peer hues are read per-interaction
+  // in the render path below — no state needs to live here.
+  useEffect(() => {
+    return subscribeIdentity((snap) => {
+      if (engineRef.current) {
+        engineRef.current.localHue = snap.self ? snap.self.hue : null;
+      }
+    });
+  }, []);
+  // Per-sender stroke-onset tracking for the peer voice (see the
+  // render path): a participant's sound fires when a stroke STARTS,
+  // not per splat — drawing is continuous, voices are events.
+  const peerStrokeRef = useRef<Map<string, number>>(new Map());
 
   // ---- Ghost (Slice 2) -------------------------------------------------
   // The ghost is a local agent peer with its own peer id
@@ -296,6 +321,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     // Slice 5: honor the current session input gate from birth (a
     // view-only guest who reloads mid-session starts disabled).
     engine.localInputEnabled = sessionRef.current.inputEnabled;
+    // Slice 6: same from-birth honesty for the identity hue (the
+    // subscription above keeps it current from then on).
+    engine.localHue = getIdentitySnapshot().self?.hue ?? null;
     engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       const full = sendRef.current(interaction);
@@ -453,8 +481,39 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       const key = `${i.userId}:${i.timestamp}`;
       if (seenRef.current.has(key)) return;
       seenRef.current.add(key);
-      engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, i.color);
-      if (isGhostPeerId(i.userId)) {
+      const isGhost = isGhostPeerId(i.userId);
+      // Slice 6: a human sender's splats are TINTED by their
+      // signature hue — the stamp on the interaction when present,
+      // else the hue learned from their announce. The tint rotates
+      // the splat's own color part-way toward the hue at its own
+      // intensity (never a flat replace), so a person's strokes are
+      // recognizably theirs while composed patterns keep their art.
+      // Ghost splats are untouched: a ghost's color IS its identity,
+      // already hue-true from its brain.
+      let splatColor = i.color;
+      if (!isGhost) {
+        const hue =
+          typeof i.hue === "number"
+            ? i.hue
+            : getPeerIdentity(i.userId)?.hue;
+        if (typeof hue === "number") {
+          splatColor = i.color
+            ? tintColorTowardHue(i.color, hue)
+            : hueDyeColor(hue);
+          // The peer voice: fire on stroke onset (first splat after
+          // a quiet gap from this sender), pitched by their hue.
+          // Verbs keep their own dedicated cues below; this is the
+          // sound of a hand arriving on the shared canvas.
+          if (!i.verb) {
+            const now = Date.now();
+            const last = peerStrokeRef.current.get(i.userId) ?? 0;
+            peerStrokeRef.current.set(i.userId, now);
+            if (now - last > 700) sfxRef.current.playPeer(hue);
+          }
+        }
+      }
+      engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, splatColor);
+      if (isGhost) {
         setGhostPublicState({ sessionGhostLastSeenAt: Date.now() });
         // Other ghosts feed the brain's social perception; the brain
         // itself ignores this client's own ghost id here.
@@ -524,7 +583,14 @@ fps     ${diagStats.fps} (engine loop) · dpr ${diagStats.dpr} · rung ${diagSta
 input   ${diagStats.inputEvents} events → ${diagStats.pointerSplats} local splats
 api     ${diagStats.apiSplats} remote/ghost splats
 error   ${diagStats.lastError ?? "—"}
-signal  ${diagSig ? `${diagSig.state} · ${diagSig.url ?? "none"}` : "…"}`}
+signal  ${diagSig ? `${diagSig.state} · ${diagSig.url ?? "none"}` : "…"}
+who     ${(() => {
+            const snap = getIdentitySnapshot();
+            const named = Object.values(snap.peers)
+              .map((p) => `${p.name || "?"}·${p.hue}°`)
+              .join(", ");
+            return `you ${snap.self ? `${snap.self.name}·${snap.self.hue}°` : "…"}${named ? ` | peers ${named}` : ""}`;
+          })()}`}
         </div>
       ) : null}
       {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled

@@ -29,4 +29,14 @@ export interface FluidInteraction {
    * compatible with existing transports and payloads.
    */
   verb?: string;
+  /**
+   * Slice 6 ("Who's Who"): the sender's signature hue (degrees,
+   * 0–359) from their persisted participant identity
+   * (src/identity/identityStore). Stamped by sendInteraction on the
+   * local human's own sends only — ghosts and pattern machinery keep
+   * their own color logic. Receivers tint the splat toward this hue
+   * and pitch the sender's stroke sound by it. Optional and additive:
+   * older clients neither send nor require it.
+   */
+  hue?: number;
 }
