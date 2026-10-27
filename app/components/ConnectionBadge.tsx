@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text } from "react-native";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../shared/utils/realtimeStatus";
 import { useToast } from "./Toast";
+import { colors, radius, spacing, type } from "../../src/theme/tokens";
 
 const RETRY_SECONDS = 8;
 
@@ -97,26 +98,34 @@ export default function ConnectionBadge() {
       onPress={reannounce}
       style={{
         position: "absolute",
-        top: 12,
-        right: 12,
+        // Slice 3: the top-right corner belongs to the HUD menu button;
+        // this chip sits quietly beneath it as connection detail.
+        top: 64,
+        right: spacing.md,
         zIndex: 60,
-        backgroundColor: warn ? "rgba(234,179,8,0.18)" : "rgba(2,8,23,0.6)",
-        borderColor: warn ? "rgba(234,179,8,0.6)" : "rgba(34,211,238,0.45)",
+        backgroundColor: warn ? "rgba(234,179,8,0.18)" : colors.panel,
+        borderColor: warn ? "rgba(234,179,8,0.6)" : colors.line,
         borderWidth: 1,
-        borderRadius: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
+        borderRadius: radius.card,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
         minWidth: 116,
         alignItems: "flex-end",
       }}
     >
-      <Text style={{ color: warn ? "#fbbf24" : "#e5e7eb", fontWeight: "800" }}>
+      <Text
+        style={{
+          color: warn ? "#fbbf24" : colors.text,
+          fontWeight: type.semibold,
+          fontSize: type.body,
+        }}
+      >
         {headline}
       </Text>
-      <Text style={{ color: warn ? "#fde68a" : "#93c5fd", fontSize: 11 }}>
+      <Text style={{ color: warn ? "#fde68a" : colors.textDim, fontSize: type.caption }}>
         {latency}
       </Text>
-      <Text style={{ color: warn ? "#fde68a" : "#9ca3af", fontSize: 10, marginTop: 2 }}>
+      <Text style={{ color: warn ? "#fde68a" : colors.textDim, fontSize: type.caption, marginTop: 2 }}>
         {subline}
       </Text>
     </Pressable>
