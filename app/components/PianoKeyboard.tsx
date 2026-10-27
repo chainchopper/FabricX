@@ -1,6 +1,8 @@
-import React, { useCallback, useMemo, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, Text, View } from "react-native";
 import { noteBus } from "../../shared/utils/noteBus";
+import { useRemoteNotes, useVirtualNotes } from "../../src/hooks/useVirtualNotes";
+import { unlockAudio } from "../../src/audio/sharedAudio";
 import { colors, spacing } from "../../src/theme/tokens";
 import { useHaptics } from "../hooks/useHaptics";
 
@@ -37,6 +39,44 @@ import { useHaptics } from "../hooks/useHaptics";
  * Range: C3–C5 (two octaves + top C), matching the 3D scene's
  * START_OCTAVE so on-screen and 3D keys name the same notes.
  *
+ * ---- Hotfix 1.8: the input model is a pointer-tracking surface ----
+ *
+ * Terrell's field report on the merged build: "I can't press multiple
+ * keys at once." He was right, structurally: each key was its own
+ * Pressable, and a Pressable owns the responder chain for its touch —
+ * the first finger down captured the surface's one responder, so a
+ * second finger (or a slide) had nothing to land on. Chords were
+ * impossible by construction.
+ *
+ * The keys are paint now. ALL input is handled by ONE surface — the
+ * keys container — with DOM pointer listeners attached directly to
+ * its element, the same pattern the fluid engine uses for the canvas:
+ *
+ *   pointerdown  -> hit-test (x, y) to a key, remember pointerId->note
+ *   pointermove  -> re-hit-test THAT pointer; a changed key is a
+ *                   glissando (off the old, on the new), per pointer
+ *   pointerup / pointercancel / lostpointercapture -> release
+ *
+ * Pointer capture is taken per pointerId, so simultaneous fingers
+ * are independent voices: two thumbs play a real chord, and each
+ * finger can slide its own line. A note sounds until its LAST holder
+ * releases it. Sliding off the surface releases; sliding back on
+ * while still down re-presses.
+ *
+ * Key visuals are driven from the merged active-notes state: this
+ * surface's local pointers, plus the noteBus folds (useVirtualNotes
+ * for local surfaces like the 3D scene, useRemoteNotes for peers) —
+ * so a peer's held chord lights up on your keyboard too.
+ *
+ * The surface's pointerdown also calls unlockAudio() FIRST,
+ * synchronously inside the gesture: iOS only resumes an AudioContext
+ * from a real gesture call stack, and a key press must be able to
+ * wake the shared context by itself (see src/audio/sharedAudio).
+ * And the surface carries the no-callout styles inline (touchAction /
+ * userSelect / -webkit-touch-callout) as belt-and-suspenders at the
+ * exact touch target, on top of webShell's bundle-injected global
+ * rules — PR #21's index.html copy of those rules never shipped.
+ *
  * Powered by Nirvana
  */
 
@@ -55,6 +95,20 @@ const KEYBOARD_VELOCITY = 0.8;
 const WHITE_HEIGHT = 108;
 const BLACK_HEIGHT = 64;
 const BLACK_WIDTH = 22;
+// A held pointer may stray this far past the surface edge (it has
+// pointer capture, so it keeps reporting) before it counts as
+// "slid off" and releases its note.
+const EDGE_SLACK_PX = 10;
+
+// Web-only anti-callout styles, spread into the surface and root.
+// (The durable fix is webShell's injected stylesheet — these are
+// the suspenders at the exact touch targets.)
+const NO_CALLOUT: Record<string, string> = {
+  touchAction: "none",
+  userSelect: "none",
+  WebkitUserSelect: "none",
+  WebkitTouchCallout: "none",
+};
 
 interface WhiteKey {
   note: string;
@@ -83,45 +137,164 @@ function buildKeys(): { whites: WhiteKey[]; blacks: BlackKey[] } {
 }
 
 export default function PianoKeyboard() {
-  const [pressed, setPressed] = useState<Set<string>>(new Set());
+  const [localPressed, setLocalPressed] = useState<Set<string>>(new Set());
   const haptics = useHaptics();
   const { whites, blacks } = useMemo(buildKeys, []);
   const whiteCount = whites.length;
+  // NoteBus folds for the visuals: local surfaces (this keyboard's
+  // own notes come back through here too, alongside the 3D scene)
+  // and remote peers' held notes.
+  const virtual = useVirtualNotes();
+  const remote = useRemoteNotes();
 
-  const press = useCallback(
-    (note: string) => {
-      setPressed((prev) => {
-        if (prev.has(note)) return prev;
-        const next = new Set(prev);
-        next.add(note);
-        return next;
-      });
-      noteBus.emitNoteOn(note, KEYBOARD_VELOCITY);
-      haptics.impactLight();
-    },
-    [haptics]
-  );
+  const surfaceRef = useRef<View | null>(null);
+  // pointerId -> note for every finger/mouse currently down.
+  const pointersRef = useRef<Map<number, string>>(new Map());
+  // useHaptics returns a fresh object every render; the input effect
+  // must not depend on it (a re-run would tear down the listeners
+  // AND release held notes mid-chord). Read it through a ref.
+  const hapticsRef = useRef(haptics);
+  hapticsRef.current = haptics;
 
-  const release = useCallback((note: string) => {
-    setPressed((prev) => {
-      if (!prev.has(note)) return prev;
-      const next = new Set(prev);
-      next.delete(note);
-      return next;
-    });
-    noteBus.emitNoteOff(note);
+  const syncLocal = useCallback(() => {
+    setLocalPressed(new Set(pointersRef.current.values()));
   }, []);
 
+  const holdersOf = useCallback((note: string): number => {
+    let n = 0;
+    pointersRef.current.forEach((v) => {
+      if (v === note) n += 1;
+    });
+    return n;
+  }, []);
+
+  // Hit-test a client point against the keybed geometry. Black keys
+  // win the strip they occupy (y <= BLACK_HEIGHT); everything else
+  // is the white key under x. Returns null off the surface.
+  const noteAt = useCallback(
+    (clientX: number, clientY: number): string | null => {
+      const el = surfaceRef.current as unknown as HTMLElement | null;
+      if (!el || typeof el.getBoundingClientRect !== "function") return null;
+      const rect = el.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      if (x < -EDGE_SLACK_PX || x > rect.width + EDGE_SLACK_PX) return null;
+      if (y < -EDGE_SLACK_PX || y > rect.height + EDGE_SLACK_PX) return null;
+      const whiteW = rect.width / whiteCount;
+      if (y <= BLACK_HEIGHT) {
+        for (const b of blacks) {
+          const cx = (b.afterWhiteIndex + 1) * whiteW;
+          if (Math.abs(x - cx) <= BLACK_WIDTH / 2) return b.note;
+        }
+      }
+      const idx = Math.max(
+        0,
+        Math.min(whiteCount - 1, Math.floor(x / whiteW))
+      );
+      return whites[idx].note;
+    },
+    [blacks, whites, whiteCount]
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = surfaceRef.current as unknown as HTMLElement | null;
+    if (!el || typeof el.addEventListener !== "function") return;
+
+    const releasePointer = (pointerId: number) => {
+      const cur = pointersRef.current.get(pointerId);
+      if (cur === undefined) return;
+      pointersRef.current.delete(pointerId);
+      if (holdersOf(cur) === 0) noteBus.emitNoteOff(cur);
+      syncLocal();
+    };
+
+    const onDown = (e: PointerEvent) => {
+      // Primary mouse button / touch / pen contact only.
+      if (typeof e.button === "number" && e.button > 0) return;
+      // Hotfix 1.8: wake the shared audio context FIRST, inside this
+      // gesture's own call stack — iOS grants the resume only here.
+      unlockAudio();
+      const note = noteAt(e.clientX, e.clientY);
+      if (!note) return;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        // Capture is an enhancement; tracking still works without it.
+      }
+      const alreadyHeld = holdersOf(note) > 0;
+      pointersRef.current.set(e.pointerId, note);
+      if (!alreadyHeld) {
+        noteBus.emitNoteOn(note, KEYBOARD_VELOCITY);
+        hapticsRef.current.impactLight();
+      }
+      syncLocal();
+      e.preventDefault();
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const cur = pointersRef.current.get(e.pointerId);
+      if (cur === undefined) return;
+      const note = noteAt(e.clientX, e.clientY);
+      if (note === cur) return;
+      // Glissando (or slide off the edge): release the old key if
+      // this was its last holder, then press the new one.
+      pointersRef.current.delete(e.pointerId);
+      if (holdersOf(cur) === 0) noteBus.emitNoteOff(cur);
+      if (note) {
+        const alreadyHeld = holdersOf(note) > 0;
+        pointersRef.current.set(e.pointerId, note);
+        if (!alreadyHeld) {
+          noteBus.emitNoteOn(note, KEYBOARD_VELOCITY);
+          hapticsRef.current.impactLight();
+        }
+      }
+      syncLocal();
+    };
+
+    const onUp = (e: PointerEvent) => releasePointer(e.pointerId);
+    const onBlur = () => {
+      // Never leave a note hanging because the window lost focus.
+      const held = Array.from(new Set(pointersRef.current.values()));
+      pointersRef.current.clear();
+      held.forEach((n) => noteBus.emitNoteOff(n));
+      syncLocal();
+    };
+
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+    el.addEventListener("lostpointercapture", onUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+      el.removeEventListener("lostpointercapture", onUp);
+      window.removeEventListener("blur", onBlur);
+      onBlur();
+    };
+  }, [noteAt, holdersOf, syncLocal]);
+
   if (Platform.OS !== "web") return null;
+
+  const pressed = new Set<string>([
+    ...localPressed,
+    ...virtual.activeNotes,
+    ...remote.activeNotes,
+  ]);
 
   return (
     <View
       pointerEvents="box-none"
-      // touchAction none (web): holding or sliding across keys is a
-      // performance gesture — the browser must never reinterpret it
-      // as scroll/zoom (Hotfix 1.7, alongside the index.html callout
-      // rules that stop the long-press selection popover).
-      style={{ width: 560, maxWidth: "100%", marginTop: spacing.sm, touchAction: "none" }}
+      style={{
+        width: 560,
+        maxWidth: "100%",
+        marginTop: spacing.sm,
+        ...NO_CALLOUT,
+      }}
     >
       <Text
         style={{
@@ -134,17 +307,25 @@ export default function PianoKeyboard() {
       >
         PIANO — NOTES STREAM INTO THE FABRIC
       </Text>
-      <View style={{ position: "relative", flexDirection: "row", height: WHITE_HEIGHT, width: "100%" }}>
+      {/* THE input surface (Hotfix 1.8): one pointer-tracking element
+          owns every touch; the keys below are pointerEvents="none"
+          paint, lit from the merged active-notes state. */}
+      <View
+        ref={surfaceRef}
+        style={{
+          position: "relative",
+          flexDirection: "row",
+          height: WHITE_HEIGHT,
+          width: "100%",
+          ...NO_CALLOUT,
+        }}
+      >
         {whites.map((k) => {
           const isPressed = pressed.has(k.note);
           return (
-            <Pressable
+            <View
               key={k.note}
-              pointerEvents="auto"
-              accessibilityRole="button"
-              accessibilityLabel={`Piano key ${k.note}`}
-              onPressIn={() => press(k.note)}
-              onPressOut={() => release(k.note)}
+              pointerEvents="none"
               style={{
                 flex: 1,
                 marginHorizontal: 1,
@@ -155,22 +336,19 @@ export default function PianoKeyboard() {
                 justifyContent: "flex-end",
                 alignItems: "center",
                 paddingBottom: 4,
+                ...NO_CALLOUT,
               }}
             >
               <Text style={{ fontSize: 9, color: isPressed ? "#06202b" : "#5b6b7a" }}>{k.note}</Text>
-            </Pressable>
+            </View>
           );
         })}
         {blacks.map((k) => {
           const isPressed = pressed.has(k.note);
           return (
-            <Pressable
+            <View
               key={k.note}
-              pointerEvents="auto"
-              accessibilityRole="button"
-              accessibilityLabel={`Piano key ${k.note}`}
-              onPressIn={() => press(k.note)}
-              onPressOut={() => release(k.note)}
+              pointerEvents="none"
               style={{
                 position: "absolute",
                 top: 0,
@@ -183,6 +361,7 @@ export default function PianoKeyboard() {
                 borderWidth: 1,
                 borderColor: colors.line,
                 backgroundColor: isPressed ? colors.accent : "#141824",
+                ...NO_CALLOUT,
               }}
             />
           );

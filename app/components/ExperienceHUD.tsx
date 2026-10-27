@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Animated, Platform, View, Text } from "react-native";
+import { Animated, Platform, Pressable, View, Text } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useAR } from "../context/ARContext";
 import { useMIDI } from "../../src/hooks/useMIDI";
@@ -18,6 +18,12 @@ import {
 } from "../../src/session/sessionStore";
 import { displayNameFor } from "../../src/identity/identityStore";
 import { useIdentitySnapshot } from "../../src/identity/useIdentity";
+import {
+  audioGestureSeen,
+  subscribeAudioState,
+  unlockAudio,
+  useAudioContextState,
+} from "../../src/audio/sharedAudio";
 
 /**
  * ExperienceHUD — the collapsed state of the F doctrine.
@@ -70,6 +76,13 @@ export default function ExperienceHUD() {
   // line below swap a peer's short id for their name the moment
   // their card lands — the snapshot itself is read via the resolver.
   useIdentitySnapshot();
+  // Hotfix 1.8: shared-audio state for the "Sound on" chip below.
+  const audioState = useAudioContextState();
+  const [gestured, setGestured] = useState<boolean>(() => audioGestureSeen());
+  useEffect(
+    () => subscribeAudioState(() => setGestured(audioGestureSeen())),
+    []
+  );
 
   // Platform const guard is safe; never changes across renders.
   if (Platform.OS !== "web") return null;
@@ -163,6 +176,39 @@ export default function ExperienceHUD() {
             doctrine's home for layer controls. Notes ride the noteBus
             into the same sound + fluid pipeline hardware MIDI uses. */}
         {isARPiano && midiEnabled ? <PianoKeyboard /> : null}
+
+        {/* Hotfix 1.8 "Sound on" chip: shown only when gestures have
+            happened but the shared audio context is STILL suspended
+            (e.g. a synth created its context after the last gesture)
+            — a real button, carrying its own pointerEvents="auto"
+            per the PR #16 rule, whose tap resumes the context inside
+            the tap's own call stack. When the context runs, the chip
+            is gone; if notes then sound on a peer's device but not
+            this one, the remaining suspect is the device channel
+            (iOS hardware mute / ringer routing), not the app — the
+            ?diag=1 panel's `audio` line states the same verdict. */}
+        {gestured && audioState === "suspended" ? (
+          <Pressable
+            pointerEvents="auto"
+            onPress={() => unlockAudio()}
+            accessibilityRole="button"
+            accessibilityLabel="Turn sound on"
+            style={{
+              alignSelf: "center",
+              marginTop: spacing.sm,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.sm,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: colors.line,
+              backgroundColor: colors.accent,
+            }}
+          >
+            <Text style={{ color: "#06202b", fontSize: 12, fontWeight: "800", letterSpacing: 0.5 }}>
+              🔊 SOUND ON
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
         <VerbBar />

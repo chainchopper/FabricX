@@ -38,6 +38,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { usePreferences } from "../../app/context/PreferencesContext";
+import { getSharedAudioContext } from "../audio/sharedAudio";
 
 export type GhostSfxKind =
   | "sniff"
@@ -159,9 +160,22 @@ export function useGhostSfx() {
       }
       return ctxRef.current;
     }
-    const Ctor = getAudioContextCtor();
-    if (!Ctor) return null;
-    ctxRef.current = new Ctor();
+    // Hotfix 1.8: the ghost's voice schedules onto the ONE shared
+    // context (Tone's — see src/audio/sharedAudio), so the root
+    // gesture unlock wakes the ghost along with the notes and the
+    // verb cues. Previously this hook constructed a private
+    // AudioContext with its own unlock fate. The constructor
+    // fallback stays for a world where Tone cannot provide one.
+    ctxRef.current = getSharedAudioContext();
+    if (!ctxRef.current) {
+      const Ctor = getAudioContextCtor();
+      if (!Ctor) return null;
+      try {
+        ctxRef.current = new Ctor();
+      } catch {
+        return null;
+      }
+    }
     return ctxRef.current;
   }, []);
 

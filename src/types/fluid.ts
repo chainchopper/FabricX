@@ -39,4 +39,15 @@ export interface FluidInteraction {
    * older clients neither send nor require it.
    */
   hue?: number;
+  /**
+   * Hotfix 1.8: splat radius multiplier (1 = the engine's standard
+   * radius) for emitters that are not fingers — the piano's note
+   * streams are narrow jets (0.45) from a key-side nozzle, not
+   * full-width touch splats. Receivers pass it to engine.splatAt so
+   * a peer renders the sender's jet with the same geometry the
+   * sender sees; the parameters derive from the interaction itself,
+   * never from receiver-local state. Optional and additive: absent
+   * means 1, and older clients simply render the standard radius.
+   */
+  radiusScale?: number;
 }
