@@ -7,19 +7,21 @@ import { useAudioCues } from "../../hooks/useAudioCues";
 import AISettingsDrawerButton from "./AISettingsDrawerButton";
 import AIChatDrawerButton from "./AIChatDrawerButton";
 import VisionAIDrawerButton from "./VisionAIDrawerButton";
+import SheetHeader from "./SheetHeader";
+import { colors, hit, type } from "../../../src/theme/tokens";
 
 export default function SettingsDrawer() {
-  const { back, getAnim, open } = useNewDrawers();
+  const { back, closeAll, getAnim, open } = useNewDrawers();
   const { tx, width } = getAnim("settings");
   const haptics = useHaptics();
   const audio = useAudioCues();
 
-  const { 
-    iconsAutoHide, 
-    setIconsAutoHide, 
-    iconsAutoHideTimeoutSec, 
-    setIconsAutoHideTimeoutSec, 
-    iconsLockMode, 
+  const {
+    iconsAutoHide,
+    setIconsAutoHide,
+    iconsAutoHideTimeoutSec,
+    setIconsAutoHideTimeoutSec,
+    iconsLockMode,
     setIconsLockMode,
     hapticsEnabled,
     setHapticsEnabled,
@@ -48,29 +50,28 @@ export default function SettingsDrawer() {
         style={{
           position: "absolute",
           top: 0, bottom: 0, left: 0, width,
-          backgroundColor: "rgba(6,10,22,0.96)",
-          borderRightColor: "rgba(34,211,238,0.35)",
+          backgroundColor: colors.sheet,
+          borderRightColor: colors.line,
           borderRightWidth: 1,
           paddingTop: 56,
           paddingHorizontal: 16,
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-          <Pressable onPress={handleBack} style={{ paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: "rgba(148,163,184,0.35)", marginRight: 8 }}>
-            <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>← Back</Text>
-          </Pressable>
-          <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Settings</Text>
-        </View>
-        <Text style={{ color: "#93c5fd", marginBottom: 12 }}>Global preferences and configuration.</Text>
+        <SheetHeader
+          title="Settings"
+          subtitle="Global preferences and configuration."
+          onBack={handleBack}
+          onClose={closeAll}
+        />
 
-        <ScrollView 
+        <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 80, gap: 16 }}
         >
-          {/* AI Services Quick Access */}
+          {/* AI — services */}
           <View>
-            <Text style={{ color: "#e5e7eb", fontWeight: "700", marginBottom: 8, fontSize: 14 }}>
-              AI Services
+            <Text style={{ color: colors.text, fontWeight: type.semibold, marginBottom: 8, fontSize: type.body }}>
+              AI — Services
             </Text>
             <View style={{ gap: 8 }}>
               <AISettingsDrawerButton />
@@ -79,10 +80,10 @@ export default function SettingsDrawer() {
             </View>
           </View>
 
-          {/* Audio & Haptics */}
+          {/* Feel — haptics & audio */}
           <View>
-            <Text style={{ color: "#e5e7eb", fontWeight: "700", marginBottom: 8, fontSize: 14 }}>
-              Audio & Haptics
+            <Text style={{ color: colors.text, fontWeight: type.semibold, marginBottom: 8, fontSize: type.body }}>
+              Feel — Haptics & Audio
             </Text>
             <View style={{ gap: 8 }}>
               <Pressable
@@ -90,15 +91,17 @@ export default function SettingsDrawer() {
                   setHapticsEnabled(!hapticsEnabled);
                   if (!hapticsEnabled) haptics.impactLight();
                 }}
-                style={{ 
-                  borderWidth: 1, 
-                  borderColor: hapticsEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)", 
-                  borderRadius: 10, 
-                  paddingVertical: 8, 
-                  paddingHorizontal: 12 
+                style={{
+                  borderWidth: 1,
+                  borderColor: hapticsEnabled ? colors.accent : colors.line,
+                  borderRadius: 10,
+                  minHeight: hit,
+                  justifyContent: "center",
+                  paddingVertical: 8,
+                  paddingHorizontal: 12
                 }}
               >
-                <Text style={{ color: hapticsEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                <Text style={{ color: hapticsEnabled ? colors.accent : colors.text, fontWeight: type.semibold }}>
                   Haptics: {hapticsEnabled ? "On" : "Off"}
                 </Text>
               </Pressable>
@@ -108,24 +111,27 @@ export default function SettingsDrawer() {
                   setAudioEnabled(!audioEnabled);
                   haptics.impactLight();
                 }}
-                style={{ 
-                  borderWidth: 1, 
-                  borderColor: audioEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)", 
-                  borderRadius: 10, 
-                  paddingVertical: 8, 
-                  paddingHorizontal: 12 
+                style={{
+                  borderWidth: 1,
+                  borderColor: audioEnabled ? colors.accent : colors.line,
+                  borderRadius: 10,
+                  minHeight: hit,
+                  justifyContent: "center",
+                  paddingVertical: 8,
+                  paddingHorizontal: 12
                 }}
               >
-                <Text style={{ color: audioEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                <Text style={{ color: audioEnabled ? colors.accent : colors.text, fontWeight: type.semibold }}>
                   Audio Cues: {audioEnabled ? "On" : "Off"}
                 </Text>
               </Pressable>
             </View>
           </View>
 
-          {/* Icon Behavior */}
+          {/* Icon Behavior (drives the retired edge rail's slide state;
+              kept for compatibility — see Slice 3 PR notes) */}
           <View>
-            <Text style={{ color: "#e5e7eb", fontWeight: "700", marginBottom: 8, fontSize: 14 }}>
+            <Text style={{ color: colors.text, fontWeight: type.semibold, marginBottom: 8, fontSize: type.body }}>
               Menu Icon Behavior
             </Text>
             <View style={{ gap: 8 }}>
@@ -135,15 +141,17 @@ export default function SettingsDrawer() {
                   haptics.impactLight();
                   audio.click();
                 }}
-                style={{ 
-                  borderWidth: 1, 
-                  borderColor: iconsAutoHide ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)", 
-                  borderRadius: 10, 
-                  paddingVertical: 8, 
-                  paddingHorizontal: 12 
+                style={{
+                  borderWidth: 1,
+                  borderColor: iconsAutoHide ? colors.accent : colors.line,
+                  borderRadius: 10,
+                  minHeight: hit,
+                  justifyContent: "center",
+                  paddingVertical: 8,
+                  paddingHorizontal: 12
                 }}
               >
-                <Text style={{ color: iconsAutoHide ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+                <Text style={{ color: iconsAutoHide ? colors.accent : colors.text, fontWeight: type.semibold }}>
                   Auto-hide Icons: {iconsAutoHide ? "On" : "Off"}
                 </Text>
               </Pressable>
@@ -159,12 +167,12 @@ export default function SettingsDrawer() {
                         haptics.impactLight();
                         audio.click();
                       }}
-                      style={{ 
-                        borderWidth: 1, 
-                        borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)", 
-                        borderRadius: 10, 
-                        paddingVertical: 6, 
-                        paddingHorizontal: 10 
+                      style={{
+                        borderWidth: 1,
+                        borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                        borderRadius: 10,
+                        paddingVertical: 6,
+                        paddingHorizontal: 10
                       }}
                     >
                       <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700" }}>
@@ -186,14 +194,14 @@ export default function SettingsDrawer() {
                         haptics.impactLight();
                         audio.click();
                       }}
-                      style={{ 
+                      style={{
                         flex: 1,
                         minWidth: 100,
-                        borderWidth: 1, 
-                        borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)", 
-                        borderRadius: 10, 
-                        paddingVertical: 6, 
-                        paddingHorizontal: 10 
+                        borderWidth: 1,
+                        borderColor: active ? "rgba(34,211,238,0.85)" : "rgba(148,163,184,0.35)",
+                        borderRadius: 10,
+                        paddingVertical: 6,
+                        paddingHorizontal: 10
                       }}
                     >
                       <Text style={{ color: active ? "#22d3ee" : "#e5e7eb", fontWeight: "700", fontSize: 11 }}>
@@ -208,7 +216,7 @@ export default function SettingsDrawer() {
         </ScrollView>
 
         <View style={{ position: "absolute", bottom: 12, left: 16 }}>
-          <Text style={{ color: "#a3e635", fontSize: 12 }}>Powered by Nirvana</Text>
+          <Text style={{ color: colors.textDim, fontSize: type.caption }}>Powered by Nirvana</Text>
         </View>
       </View>
     </Animated.View>
