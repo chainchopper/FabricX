@@ -65,6 +65,7 @@ export default function ComposeBar() {
     <View pointerEvents="auto" style={{ marginTop: 8, maxWidth: 260 }}>
       <View style={{ flexDirection: "row", gap: 6 }}>
         <TextInput
+          pointerEvents="auto"
           value={prompt}
           onChangeText={setPrompt}
           onSubmitEditing={submit}
@@ -85,6 +86,7 @@ export default function ComposeBar() {
           } as object}
         />
         <Pressable
+          pointerEvents="auto"
           onPress={submit}
           accessibilityRole="button"
           accessibilityLabel="Compose pattern"
@@ -109,6 +111,7 @@ export default function ComposeBar() {
             {`Playing: ${playing}`}
           </Text>
           <Pressable
+            pointerEvents="auto"
             onPress={stop}
             accessibilityRole="button"
             accessibilityLabel="Stop pattern"

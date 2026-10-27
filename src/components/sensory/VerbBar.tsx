@@ -11,8 +11,14 @@ import { FABRIC_VERB_EVENT, SENSORY_VERBS, type SensoryVerb } from "../../sensor
  * send in the canvas means this bar needs no transport plumbing and
  * works unchanged over WebRTC or the BroadcastChannel fallback.
  *
- * Rendered inside ExperienceHUD (whose container is pointerEvents="none"),
- * so this root re-enables pointer events for the buttons only.
+ * Pointer-events note (F-doctrine rebuild): the old HUD root was
+ * pointerEvents="none", and react-native-web compiles that into a CSS
+ * descendant rule (`selector * { pointer-events: none }`) — this bar's
+ * root View re-enabled itself, but the Pressables inside carry the hit
+ * testing and had no value of their own, so fingers never landed. Each
+ * Pressable now carries pointerEvents="auto" itself (compiled to
+ * `auto !important`, immune to ancestor rules), and the bar's mount
+ * chain (see _layout's ChromeLayer) has no "none" ancestor at all.
  *
  * Powered by Nirvana
  */
@@ -26,10 +32,21 @@ export default function VerbBar() {
   };
 
   return (
-    <View pointerEvents="auto" style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+    <View
+      pointerEvents="auto"
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        justifyContent: "center",
+        gap: 6,
+        marginTop: 8,
+        maxWidth: "100%",
+      }}
+    >
       {SENSORY_VERBS.map((verb) => (
         <Pressable
           key={verb.id}
+          pointerEvents="auto"
           onPress={() => send(verb)}
           accessibilityRole="button"
           accessibilityLabel={`Send ${verb.label}`}

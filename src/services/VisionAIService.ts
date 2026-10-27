@@ -1,6 +1,15 @@
 /**
  * VisionAIService - Image analysis and vision AI
- * Supports OpenAI Vision, Google Vision, and custom endpoints
+ *
+ * One model router (UI doctrine 9): every analysis call is served by
+ * the model the user configured in AI Services (fabric_ai_config_v1) —
+ * the on-device default or the cloud endpoint they selected — through
+ * the standard OpenAI-compatible chat-completions shape. The legacy
+ * "google" provider value survives only as a saved-config alias: it
+ * used to hardcode a Google Vision REST call (images:annotate with the
+ * key in the URL) and now routes through the configured model like
+ * every other provider value. See analyzeWithGoogle below.
+ *
  * Powered by Nirvana
  */
 
@@ -147,121 +156,24 @@ export class VisionAIService {
   }
 
   /**
-   * Google Vision analysis
+   * Legacy "google" provider — REROUTED (UI doctrine 9, one model
+   * router). This used to POST a hardcoded Google Vision REST request
+   * (`{endpoint}/images:annotate?key=...`) and parse Google's
+   * label/object/face annotation schema. That wire format is gone:
+   * the call is now served by the configured model (the vision
+   * section of fabric_ai_config_v1 — endpoint, model, key the user
+   * chose) through the same OpenAI-compatible chat-completions path
+   * as every other provider. If a user wants a Google-hosted model,
+   * they point the configured endpoint at it; the app hardcodes no
+   * provider. Structured Google-only extras (labels/objects/faces/
+   * colors arrays) are not synthesized by this path — callers get the
+   * model's description (and any text it reads) instead.
    */
   private async analyzeWithGoogle(
     image: string | Blob,
     prompt?: string
   ): Promise<VisionAnalysisResult> {
-    const endpoint = `${this.config.endpoint}/images:annotate`;
-
-    // Convert to base64 if needed
-    let base64Image: string;
-    if (image instanceof Blob) {
-      const base64 = await this.blobToBase64(image);
-      base64Image = base64.split(",")[1]; // Remove data URL prefix
-    } else if (image.startsWith("data:")) {
-      base64Image = image.split(",")[1];
-    } else {
-      base64Image = image;
-    }
-
-    const requestBody = {
-      requests: [
-        {
-          image: {
-            content: base64Image,
-          },
-          features: [
-            { type: "LABEL_DETECTION", maxResults: 10 },
-            { type: "OBJECT_LOCALIZATION", maxResults: 10 },
-            { type: "TEXT_DETECTION" },
-            { type: "FACE_DETECTION", maxResults: 10 },
-            { type: "IMAGE_PROPERTIES" },
-            { type: "SAFE_SEARCH_DETECTION" },
-          ],
-        },
-      ],
-    };
-
-    console.log("[Vision] Sending request to Google Vision");
-
-    const response = await fetch(`${endpoint}?key=${this.config.apiKey}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error("[Vision] Google Vision error:", error);
-      throw new Error(`Google Vision API error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-    const result = data.responses[0];
-
-    // Parse labels
-    const labels =
-      result.labelAnnotations?.map((l: any) => l.description) || [];
-
-    // Parse objects
-    const objects =
-      result.localizedObjectAnnotations?.map((obj: any) => ({
-        name: obj.name,
-        confidence: obj.score,
-        boundingBox: obj.boundingPoly
-          ? {
-              x: obj.boundingPoly.normalizedVertices[0].x,
-              y: obj.boundingPoly.normalizedVertices[0].y,
-              width:
-                obj.boundingPoly.normalizedVertices[2].x -
-                obj.boundingPoly.normalizedVertices[0].x,
-              height:
-                obj.boundingPoly.normalizedVertices[2].y -
-                obj.boundingPoly.normalizedVertices[0].y,
-            }
-          : undefined,
-      })) || [];
-
-    // Parse text
-    const text = result.textAnnotations?.[0]?.description || undefined;
-
-    // Parse faces
-    const faces =
-      result.faceAnnotations?.map((face: any) => ({
-        confidence: face.detectionConfidence,
-        emotions: {
-          joy: face.joyLikelihood,
-          sorrow: face.sorrowLikelihood,
-          anger: face.angerLikelihood,
-          surprise: face.surpriseLikelihood,
-        },
-      })) || [];
-
-    // Parse dominant colors
-    const colors =
-      result.imagePropertiesAnnotation?.dominantColors?.colors?.map(
-        (c: any) => ({
-          color: `rgb(${c.color.red}, ${c.color.green}, ${c.color.blue})`,
-          percentage: c.pixelFraction * 100,
-        })
-      ) || [];
-
-    // Generate description
-    const description = this.generateDescriptionFromLabels(labels, objects);
-
-    return {
-      description,
-      labels,
-      objects,
-      text,
-      faces,
-      colors,
-      timestamp: Date.now(),
-    };
+    return this.analyzeWithOpenAI(image, prompt);
   }
 
   /**
@@ -285,30 +197,6 @@ export class VisionAIService {
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
-  }
-
-  /**
-   * Generate a description from labels and objects
-   */
-  private generateDescriptionFromLabels(
-    labels: string[],
-    objects: Array<{ name: string; confidence: number }>
-  ): string {
-    if (objects.length > 0) {
-      const topObjects = objects
-        .slice(0, 3)
-        .map((o) => o.name)
-        .join(", ");
-      return `The image contains ${topObjects}. Key features include: ${labels
-        .slice(0, 5)
-        .join(", ")}.`;
-    }
-
-    if (labels.length > 0) {
-      return `The image shows: ${labels.slice(0, 5).join(", ")}.`;
-    }
-
-    return "Image analysis completed.";
   }
 
   /**

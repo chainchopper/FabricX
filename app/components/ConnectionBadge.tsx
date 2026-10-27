@@ -94,6 +94,7 @@ export default function ConnectionBadge() {
 
   return (
     <Pressable
+      pointerEvents="auto"
       onPress={reannounce}
       style={{
         position: "absolute",

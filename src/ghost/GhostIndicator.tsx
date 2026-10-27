@@ -101,6 +101,7 @@ export default function GhostIndicator() {
       style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}
     >
       <Pressable
+        pointerEvents="auto"
         onPress={() =>
           dispatch(FABRIC_GHOST_TOGGLE_EVENT, !ghost.enabled)
         }
@@ -119,6 +120,7 @@ export default function GhostIndicator() {
 
       {showSummon && !roomFull ? (
         <Pressable
+          pointerEvents="auto"
           onPress={() => dispatch(FABRIC_GHOST_SESSION_EVENT, "summon")}
           accessibilityRole="button"
           accessibilityLabel={`Summon your ghost ${name} into the session`}
@@ -145,6 +147,7 @@ export default function GhostIndicator() {
 
       {showDismiss ? (
         <Pressable
+          pointerEvents="auto"
           onPress={() => dispatch(FABRIC_GHOST_SESSION_EVENT, "dismiss")}
           accessibilityRole="button"
           accessibilityLabel={`Dismiss your ghost ${name}`}
