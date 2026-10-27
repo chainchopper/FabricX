@@ -70,6 +70,7 @@ import {
   useIdentitySnapshot,
   useLocalIdentity,
 } from "../../../src/identity/useIdentity";
+import LifePacketCard from "./LifePacketCard";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
 import BackgroundControls from "../controls/BackgroundControls";
@@ -1256,6 +1257,8 @@ export default function FabricMenu() {
             Renaming or re-coloring updates the room live.
           </Text>
         </View>
+
+        <LifePacketCard />
 
         {/* Identity — the ghost keeps its OWN persistent, device-bound
             identity (name + signature hue + seed, fabric_ghost_v1).

@@ -18,8 +18,10 @@
  * accountability, never tracking. The seed — the packet root — stays
  * on this device; only the public face (name + hue) is announced to
  * a room, and only while you are in it. The ghost keeps its own
- * separate identity (fabric_ghost_v1) for now; deriving the ghost
- * from the human packet is the designed next step, not this slice.
+ * identity record (fabric_ghost_v1); since Slice 9 a NEW ghost's
+ * seed derives deterministically from this packet's seed (see
+ * useGhostPeer.deriveGhostIdentity), while ghosts born earlier keep
+ * their stored identity untouched.
  *
  * Module pub/sub like src/session/sessionStore and
  * src/ghost/ghostStore — no prop drilling across the canvas:

@@ -18,6 +18,7 @@ import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { getJSON, setJSON } from "../../utils/storage";
 import { useToast } from "../Toast";
+import GhostBrainRow from "./GhostBrainRow";
 
 const STORAGE_KEY = "fabric_ai_config_v1";
 
@@ -321,6 +322,10 @@ export default function AISettingsDrawer() {
         >
           Configure AI endpoints and API keys
         </Text>
+
+        {/* Ghost brain tier preference (Slice 9) — the routing
+            preference only; see src/ghost/ghostBrainPref. */}
+        <GhostBrainRow />
 
         {/* Section Tabs */}
         <View
