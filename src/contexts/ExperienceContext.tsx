@@ -47,6 +47,10 @@ const builtin: ExperienceLayer[] = [
     version: "1.0.0",
     author: "Fanalogy",
     capabilities: { ...defaultCapabilities, ar: false, camera: false },
+    // Idle contract: the base fluid is ALIVE at idle — it breathes,
+    // drifts, and blooms a little when the room goes quiet, and
+    // yields instantly to anything real (Slice 7, useAmbientLife).
+    idleBehavior: "ambient",
     configDefaults: {
       common: {
         backgroundColor: "#0b1020",

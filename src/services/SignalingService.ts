@@ -320,6 +320,24 @@ export class SignalingService {
   }
 
   /**
+   * Slice 7 (session resilience): a DELIBERATE reconnect — the user
+   * has come back (screen unlocked, tab visible again, network
+   * restored). The passive retry budget (MAX_CONNECT_ATTEMPTS) is
+   * sized for a brief flap; a phone that sat locked while iOS froze
+   * the page can burn all of it without a single attempt being able
+   * to run, after which the service settles into local mode with no
+   * way back short of a reload — the field report behind this slice.
+   * A deliberate return restores the full budget before dialing.
+   * connect() stays idempotent, so calling this while a socket is
+   * live (or an attempt is already in flight) is a safe no-op that
+   * resolves with that attempt.
+   */
+  reconnect(): Promise<boolean> {
+    this.reconnectAttempts = 0;
+    return this.connect();
+  }
+
+  /**
    * Disconnect from the signaling server. Stops any pending retry and
    * prevents the close handler from scheduling a new one.
    */
