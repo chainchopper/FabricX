@@ -3,13 +3,31 @@ import { Platform, View } from "react-native";
 import FabricCanvas from "./FabricCanvas";
 import ExperienceRenderer from "./ExperienceRenderer";
 import ARStatus from "./ARStatus";
-import ExperienceHUD from "./ExperienceHUD";
 import { useOverlays } from "../context/OverlayContext";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { eventBus } from "../../shared/utils/eventBus";
-import ConnectionBadge from "./ConnectionBadge";
 import ConnectionToasts from "./ConnectionToasts";
 import FPSMeter from "./FPSMeter";
+
+/**
+ * Diagnostics gate — same convention as LegacyFluid's Hotfix 1.5
+ * telemetry panel: ?diag=1 in the URL or the fabric_diagnostics_v1
+ * localStorage flag. The FPS meter is a diagnostic, not chrome: under
+ * the F doctrine the resting screen carries no resident counters, so
+ * it renders only in diag mode (the engine's own ?diag=1 panel in
+ * LegacyFluid is untouched).
+ */
+function diagEnabled(): boolean {
+  if (Platform.OS !== "web" || typeof window === "undefined") return false;
+  try {
+    if (new URLSearchParams(window.location.search).get("diag") === "1") {
+      return true;
+    }
+    return window.localStorage.getItem("fabric_diagnostics_v1") === "1";
+  } catch {
+    return false;
+  }
+}
 
 export default function GlobalFabricBackground() {
   const { close } = useOverlays();
@@ -38,10 +56,17 @@ export default function GlobalFabricBackground() {
         }}
       >
         <ExperienceRenderer />
-        <ExperienceHUD />
+        {/* ExperienceHUD and ConnectionBadge are NOT rendered here any
+            more (F-doctrine rebuild). They are interactive, and this
+            branch is the zIndex-0 stacking context under the routes
+            layer — the ancestry that left the old HUD's buttons dead
+            (see the rebuild PR for the full pointer-events trace).
+            They now mount in _layout's ChromeLayer, as direct children
+            of the root view with no pointerEvents="none" ancestor, so
+            their tappability follows from their own props alone. This
+            branch keeps only the canvas and non-interactive status. */}
         <ARStatus />
-        <ConnectionBadge />
-        <FPSMeter />
+        {diagEnabled() ? <FPSMeter /> : null}
         <ConnectionToasts />
       </View>
     );

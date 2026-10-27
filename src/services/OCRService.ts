@@ -1,6 +1,17 @@
 /**
  * OCRService - Optical Character Recognition
- * Supports Tesseract.js (local), Google Vision, and custom endpoints
+ * Supports Tesseract.js (local, the on-device default), Google Vision,
+ * and custom endpoints.
+ *
+ * DOCTRINE 9 STATUS (one model router): the "google" branch below is
+ * a KNOWN, DELIBERATELY UN-REROUTED legacy path — see the marker on
+ * extractWithGoogle. Vision analysis (VisionAIService) was rerouted
+ * through the configured model in the same pass; OCR was not, because
+ * its result contract (word-level bounding boxes + confidences) is
+ * defined by the Google annotate response shape and a chat-model
+ * transcription cannot honor it. It is listed in the F-doctrine
+ * rebuild PR as the one remaining hardcoded provider call.
+ *
  * Powered by Nirvana
  */
 
@@ -187,6 +198,17 @@ export class OCRService {
 
   /**
    * Extract text using Google Vision API
+   *
+   * ⚠ DOCTRINE 9 — LEGACY HARDCODED PROVIDER CALL, LEFT IN PLACE AND
+   * MARKED (F-doctrine rebuild): this is the one call site that does
+   * NOT route through the configured model. Reason it was not rerouted
+   * with VisionAIService: OCRResult's words[] carry per-word bounding
+   * boxes parsed from Google's textAnnotations response; no
+   * configured-model transcription returns that geometry, so a silent
+   * reroute would break the result contract for existing callers.
+   * The on-device default (Tesseract) needs no provider at all; this
+   * branch runs only when a user explicitly selects provider "google"
+   * in AI Services. Removal/reroute is tracked in the rebuild PR.
    */
   private async extractWithGoogle(
     image: string | Blob | HTMLImageElement
@@ -279,7 +301,9 @@ export class OCRService {
   /**
    * Extract text using custom endpoint
    * TODO: Implement actual custom endpoint support with configurable request format
-   * For now, assumes Google Vision-compatible API format
+   * For now, assumes Google Vision-compatible API format — which means
+   * "custom" inherits the doctrine-9 legacy path marked on
+   * extractWithGoogle above (it delegates straight to it).
    */
   private async extractWithCustom(
     image: string | Blob | HTMLImageElement

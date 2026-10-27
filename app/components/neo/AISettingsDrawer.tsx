@@ -73,7 +73,11 @@ const defaultConfig: AIServiceConfig = {
   vision: {
     provider: "none",
     apiKey: "",
-    endpoint: "https://vision.googleapis.com/v1",
+    // Doctrine 9 (one model router): no hardcoded Google Vision
+    // endpoint as the default — the configured model's endpoint is
+    // the user's choice (Meta preset, on-device, or any compatible
+    // base they enter below).
+    endpoint: "",
     model: "gpt-4-vision-preview",
     enabled: false,
   },
@@ -671,7 +675,7 @@ export default function AISettingsDrawer() {
                     <TextInput
                       value={config.vision.endpoint}
                       onChangeText={(text) => updateVision({ endpoint: text })}
-                      placeholder="https://vision.googleapis.com/v1"
+                      placeholder="OpenAI-compatible base (e.g. https://api.meta.ai/v1)"
                       placeholderTextColor="rgba(148,163,184,0.5)"
                       style={{
                         backgroundColor: "rgba(15,23,42,0.7)",

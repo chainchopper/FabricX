@@ -1,5 +1,5 @@
 import React from "react";
-import { Platform, View, Text } from "react-native";
+import { Animated, Platform, View, Text } from "react-native";
 import { useExperience } from "../context/ExperienceContext";
 import { useAR } from "../context/ARContext";
 import { useMIDI } from "../../src/hooks/useMIDI";
@@ -7,15 +7,52 @@ import { getAudioReactive } from "../../src/shared/utils/audioReactive";
 import VerbBar from "../../src/components/sensory/VerbBar";
 import ComposeBar from "../../src/components/sensory/ComposeBar";
 import GhostIndicator from "../../src/ghost/GhostIndicator";
+import { useFabricChrome } from "./fabric/FabricChromeContext";
+import { colors, radius, spacing } from "../../src/theme/tokens";
 
+/**
+ * ExperienceHUD — the collapsed state of the F doctrine.
+ *
+ * Before the rebuild this was a top-left panel that collided with the
+ * rail's 96px logo button (which covered its Heart button), the
+ * connection badge, and the FPS chip — five surfaces fighting for the
+ * same corner. Now the collapsed state is exactly ONE cluster, bottom
+ * center, holding only the loaded layer's own controls:
+ *
+ *   layer label + live status · Heart / Cheer / Tickle · Compose ·
+ *   ghost pill
+ *
+ * in separate rows that can never overlap. Heart is always fully
+ * visible. The whole cluster fades with the chrome after ~4s idle
+ * (FabricChromeContext) and stops receiving touches while faded, so
+ * the canvas is the only thing on screen — touch anywhere restores.
+ *
+ * All wiring is unchanged: VerbBar / ComposeBar / GhostIndicator still
+ * talk to the single persistent canvas through their window events.
+ *
+ * Mount point (the tappability fix): this cluster is rendered by
+ * _layout's ChromeLayer as a direct child of the root view — NOT from
+ * GlobalFabricBackground, whose old root for this panel was
+ * pointerEvents="none". react-native-web compiles a "none" ancestor
+ * into a CSS descendant rule stripping hit-testing from every
+ * descendant without its own explicit value, which is why the old
+ * panel's buttons rendered but never took a tap. Here the ancestry
+ * contains no "none" at all, the wrapper uses box-none (descendants
+ * auto), and each interactive child carries its own
+ * pointerEvents="auto" besides. Width: the cluster is capped at 96%
+ * of the viewport and every row wraps, so nothing is cut off at
+ * phone widths.
+ *
+ * Powered by Nirvana
+ */
 export default function ExperienceHUD() {
-  // Platform const guard is safe; never changes across renders
-  if (Platform.OS !== "web") return null;
-
-  // Call hooks unconditionally and in stable order
   const { state } = useExperience();
   const { isARCameraActive } = useAR();
   const midi = useMIDI();
+  const { idle, chromeOpacity } = useFabricChrome();
+
+  // Platform const guard is safe; never changes across renders.
+  if (Platform.OS !== "web") return null;
 
   const activeExperience = state.activeExperience;
   const experienceConfig = state.experienceConfig;
@@ -28,66 +65,70 @@ export default function ExperienceHUD() {
   const audio = getAudioReactive();
 
   return (
-    <View
-      pointerEvents="none"
+    <Animated.View
+      pointerEvents={idle ? "none" : "box-none"}
       style={{
         position: "absolute",
-        top: 12,
-        left: 12,
+        left: 0,
+        right: 0,
+        bottom: 14,
         zIndex: 60,
-        backgroundColor: "rgba(2,8,23,0.6)",
-        borderColor: "rgba(34,211,238,0.45)",
-        borderWidth: 1,
-        borderRadius: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        minWidth: 160,
+        alignItems: "center",
+        opacity: chromeOpacity,
       }}
     >
-      <Text style={{ color: "#e5e7eb", fontWeight: "800" }}>
-        {activeExperience?.name ?? "—"}
-      </Text>
-      <Text style={{ color: "#93c5fd", fontSize: 11 }}>
-        {activeExperience?.type ?? "no-experience"}
-      </Text>
-      {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
-      <VerbBar />
-      {/* Pattern composer (Slice 4): describe a feeling, Spark composes
-          a pattern the whole session plays. */}
-      <ComposeBar />
-      {/* Ghost AI presence + controls (Slice 2): honest agent indicator
-          with on/off toggle and Summon/Dismiss for shared sessions. */}
-      <GhostIndicator />
-      {isARCameraActive ? (
-        <Text style={{ color: "#34d399", fontSize: 11, marginTop: 2 }}>AR On</Text>
-      ) : null}
-      {isARPiano ? (
-        <Text style={{ color: midiEnabled ? "#34d399" : "#9ca3af", fontSize: 11, marginTop: 2 }}>
-          MIDI {midiEnabled ? "On" : "Off"}{midiEnabled ? ` • ${activeNotes.length} notes` : ""}
-        </Text>
-      ) : null}
-      {audioReactiveEnabled ? (
-        <View style={{ marginTop: 6 }}>
-          <Text style={{ color: "#22d3ee", fontSize: 11, marginBottom: 2 }}>Mic Reactive</Text>
-          <View style={{ width: 140, height: 6, borderRadius: 6, backgroundColor: "rgba(148,163,184,0.35)", overflow: "hidden", marginBottom: 6 }}>
-            <View style={{ width: `${Math.round(Math.min(1, Math.max(0, audio.energy)) * 100)}%`, height: "100%", backgroundColor: "#22d3ee" }} />
-          </View>
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            {[
-              { label: "B", value: audio.bass, color: "#60a5fa" },
-              { label: "M", value: audio.mid, color: "#34d399" },
-              { label: "T", value: audio.treble, color: "#f472b6" },
-            ].map((b) => (
-              <View key={b.label} style={{ alignItems: "center" }}>
-                <View style={{ width: 36, height: 6, borderRadius: 6, backgroundColor: "rgba(148,163,184,0.35)", overflow: "hidden" }}>
-                  <View style={{ width: `${Math.round(Math.min(1, Math.max(0, b.value)) * 100)}%`, height: "100%", backgroundColor: b.color as string }} />
-                </View>
-                <Text style={{ color: "#9ca3af", fontSize: 10, marginTop: 2 }}>{b.label}</Text>
+      <View
+        pointerEvents="box-none"
+        style={{
+          backgroundColor: colors.panel,
+          borderColor: colors.line,
+          borderWidth: 1,
+          borderRadius: radius.sheet,
+          paddingVertical: spacing.sm,
+          paddingHorizontal: spacing.md,
+          maxWidth: "96%",
+          flexShrink: 1,
+          alignItems: "center",
+        }}
+      >
+        {/* Layer label + live status, one quiet line. */}
+        <View
+          pointerEvents="none"
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "center" }}
+        >
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700" }}>
+            {activeExperience?.name ?? "—"}
+          </Text>
+          <Text style={{ color: colors.textDim, fontSize: 11 }}>
+            {activeExperience?.type ?? "no-experience"}
+          </Text>
+          {isARCameraActive ? (
+            <Text style={{ color: "#34d399", fontSize: 11 }}>AR On</Text>
+          ) : null}
+          {isARPiano ? (
+            <Text style={{ color: midiEnabled ? "#34d399" : "#9ca3af", fontSize: 11 }}>
+              MIDI {midiEnabled ? `On · ${activeNotes.length} notes` : "Off"}
+            </Text>
+          ) : null}
+          {audioReactiveEnabled ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={{ color: colors.accent, fontSize: 11 }}>Mic</Text>
+              <View style={{ width: 44, height: 5, borderRadius: 6, backgroundColor: "rgba(148,163,184,0.35)", overflow: "hidden" }}>
+                <View style={{ width: `${Math.round(Math.min(1, Math.max(0, audio.energy)) * 100)}%`, height: "100%", backgroundColor: colors.accent }} />
               </View>
-            ))}
-          </View>
+            </View>
+          ) : null}
         </View>
-      ) : null}
-    </View>
+
+        {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
+        <VerbBar />
+        {/* Pattern composer (Slice 4): describe a feeling, Spark composes
+            a pattern the whole session plays. */}
+        <ComposeBar />
+        {/* Ghost AI presence + controls (Slice 2): honest agent indicator
+            with on/off toggle and Summon/Dismiss for shared sessions. */}
+        <GhostIndicator />
+      </View>
+    </Animated.View>
   );
 }

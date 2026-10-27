@@ -15,25 +15,12 @@ import OverlayRoot from "./components/overlays/OverlayRoot";
 import { UserDrawerProvider } from "./components/UserDrawer";
 import { LockerProvider } from "./components/Locker";
 
-// New Drawers Controller
+// New Drawers Controller — retained as the panel engine behind the one
+// Fabric menu (see FabricMenu). Its left-edge rail of ~14 pulsing
+// buttons is GONE (F doctrine): the buttons are what piled onto the
+// canvas and covered the HUD; the panels themselves now open only
+// from the single menu.
 import { NewDrawersProvider } from "./components/neo/NewDrawersContext";
-
-// New left-edge icons and drawers
-import ProfileDrawerButton from "./components/neo/ProfileDrawerButton";
-import NeoLockerButton from "./components/neo/NeoLockerButton";
-import LayerDrawerButton from "./components/neo/LayerDrawerButton";
-import StudioDrawerButton from "./components/neo/StudioDrawerButton";
-import PluginsDrawerButton from "./components/neo/PluginsDrawerButton";
-import CompanionDrawerButton from "./components/neo/CompanionDrawerButton";
-import ShopDrawerButton from "./components/neo/ShopDrawerButton";
-import CallDrawerButton from "./components/neo/CallDrawerButton";
-import WalletDrawerButton from "./components/neo/WalletDrawerButton";
-import FriendsDrawerButton from "./components/neo/FriendsDrawerButton";
-import SettingsDrawerButton from "./components/neo/SettingsDrawerButton";
-import AISettingsDrawerButton from "./components/neo/AISettingsDrawerButton";
-import AIChatDrawerButton from "./components/neo/AIChatDrawerButton";
-import VisionAIDrawerButton from "./components/neo/VisionAIDrawerButton";
-import VoiceInputButton from "./components/VoiceInputButton";
 
 import ProfileDrawer from "./components/neo/ProfileDrawer";
 import NeoLocker from "./components/neo/NeoLocker";
@@ -49,6 +36,18 @@ import SettingsDrawer from "./components/neo/SettingsDrawer";
 import AISettingsDrawer from "./components/neo/AISettingsDrawer";
 import AIChatDrawer from "./components/neo/AIChatDrawer";
 import VisionAIDrawer from "./components/neo/VisionAIDrawer";
+import VoiceInputButton from "./components/VoiceInputButton";
+
+// F doctrine chrome: one anchor, one menu, per-layer settings mirror.
+import {
+  FabricChromeProvider,
+  useFabricChrome,
+} from "./components/fabric/FabricChromeContext";
+import FabricAnchor from "./components/fabric/FabricAnchor";
+import FabricMenu from "./components/fabric/FabricMenu";
+import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
+import ExperienceHUD from "./components/ExperienceHUD";
+import ConnectionBadge from "./components/ConnectionBadge";
 
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
@@ -74,6 +73,45 @@ const FabricNavTheme = {
   colors: { ...DefaultTheme.colors, background: "transparent" },
 };
 
+/**
+ * The F-doctrine chrome layer: the single F anchor, the one menu, the
+ * per-layer settings mirror, and the voice panel (mounted only when
+ * the menu asks for it — no more permanent floating mic button
+ * cluttering voice/motion layers).
+ *
+ * TAPPABILITY, BY CONSTRUCTION (the field failure this rebuild fixes):
+ * everything interactive in Fabric's chrome — the F anchor, the menu,
+ * the layer-control cluster (ExperienceHUD: verbs, composer, ghost),
+ * and the connection badge — mounts HERE, as direct children of the
+ * root view. Their complete pointer-events ancestry is:
+ *
+ *   RootLayout's root <View> (no pointerEvents prop anywhere)
+ *     -> the chrome element itself (explicit pointerEvents props)
+ *
+ * No ancestor uses pointerEvents="none". That matters because
+ * react-native-web's StyleSheet compiler turns a "none" ancestor into
+ * a CSS descendant rule (`selector * { pointer-events: none }`) that
+ * silently strips hit-testing from every descendant lacking its OWN
+ * explicit pointerEvents value — exactly how the old HUD died inside
+ * GlobalFabricBackground (full trace in the rebuild PR). Here, the
+ * interactive elements additionally carry their own
+ * pointerEvents="auto", which compiles to `auto !important` and
+ * cannot be stripped by any ancestor rule.
+ */
+function ChromeLayer() {
+  const { voiceOpen } = useFabricChrome();
+  return (
+    <>
+      <LayerSettingsMirror />
+      <ExperienceHUD />
+      <ConnectionBadge />
+      <FabricAnchor />
+      <FabricMenu />
+      {voiceOpen ? <VoiceInputButton /> : null}
+    </>
+  );
+}
+
 export default function RootLayout() {
   return (
     <ToastProvider>
@@ -85,68 +123,62 @@ export default function RootLayout() {
                 <UserDrawerProvider>
                   <LockerProvider>
                     <NewDrawersProvider>
-                      {/* Sanitize console errors to prevent Metro's <anonymous> ENOENT spam */}
-                      <LogboxSanitizer />
-                      <View style={{ flex: 1 }}>
-                        {/* Fabric is the main event: persistent and always-on */}
-                        <GlobalFabricBackground />
+                      <FabricChromeProvider>
+                        {/* Sanitize console errors to prevent Metro's <anonymous> ENOENT spam */}
+                        <LogboxSanitizer />
+                        <View style={{ flex: 1 }}>
+                          {/* Fabric is the main event: persistent and always-on.
+                              Single-canvas authority: this branch mounts once
+                              and chrome state (menu, idle fade) never remounts it. */}
+                          <GlobalFabricBackground />
 
-                        {/* Foreground routes. Hotfix 1.3 (web): this
-                            wrapper used to cover the whole screen above
-                            the global canvas (zIndex 0) with default
-                            hit-testing, so every touch landed here and
-                            the canvas engine's own listeners never
-                            fired — no drawable canvas, anywhere. Pass
-                            touches through on web; each real page screen
-                            re-enables "auto" on its root (the house
-                            pattern: ExperienceHUD is "none" with "auto"
-                            controls). Native keeps default behavior —
-                            its input lives in the background layer's
-                            FabricCanvas responder, not under this stack. */}
-                        <View
-                          pointerEvents={Platform.OS === "web" ? "none" : "auto"}
-                          style={{ flex: 1, zIndex: 10 }}
-                        >
-                          <ThemeProvider value={FabricNavTheme}>
-                            <Stack screenOptions={{ headerShown: false }} />
-                          </ThemeProvider>
+                          {/* Foreground routes. Hotfix 1.3 (web): this
+                              wrapper used to cover the whole screen above
+                              the global canvas (zIndex 0) with default
+                              hit-testing, so every touch landed here and
+                              the canvas engine's own listeners never
+                              fired — no drawable canvas, anywhere. Pass
+                              touches through on web; each real page screen
+                              re-enables "auto" on its root (the house
+                              pattern: ExperienceHUD is "none" with "auto"
+                              controls). Native keeps default behavior —
+                              its input lives in the background layer's
+                              FabricCanvas responder, not under this stack. */}
+                          <View
+                            pointerEvents={Platform.OS === "web" ? "none" : "auto"}
+                            style={{ flex: 1, zIndex: 10 }}
+                          >
+                            <ThemeProvider value={FabricNavTheme}>
+                              <Stack screenOptions={{ headerShown: false }} />
+                            </ThemeProvider>
+                          </View>
+
+                          {/* Overlays (highest layer) */}
+                          <OverlayRoot />
+
+                          {/* Panels — opened ONLY from the Fabric menu
+                              (ChromeLayer below). The legacy left-edge
+                              rail buttons that used to live here are
+                              stripped: one F anchor replaces all of them. */}
+                          <NeoLocker />
+                          <LayerDrawer />
+                          <ProfileDrawer />
+                          <StudioDrawer />
+                          <PluginsDrawer />
+                          <CompanionDrawer />
+                          <ShopDrawer />
+                          <CallDrawer />
+                          <WalletDrawer />
+                          <FriendsDrawer />
+                          <SettingsDrawer />
+                          <AISettingsDrawer />
+                          <AIChatDrawer />
+                          <VisionAIDrawer />
+
+                          {/* F doctrine chrome: F anchor + one menu. */}
+                          <ChromeLayer />
                         </View>
-
-                        {/* Overlays (highest layer) */}
-                        <OverlayRoot />
-
-                        {/* New left-edge icon menus (attached to drawers) */}
-                        <ProfileDrawerButton />
-                        <NeoLockerButton />
-                        <LayerDrawerButton />
-                        <StudioDrawerButton />
-                        <PluginsDrawerButton />
-                        <CompanionDrawerButton />
-                        <ShopDrawerButton />
-                        <CallDrawerButton />
-                        <WalletDrawerButton />
-                        <FriendsDrawerButton />
-                        <SettingsDrawerButton />
-
-                        {/* Left-side drawers */}
-                        <NeoLocker />
-                        <LayerDrawer />
-                        <ProfileDrawer />
-                        <StudioDrawer />
-                        <PluginsDrawer />
-                        <CompanionDrawer />
-                        <ShopDrawer />
-                        <CallDrawer />
-                        <WalletDrawer />
-                        <FriendsDrawer />
-                        <SettingsDrawer />
-                        <AISettingsDrawer />
-                        <AIChatDrawer />
-                        <VisionAIDrawer />
-                        
-                        {/* Floating Voice Input */}
-                        <VoiceInputButton />
-                      </View>
+                      </FabricChromeProvider>
                     </NewDrawersProvider>
                   </LockerProvider>
                 </UserDrawerProvider>
