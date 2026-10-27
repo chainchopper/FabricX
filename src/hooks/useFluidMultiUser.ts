@@ -19,9 +19,24 @@ import {
   type ParticipantIdentity,
 } from "../identity/identityStore";
 import { getSignalingService } from "../services/SignalingService";
+import { StrokeBatcher, type StrokePoint } from "../services/strokeBatch";
 
 type TransportMsg =
   | { type: "fluid-interaction"; data: FluidInteraction }
+  // Hotfix 1.9: a coalesced run of stroke points from ONE sender
+  // (see src/services/strokeBatch.ts). Sender identity (from, hue)
+  // rides once on the envelope — every point in the batch is that
+  // sender's, so Slice 6 attribution survives batching intact.
+  // Additive: older clients ignore the unknown type. A lone point
+  // never uses this envelope (it rides fluid-interaction), so slow
+  // drawing stays fully visible to older clients; only fast-stroke
+  // runs — the case this fixes — use the batch form.
+  | {
+      type: "fluid-batch";
+      from: string;
+      hue?: number;
+      points: StrokePoint[];
+    }
   | { type: "fabric-ping"; seq: number; t: number; from?: string }
   | { type: "fabric-pong"; seq: number; t: number; from?: string }
   // Slice 5 session control plane. Session state rides the SAME
@@ -56,6 +71,15 @@ type TransportMsg =
 
 /** How long a BroadcastChannel peer counts as present after last contact. */
 const BC_PEER_TTL_MS = 6000;
+
+/**
+ * Hotfix 1.9: receive-buffer flush cadence. Inbound interactions
+ * collect in a ref and enter React state at most this often, so a
+ * fast remote stroke costs ~1 render per window instead of one per
+ * point. 16ms ≈ one display frame — no visible delay is added
+ * beyond the frame the render loop would take anyway.
+ */
+const REMOTE_FLUSH_MS = 16;
 
 /** Virtual agent peers (the Slice 2 ghost, "ghost:<ownerId>") ride a
  * human's connection — they are never human presence. */
@@ -290,13 +314,22 @@ export function useFluidMultiUser(roomId: string) {
   }, [humanPeers, bcPeerIds]);
 
   const postViaCurrent = useCallback(
-    (msg: TransportMsg) => {
+    (msg: TransportMsg, lane: "control" | "live" = "control") => {
       // Never throw: this runs synchronously inside the fluid engine's
       // pointer-event chain (engine.onLocalInteraction -> sendInteraction),
       // so a transport failure must not be able to break local input.
+      // Hotfix 1.9: stroke traffic (fluid-interaction, fluid-batch)
+      // rides the LIVE lane — unordered, no retransmits — when the
+      // caller says so; everything else (session, identity, notes,
+      // ping) stays on the reliable ordered control lane. The
+      // BroadcastChannel fallback carries either, unchanged.
       try {
         if (webrtc.active) {
-          webrtc.send(msg);
+          if (lane === "live") {
+            webrtc.sendLive(msg);
+          } else {
+            webrtc.send(msg);
+          }
         } else if (bcRef.current) {
           bcRef.current.postMessage(msg);
         }
@@ -379,13 +412,45 @@ export function useFluidMultiUser(roomId: string) {
   // Single entry point for accepting a remote interaction, used by every
   // transport AND by local injectors (see injectRemoteInteraction below),
   // so rendering, dedupe and pruning behave identically for all sources.
+  //
+  // Hotfix 1.9 (receive path): arrivals no longer setState one by
+  // one. The old shape — one setRemote per message, plus one
+  // setTimeout per message whose prune filter removed EVERY entry
+  // sharing that millisecond timestamp — meant a fast remote stroke
+  // re-rendered the canvas component per point (~60-120/sec),
+  // registered ~120 timers/sec, and could silently eat a second
+  // finger's same-ms points at prune time. Now arrivals collect in
+  // a ref buffer and flush into state at most once per
+  // REMOTE_FLUSH_MS; pruning happens once per flush, by age, inside
+  // the same state update. State still accumulates a ~1s window
+  // (consumers dedupe by (userId, seq ?? timestamp)), so every
+  // consumer's contract is unchanged — only the churn is gone.
+  const pendingRemoteRef = useRef<FluidInteraction[]>([]);
+  const remoteFlushTimerRef = useRef<number | null>(null);
+  const flushRemote = useCallback(() => {
+    remoteFlushTimerRef.current = null;
+    const pending = pendingRemoteRef.current;
+    if (pending.length === 0) return;
+    pendingRemoteRef.current = [];
+    const cutoff = Date.now() - 1000;
+    setRemote((prev) => {
+      const kept = prev.filter((i) => i.timestamp >= cutoff);
+      return [...kept, ...pending];
+    });
+  }, []);
+  const flushRemoteRef = useRef(flushRemote);
+  flushRemoteRef.current = flushRemote;
+
   const acceptRemote = useCallback(
     (data: FluidInteraction) => {
       if (data.userId === userId) return;
-      setRemote((prev) => [...prev, data]);
-      setTimeout(() => {
-        setRemote((prev) => prev.filter((i) => i.timestamp !== data.timestamp));
-      }, 1000);
+      pendingRemoteRef.current.push(data);
+      if (remoteFlushTimerRef.current === null) {
+        remoteFlushTimerRef.current = window.setTimeout(
+          flushRemoteRef.current,
+          REMOTE_FLUSH_MS
+        ) as unknown as number;
+      }
     },
     [userId]
   );
@@ -404,6 +469,47 @@ export function useFluidMultiUser(roomId: string) {
         // color (and sound pitch) even before their card arrives.
         if (typeof data.hue === "number") notePeerHue(data.userId, data.hue);
         acceptRemote(data);
+      } else if (msg.type === "fluid-batch") {
+        // Hotfix 1.9: a coalesced stroke run from one sender.
+        // Validate the envelope and every point before expanding —
+        // a malformed batch is dropped whole, never half-applied.
+        // Expansion feeds the SAME acceptRemote path as single
+        // interactions, so rendering, dedupe, ghost-brain feed and
+        // ambient yield behave identically per point.
+        if (typeof msg.from !== "string" || msg.from === userId) return;
+        if (!Array.isArray(msg.points) || msg.points.length === 0) return;
+        if (msg.points.length > 64) return;
+        const hue = typeof msg.hue === "number" ? msg.hue : undefined;
+        const points: FluidInteraction[] = [];
+        for (const p of msg.points) {
+          if (
+            !p ||
+            typeof p !== "object" ||
+            typeof p.position?.x !== "number" ||
+            typeof p.position?.y !== "number" ||
+            typeof p.force?.x !== "number" ||
+            typeof p.force?.y !== "number" ||
+            typeof p.pressure !== "number" ||
+            typeof p.timestamp !== "number" ||
+            typeof p.seq !== "number"
+          ) {
+            return;
+          }
+          points.push({
+            userId: msg.from,
+            position: p.position,
+            force: p.force,
+            pressure: p.pressure,
+            color: p.color,
+            radiusScale: p.radiusScale,
+            timestamp: p.timestamp,
+            seq: p.seq,
+            ...(hue !== undefined ? { hue } : {}),
+          });
+        }
+        noteBcPeer(msg.from);
+        if (hue !== undefined) notePeerHue(msg.from, hue);
+        points.forEach((data) => acceptRemote(data));
       } else if (msg.type === "peer-announce") {
         // Slice 6: a participant's identity card. Validate before
         // learning — a malformed card is dropped like any bad payload.
@@ -857,15 +963,99 @@ export function useFluidMultiUser(roomId: string) {
     [userId]
   );
 
+  // Hotfix 1.9: per-sender sequence + the stroke batcher. The
+  // batcher holds ONLY local-human, verb-less stroke points (the
+  // engine's per-frame input, via the { batch: true } opt-in) for a
+  // ~30ms window (hard cap 50ms) and emits runs: a lone point rides
+  // the classic envelope; 2+ ride fluid-batch with sender identity
+  // on the envelope. Verbs, pattern steps, notes and ghost gestures
+  // are events — they are never batched and never wait.
+  const seqRef = useRef(0);
+  const batcherRef = useRef<StrokeBatcher | null>(null);
+  if (batcherRef.current === null) {
+    batcherRef.current = new StrokeBatcher((points) => {
+      // Re-check the session gate at flush time, not just at queue
+      // time: if the room's mode changed inside the window, the
+      // points must not leave — the gate is the contract.
+      if (!sessionRef.current.canSend) return;
+      // Attribution is read at emit: the hue cannot meaningfully
+      // change inside a 30ms window, and an edit re-announces the
+      // identity card anyway (Slice 6).
+      const hue = identityRef.current?.hue;
+      if (points.length === 1) {
+        const p = points[0];
+        postRef.current(
+          {
+            type: "fluid-interaction",
+            data: {
+              userId,
+              position: p.position,
+              force: p.force,
+              pressure: p.pressure,
+              color: p.color,
+              radiusScale: p.radiusScale,
+              timestamp: p.timestamp,
+              seq: p.seq,
+              ...(hue !== undefined ? { hue } : {}),
+            },
+          },
+          "live"
+        );
+      } else {
+        postRef.current(
+          {
+            type: "fluid-batch",
+            from: userId,
+            ...(hue !== undefined ? { hue } : {}),
+            points,
+          },
+          "live"
+        );
+      }
+    });
+  }
+
+  // A page being hidden (screen lock, tab switch) must not strand a
+  // queued batch in a frozen timer — iOS may not run it for a long
+  // while, and a stale scribble delivered on wake is worse than a
+  // gap. Flush on hide; on unmount, flush too (room switches keep
+  // the last frames of a stroke).
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        batcherRef.current?.flush();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      batcherRef.current?.flush();
+      // And no receive-flush timer outlives the hook.
+      if (remoteFlushTimerRef.current !== null) {
+        window.clearTimeout(remoteFlushTimerRef.current);
+        remoteFlushTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const sendInteraction = useCallback(
     (
       interaction: Omit<FluidInteraction, "userId" | "timestamp">,
-      fromUserId?: string
+      fromUserId?: string,
+      opts?: { batch?: boolean }
     ) => {
       const full: FluidInteraction = {
         ...interaction,
         userId: fromUserId ?? userId,
         timestamp: Date.now(),
+        // Hotfix 1.9: per-sender monotonic sequence. Receivers
+        // dedupe on (userId, seq): the old (userId, timestamp) key
+        // collided whenever two pointers landed in the same
+        // millisecond. One counter serves self and proxy sends —
+        // values stay unique per sender id stream, which is all
+        // the dedupe key needs.
+        seq: ++seqRef.current,
         // Slice 6: stamp the local human's signature hue on their
         // own sends (engine input, verbs, pattern steps — everything
         // that funnels through here as self). Proxy sends under
@@ -876,7 +1066,6 @@ export function useFluidMultiUser(roomId: string) {
           : {}),
       };
 
-      const msg: TransportMsg = { type: "fluid-interaction", data: full };
       // Slice 5 ENFORCEMENT POINT: session modes gate the transport
       // here — a mirror/view guest's client (or a control-mode
       // non-driver's) never puts interactions on the wire at all.
@@ -884,7 +1073,27 @@ export function useFluidMultiUser(roomId: string) {
       // behavior (the engine renders its own input; the ghost brain
       // hears its owner) is untouched: it simply never leaves.
       if (sessionRef.current.canSend) {
-        postViaCurrent(msg);
+        if (opts?.batch && !fromUserId && !full.verb) {
+          // Live stroke: coalesce (see batcher above). The point
+          // leaves with its batch, ≤30ms later, on the live lane.
+          batcherRef.current?.push({
+            position: full.position,
+            force: full.force,
+            pressure: full.pressure,
+            color: full.color,
+            radiusScale: full.radiusScale,
+            timestamp: full.timestamp,
+            seq: full.seq as number,
+          });
+        } else {
+          // Events (verbs, ghost gestures) ride the reliable
+          // control lane; plain strokes that were not opted into
+          // batching (pattern steps) ride the live lane directly.
+          const lane =
+            fromUserId || full.verb ? "control" : "live";
+          const msg: TransportMsg = { type: "fluid-interaction", data: full };
+          postViaCurrent(msg, lane as "control" | "live");
+        }
       }
 
       // Local haptic tick only when sending as ourselves. When a virtual

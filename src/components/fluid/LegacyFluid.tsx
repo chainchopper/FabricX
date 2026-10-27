@@ -386,7 +386,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     engine.localHue = getIdentitySnapshot().self?.hue ?? null;
     engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
-      const full = sendRef.current(interaction);
+      // Hotfix 1.9: engine stroke points opt into the funnel's
+      // ~30ms coalescing window (hard hold cap 50ms) — this is the
+      // one high-rate stream in the app; verbs, pattern steps and
+      // ghost gestures keep their immediate event path.
+      const full = sendRef.current(interaction, undefined, { batch: true });
       // Slice 7: a real local touch — the ambient driver stands down.
       markActivity();
       // Feed the local user's touch to the ghost brain (it mirrors,
@@ -549,9 +553,18 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     const engine = engineRef.current;
     if (!engine) return;
     remoteInteractions.forEach((i: FluidInteraction) => {
-      const key = `${i.userId}:${i.timestamp}`;
+      // Hotfix 1.9: dedupe on the sender's sequence when present —
+      // (userId, timestamp) collided for two pointers landing in
+      // the same millisecond, silently dropping the second point.
+      // Older senders carry no seq and keep the timestamp key.
+      const key = `${i.userId}:${i.seq ?? i.timestamp}`;
       if (seenRef.current.has(key)) return;
       seenRef.current.add(key);
+      // Bound the set between the hook's window drains: with seq
+      // keys a long session could otherwise grow it point by point
+      // (the clear below only fires on an empty window). 4096 keys
+      // is far beyond any 1s window's population.
+      if (seenRef.current.size > 4096) seenRef.current.clear();
       // Slice 7: anything genuinely arriving — a peer's stroke, a
       // verb, a pattern splat, a ghost's gesture (they all enter
       // through this path) — is real activity; ambient yields.

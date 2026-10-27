@@ -48,15 +48,31 @@ export function useWebRTC(roomId: string) {
     const manager = new WebRTCManager(roomId, peerId, signaling);
     managerRef.current = manager;
 
-    // Update state when peers change
+    // Update state when peers change. Hotfix 1.9: the poll is
+    // faster (150ms — a data channel opening used to wait up to
+    // 500ms before postViaCurrent would even try it, dead time at
+    // the start of every session) and change-guarded (the old
+    // version set a fresh peerIds array every tick, re-rendering
+    // consumers 2x/sec forever for no change).
+    let lastCount = -1;
+    let lastIds = "";
     const updatePeers = () => {
-      setPeersCount(manager.getPeerCount());
-      setPeerIds(manager.getPeerIds());
+      const count = manager.getPeerCount();
+      const ids = manager.getPeerIds();
+      const key = ids.join(",");
+      if (count !== lastCount) {
+        lastCount = count;
+        setPeersCount(count);
+      }
+      if (key !== lastIds) {
+        lastIds = key;
+        setPeerIds(ids);
+      }
     };
     updatePeers();
 
     // Poll for peer updates (in production, manager could emit events)
-    const interval = setInterval(updatePeers, 500);
+    const interval = setInterval(updatePeers, 150);
 
     // Wire up message handlers
     const unsubscribe = manager.onMessage((data, from) => {
@@ -91,6 +107,13 @@ export function useWebRTC(roomId: string) {
     }
   };
 
+  /** Hotfix 1.9: the ephemeral stroke lane (see WebRTCManager.sendLive). */
+  const sendLive = (payload: unknown) => {
+    if (managerRef.current) {
+      managerRef.current.sendLive(payload);
+    }
+  };
+
   const onMessage = (handler: MessageHandler): (() => void) => {
     msgHandlers.current.add(handler);
     return () => {
@@ -98,5 +121,5 @@ export function useWebRTC(roomId: string) {
     };
   };
 
-  return { peerId, active, peersCount, peerIds, send, onMessage, connectionState };
+  return { peerId, active, peersCount, peerIds, send, sendLive, onMessage, connectionState };
 }

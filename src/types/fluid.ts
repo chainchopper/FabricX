@@ -50,4 +50,15 @@ export interface FluidInteraction {
    * means 1, and older clients simply render the standard radius.
    */
   radiusScale?: number;
+  /**
+   * Hotfix 1.9: per-sender monotonic sequence number, stamped by
+   * sendInteraction. Receivers dedupe on (userId, seq) when present:
+   * the old key, (userId, timestamp), silently dropped a second
+   * finger's point whenever two pointers produced interactions in
+   * the same millisecond (Date.now resolution), and made a whole
+   * class of same-ms points share one prune fate. Optional and
+   * additive: absent on older clients' sends, which keep the
+   * timestamp key.
+   */
+  seq?: number;
 }
