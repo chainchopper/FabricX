@@ -27,6 +27,10 @@ import {
 } from "../../ghost/GhostPeer";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
 import { setGhostPublicState } from "../../ghost/ghostStore";
+import {
+  getSignalingService,
+  type SignalingConnectionState,
+} from "../../services/SignalingService";
 
 interface LegacyFluidProps {
   /**
@@ -47,6 +51,9 @@ type EngineStats = ReturnType<LegacyFluidEngine["getStats"]>;
  * the engine's format, its own measured FPS, how many input events
  * the canvas element actually received, how many local vs
  * remote/ghost splats were applied, and the last engine error.
+ * Hotfix 1.6 adds the signaling resolution — connection state and the
+ * resolved signaling URL (or "none") — so a "stuck in Local mode"
+ * report explains itself from the same screenshot.
  * It renders pointerEvents:"none" — after this project's history,
  * a debug layer that could eat a touch is not a debug layer.
  */
@@ -72,6 +79,12 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   const [engineErrorDismissed, setEngineErrorDismissed] = useState(false);
   // Hotfix 1.5: diagnostics panel state (null unless diag mode is on).
   const [diagStats, setDiagStats] = useState<EngineStats | null>(null);
+  // Hotfix 1.6: signaling resolution shown in the same panel — the
+  // resolved URL (null in local mode) and the live connection state.
+  const [diagSig, setDiagSig] = useState<{
+    url: string | null;
+    state: SignalingConnectionState;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -272,11 +285,17 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // Hotfix 1.5: poll the engine's telemetry while diagnostics mode
   // is on (see diagEnabled above). Zero cost when off — the effect
   // returns before creating the interval.
+  // Hotfix 1.6: the same poll also reads the signaling singleton (the
+  // instance useWebRTC already created; getSignalingService() returns
+  // it without side effects) so the panel can show the resolved URL
+  // and connection state next to the engine numbers.
   useEffect(() => {
     if (!diagEnabled()) return;
     const id = window.setInterval(() => {
       const engine = engineRef.current;
       if (engine) setDiagStats(engine.getStats());
+      const sig = getSignalingService();
+      setDiagSig({ url: sig.getServerUrl(), state: sig.getState() });
     }, 500);
     return () => window.clearInterval(id);
   }, []);
@@ -458,7 +477,8 @@ format  ${diagStats.format}
 fps     ${diagStats.fps} (engine loop) · dpr ${diagStats.dpr} · rung ${diagStats.degradeRung}
 input   ${diagStats.inputEvents} events → ${diagStats.pointerSplats} local splats
 api     ${diagStats.apiSplats} remote/ghost splats
-error   ${diagStats.lastError ?? "—"}`}
+error   ${diagStats.lastError ?? "—"}
+signal  ${diagSig ? `${diagSig.state} · ${diagSig.url ?? "none"}` : "…"}`}
         </div>
       ) : null}
       {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled
