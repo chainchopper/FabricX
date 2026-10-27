@@ -7,6 +7,14 @@
  *   seed) and the manual on/off preference live together in AsyncStorage
  *   under `fabric_ghost_v1`; a first-run identity is generated and
  *   persisted immediately, so the same ghost greets you next visit.
+ * - LifePacket binding (Slice 9): on a FRESH install — no stored
+ *   `fabric_ghost_v1` identity — the ghost is BORN FROM the user's
+ *   LifePacket: its seed derives deterministically from the human
+ *   identity seed (see deriveGhostIdentity below), so the ghost is
+ *   provably the child of this device's packet. A stored ghost
+ *   identity is NEVER re-derived or rewritten: ghosts that already
+ *   exist (Biscuit, Boop, Ziggy, …) keep the seed, name, and hue
+ *   they were born with — migration is a no-op for them by design.
  * - Feeds it the human-peer count (with people connected, the ghost
  *   shifts to its crowd role — or session, once summoned).
  * - Applies the ACTIVE layer's ghost feature toggle ("Ghost in this
@@ -37,6 +45,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FluidInteraction } from "../types/fluid";
 import { getJSON, setJSON } from "../../app/utils/storage";
 import { getLLMService } from "../services/LLMService";
+import { ensureLocalIdentity } from "../identity/identityStore";
 import {
   GhostPeer,
   ghostPeerIdFor,
@@ -128,6 +137,56 @@ function generateIdentity(): GhostIdentityFull {
   };
 }
 
+/** "ghos" — the domain salt separating the ghost lineage from the packet's own stream. */
+const GHOST_DERIVE_SALT = 0x67686f73;
+
+/**
+ * The LifePacket binding derivation (Slice 9), stated exactly:
+ *
+ *   ghostSeed = first 32-bit draw of mulberry32(identitySeed XOR 0x67686f73)
+ *   ghost name = GHOST_NAMES[first draw of mulberry32(ghostSeed)]
+ *   ghost hue  = second draw of mulberry32(ghostSeed), ×360
+ *
+ * — the same name/hue draw order generateIdentity uses, so a bound
+ * ghost is an ordinary ghost identity in every other respect. The
+ * function is pure: the same LifePacket seed always bears the same
+ * ghost seed, on any device, forever. The ghost's name and hue stay
+ * its OWN (drawn from the ghost stream, never copied from the
+ * human's), and the human seed itself is never stored in the ghost
+ * record or sent anywhere — only the derived ghost seed persists,
+ * in the same fabric_ghost_v1 record as before.
+ */
+export function deriveGhostIdentity(identitySeed: number): GhostIdentityFull {
+  const stream = mulberry32((identitySeed ^ GHOST_DERIVE_SALT) | 0);
+  const seed = Math.floor(stream() * 0xffffffff) >>> 0;
+  const rng = mulberry32(seed);
+  return {
+    seed,
+    name: GHOST_NAMES[Math.floor(rng() * GHOST_NAMES.length)],
+    hue: Math.floor(rng() * 360),
+  };
+}
+
+/**
+ * First-run identity: derive from the user's LifePacket when it can
+ * be loaded (the normal fresh-install path — Slice 6's identity is
+ * ensured by the chrome long before the canvas settles), falling
+ * back to the pre-Slice-9 random generation only if the packet is
+ * somehow unavailable, so a storage hiccup can never leave a user
+ * ghostless.
+ */
+async function generateBoundIdentity(): Promise<GhostIdentityFull> {
+  try {
+    const human = await ensureLocalIdentity();
+    if (human && typeof human.seed === "number") {
+      return deriveGhostIdentity(human.seed);
+    }
+  } catch {
+    // Fall through to the unbound generation below.
+  }
+  return generateIdentity();
+}
+
 interface AIConfigShape {
   llm?: {
     provider: string;
@@ -180,10 +239,13 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         pref = null;
       }
       if (cancelled) return;
+      // A stored ghost identity is used EXACTLY as stored — the
+      // Slice 9 binding only births ghosts that don't exist yet.
       const id =
         pref?.identity && typeof pref.identity.seed === "number"
           ? pref.identity
-          : generateIdentity();
+          : await generateBoundIdentity();
+      if (cancelled) return;
       const en = pref?.enabled !== false;
       identityRef.current = id;
       enabledRef.current = en;
