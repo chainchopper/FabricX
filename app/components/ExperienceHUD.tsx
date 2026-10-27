@@ -5,6 +5,7 @@ import { useAR } from "../context/ARContext";
 import { useMIDI } from "../../src/hooks/useMIDI";
 import { getAudioReactive } from "../../src/shared/utils/audioReactive";
 import VerbBar from "../../src/components/sensory/VerbBar";
+import ComposeBar from "../../src/components/sensory/ComposeBar";
 import GhostIndicator from "../../src/ghost/GhostIndicator";
 
 export default function ExperienceHUD() {
@@ -51,6 +52,9 @@ export default function ExperienceHUD() {
       </Text>
       {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
       <VerbBar />
+      {/* Pattern composer (Slice 4): describe a feeling, Spark composes
+          a pattern the whole session plays. */}
+      <ComposeBar />
       {/* Ghost AI presence + controls (Slice 2): honest agent indicator
           with on/off toggle and Summon/Dismiss for shared sessions. */}
       <GhostIndicator />
