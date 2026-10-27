@@ -194,6 +194,23 @@ const peers = new Map<string, PeerRecord>();
 const listeners = new Set<(s: IdentitySnapshot) => void>();
 let loadPromise: Promise<ParticipantIdentity> | null = null;
 
+/**
+ * Where this device's identity came from on the load that produced
+ * it: "stored" (a packet already lived on this device — an existing
+ * install) or "generated" (the load minted it — a genuine first
+ * run). Slice 10's First Breath gate reads this AFTER
+ * ensureLocalIdentity() resolves; because it piggybacks the one
+ * shared load, it is exact no matter which component asked first —
+ * a raw storage probe by the gate itself could race the persist of
+ * a just-minted identity and misread a first run as a return.
+ * Null until the first load resolves.
+ */
+let identityOrigin: "stored" | "generated" | null = null;
+
+export function getIdentityOrigin(): "stored" | "generated" | null {
+  return identityOrigin;
+}
+
 export function getIdentitySnapshot(): IdentitySnapshot {
   const out: Record<string, PeerIdentity> = {};
   peers.forEach((v, k) => {
@@ -243,6 +260,7 @@ export function ensureLocalIdentity(): Promise<ParticipantIdentity> {
         stored.name.length > 0 &&
         typeof stored.hue === "number" &&
         typeof stored.seed === "number";
+      identityOrigin = valid ? "stored" : "generated";
       self = valid
         ? {
             name: stored.name.slice(0, 40),

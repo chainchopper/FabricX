@@ -45,6 +45,7 @@ import {
 } from "./components/fabric/FabricChromeContext";
 import FabricAnchor from "./components/fabric/FabricAnchor";
 import FabricMenu from "./components/fabric/FabricMenu";
+import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
 import ExperienceHUD from "./components/ExperienceHUD";
 import ConnectionBadge from "./components/ConnectionBadge";
@@ -113,6 +114,11 @@ function ChromeLayer() {
       <ExperienceHUD />
       <ConnectionBadge />
       <FabricAnchor />
+      {/* Slice 10: the First Breath card — chrome state only (a
+          first-run gate + a menu-requested palette replay). It
+          mounts before the menu so a deliberately opened menu
+          covers it, and it never touches the canvas branch. */}
+      <FirstBreath />
       <FabricMenu />
       {voiceOpen ? <VoiceInputButton /> : null}
     </>
