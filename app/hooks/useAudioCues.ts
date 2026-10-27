@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { usePreferences } from "../context/PreferencesContext";
+import { getSharedAudioContext } from "../../src/audio/sharedAudio";
 
 type WaveType = OscillatorType;
 
@@ -40,10 +41,27 @@ export function useAudioCues() {
 
   const ensureCtx = useCallback((): AudioContext | null => {
     if (!audioEnabled) return null;
-    if (ctxRef.current) return ctxRef.current;
-    const Ctor = getAudioContextCtor();
-    if (!Ctor) return null;
-    ctxRef.current = new Ctor();
+    if (ctxRef.current) {
+      if (ctxRef.current.state === "suspended") {
+        void ctxRef.current.resume();
+      }
+      return ctxRef.current;
+    }
+    // Hotfix 1.8: schedule onto the ONE shared context (Tone's — see
+    // src/audio/sharedAudio) so the root gesture unlock covers verb
+    // and UI cues too. Previously this hook constructed a private
+    // AudioContext with its own unlock fate. The platform-constructor
+    // fallback stays for a world where Tone cannot provide one.
+    ctxRef.current = getSharedAudioContext();
+    if (!ctxRef.current) {
+      const Ctor = getAudioContextCtor();
+      if (!Ctor) return null;
+      try {
+        ctxRef.current = new Ctor();
+      } catch {
+        return null;
+      }
+    }
     return ctxRef.current;
   }, [audioEnabled]);
 

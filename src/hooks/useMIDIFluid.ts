@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from "react";
 import { useMIDI, type NoteName } from "./useMIDI";
 import { useVirtualNotes } from "./useVirtualNotes";
 import { useFluidMultiUser } from "./useFluidMultiUser";
-import { eventBus } from "../../shared/utils/eventBus";
 
 type RGB = { r: number; g: number; b: number };
 type MidiCurve = "soft" | "linear" | "hard";
@@ -123,6 +122,42 @@ export function useMIDIFluid(
     };
   }, []);
 
+  // ---- Note streams: the nozzle model (Hotfix 1.8) ----------------
+  // Field report on the old emission: "smoke streams disperse too
+  // closely to the keys — should stream out narrowly from the key
+  // (nozzle) and disperse at the far end." The old loop was the
+  // opposite of a nozzle: for a fixed 420 ms (however long the note
+  // was actually held) it laid one full-radius splat per animation
+  // frame along the stream's ENTIRE rising path (y 0.15 -> 0.85),
+  // so the column appeared fully formed and fully wide everywhere,
+  // instantly — dispersion at the source, by construction. Its x
+  // also came from the pitch CLASS (idx/12), so every octave of a
+  // note stacked on the same column.
+  //
+  // The nozzle model emits ONLY at the key: a fixed source point at
+  // the key's own x (note number mapped across the C3–C5 keybed the
+  // on-screen surface spans) and the base of the canvas, at a
+  // bounded cadence, with a small splat radius (radiusScale, carried
+  // on the interaction so peers render the identical jet) and the
+  // force concentrated along +y. Nothing paints the path — the
+  // simulation's own advection carries the dye up the column, and
+  // its dissipation is what widens the stream at the far end,
+  // exactly as reported desired. Emission sustains for the HOLD:
+  // the stream lives while the key does (attack envelope 1.3x for
+  // the first 150 ms, then steady), and stops when the note ends.
+  //
+  // Rate bound: 20 emissions/s per held note (50 ms cadence),
+  // relaxing to 12.5/s (80 ms) when more than 4 notes are held, so
+  // a two-handed chord caps at ~100 stream interactions/s. Every
+  // parameter derives from the note event (note + velocity), never
+  // from local-only state, so a peer renders the sender's jet with
+  // the same geometry the sender's own loopback shows.
+  //
+  // (The old code also called eventBus.emitDrag per frame — dead
+  // weight: no component in the tree listens to that bus. Removed;
+  // the stream's rendering path is the interaction stream itself,
+  // locally via transport loopback and remotely via the room, which
+  // is also what guarantees the two ends match.)
   useEffect(() => {
     if (!enabled) {
       for (const id of streamsRef.current.values()) window.cancelAnimationFrame(id);
@@ -134,16 +169,22 @@ export function useMIDIFluid(
     const transpose = Math.max(-24, Math.min(24, opts?.transpose ?? 0));
     const hueMap = (opts?.hueMap ?? "chromatic") as HueMap;
 
+    const NOZZLE_Y = 0.07;
+    const RADIUS_SCALE = 0.45;
+    const emitInterval = currentNotes.size > 4 ? 80 : 50;
+
     for (const note of currentNotes) {
       if (!running.has(note)) {
         const start = performance.now();
-        const duration = 420;
+        let lastEmit = 0;
 
         let noteNum = noteNameToNumber(note);
         noteNum += transpose;
 
         const idx = hueMap === "fifths" ? fifthsIndex(noteNum) : chromaticIndex(noteNum);
-        const x = idx / 12;
+        // The key's x on the C3(48)–C5(72) keybed, clamped — every
+        // key its own column, hardware notes included.
+        const x = Math.max(0.02, Math.min(0.98, (noteNum - 48) / 24));
 
         const vRaw = mergedVelocities[note] ?? 0.5;
         const vCurved = applyCurve(vRaw, curve);
@@ -152,16 +193,19 @@ export function useMIDIFluid(
         const color = hsvToRgb(hue, 0.85, Math.max(0.4, vel));
 
         const id = window.requestAnimationFrame(function loop(ts) {
-          const t = Math.min(1, (ts - start) / duration);
-          const y = 0.15 + t * 0.7;
-          eventBus.emitDrag(x, y);
-          sendInteraction({
-            position: { x, y },
-            force: { x: 0, y: vel * 1000 },
-            pressure: Math.min(1, Math.max(0.1, vel)),
-            color,
-          });
-          if (t < 1 && currentNotes.has(note) && enabled) {
+          if (currentNotes.has(note) && enabled) {
+            const elapsed = ts - start;
+            if (elapsed - lastEmit >= emitInterval || lastEmit === 0) {
+              lastEmit = elapsed;
+              const attack = elapsed < 150 ? 1.3 : 1.0;
+              sendInteraction({
+                position: { x, y: NOZZLE_Y },
+                force: { x: 0, y: (260 + vel * 1140) * attack },
+                pressure: Math.min(1, Math.max(0.15, vel)),
+                color,
+                radiusScale: RADIUS_SCALE,
+              });
+            }
             const nextId = window.requestAnimationFrame(loop);
             running.set(note, nextId);
           } else {

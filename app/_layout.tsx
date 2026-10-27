@@ -52,6 +52,8 @@ import ConnectionBadge from "./components/ConnectionBadge";
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
 import { getSignalingService } from "../src/services/SignalingService";
+import { initWebShell } from "./utils/webShell";
+import { installAudioUnlock } from "../src/audio/sharedAudio";
 import {
   getRealtimeStatus,
   setRealtimeStatus,
@@ -142,6 +144,31 @@ function ChromeLayer() {
  * session layer is web-verified, and native keeps its existing
  * lazy path untouched.
  */
+/**
+ * Hotfix 1.8: the web runtime's two root behaviors, installed once.
+ *
+ * - initWebShell(): PR #21's long-press rules (callout suppression,
+ *   user-select) were written into the repo-root index.html, which
+ *   production never serves — the live shell is Expo's generated
+ *   page (no app/+html.tsx in this project), so holding a piano key
+ *   still summoned the iOS selection menu on the merged build. The
+ *   rules now ride the JS bundle: injected as a <style> at startup,
+ *   plus a root contextmenu preventer. Text fields opt back in.
+ * - installAudioUnlock(): the shared audio context (src/audio/
+ *   sharedAudio — one context for notes, verbs, ghost, menus) only
+ *   resumes inside a real gesture call stack on iOS; the synth's old
+ *   effect-side Tone.start() never counted, which is why the piano
+ *   was silent on iPhone and fine on desktop.
+ */
+function WebRuntimeInit() {
+  React.useEffect(() => {
+    if (Platform.OS !== "web") return;
+    initWebShell();
+    installAudioUnlock();
+  }, []);
+  return null;
+}
+
 function SignalingWarmup() {
   React.useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -178,6 +205,11 @@ export default function RootLayout() {
                               now, in parallel with the canvas chunk
                               loading below — not after it. */}
                           <SignalingWarmup />
+                          {/* Hotfix 1.8: runtime web shell (callout /
+                              contextmenu) + shared-audio gesture
+                              unlock, installed before first paint of
+                              the canvas branch. */}
+                          <WebRuntimeInit />
                           {/* Fabric is the main event: persistent and always-on.
                               Single-canvas authority: this branch mounts once
                               and chrome state (menu, idle fade) never remounts it. */}

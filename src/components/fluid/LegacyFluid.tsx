@@ -47,6 +47,7 @@ import {
 } from "../../identity/identityStore";
 import { useAmbientLife, type AmbientLifeStats } from "./useAmbientLife";
 import { noteBus } from "../../../shared/utils/noteBus";
+import { getAudioContextState } from "../../audio/sharedAudio";
 
 interface LegacyFluidProps {
   /**
@@ -103,6 +104,13 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   } | null>(null);
   // Slice 7: ambient-life state for the same panel (see below).
   const [diagAmbient, setDiagAmbient] = useState<AmbientLifeStats | null>(null);
+  // Hotfix 1.8: the shared audio context's live state, same poll —
+  // "audio running" in a field screenshot proves the app's side of
+  // the iPhone-silence question (a running context with notes
+  // sounding on another device means any remaining silence is the
+  // device's channel — e.g. the hardware mute switch routing
+  // WebAudio to the ringer path — not the app; see sharedAudio).
+  const [diagAudio, setDiagAudio] = useState<string>("…");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -409,6 +417,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       // Slice 7: is the canvas breathing on its own, waiting for
       // quiet, switched off by the layer, or rested by the ladder?
       setDiagAmbient({ ...ambientStatsRef.current });
+      // Hotfix 1.8: shared audio context state, same screenshot.
+      setDiagAudio(getAudioContextState());
     }, 500);
     return () => window.clearInterval(id);
   }, []);
@@ -577,7 +587,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           }
         }
       }
-      engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, splatColor);
+      engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, splatColor, i.radiusScale ?? 1);
       if (isGhost) {
         setGhostPublicState({ sessionGhostLastSeenAt: Date.now() });
         // Other ghosts feed the brain's social perception; the brain
@@ -649,6 +659,7 @@ input   ${diagStats.inputEvents} events → ${diagStats.pointerSplats} local spl
 api     ${diagStats.apiSplats} remote/ghost splats
 error   ${diagStats.lastError ?? "—"}
 signal  ${diagSig ? `${diagSig.state} · ${diagSig.url ?? "none"}` : "…"}
+audio   ${diagAudio}
 who     ${(() => {
             const snap = getIdentitySnapshot();
             const named = Object.values(snap.peers)

@@ -194,11 +194,14 @@ export class LegacyFluidEngine {
     this.raf = requestAnimationFrame(this.update);
   }
 
-  // PUBLIC: programmatic splats using normalized coords
-  public splatAt(xNorm: number, yNorm: number, dx = 0, dy = 0, color?: { r: number; g: number; b: number }) {
+  // PUBLIC: programmatic splats using normalized coords.
+  // radiusScale (Hotfix 1.8) multiplies the standard splat radius for
+  // emitters narrower than a finger — the piano's nozzle jets (0.45).
+  // Default 1 keeps every existing caller byte-identical.
+  public splatAt(xNorm: number, yNorm: number, dx = 0, dy = 0, color?: { r: number; g: number; b: number }, radiusScale = 1) {
     const col = color ?? { r: 1, g: 1, b: 1 };
     this.statsApiSplats += 1;
-    this.splat(xNorm, yNorm, dx, dy, col);
+    this.splat(xNorm, yNorm, dx, dy, col, radiusScale);
   }
 
   private effectiveDpr() {
@@ -811,14 +814,14 @@ export class LegacyFluidEngine {
     return radius;
   }
 
-  private splat(x: number, y: number, dx: number, dy: number, color: { r: number; g: number; b: number }) {
+  private splat(x: number, y: number, dx: number, dy: number, color: { r: number; g: number; b: number }, radiusScale = 1) {
     const gl = this.gl as WebGLRenderingContext;
     this.splatProgram.bind();
     gl.uniform1i(this.splatProgram.uniforms.uTarget!, this.velocity.read.attach(0));
     gl.uniform1f(this.splatProgram.uniforms.aspectRatio!, this.canvas.width / this.canvas.height);
     gl.uniform2f(this.splatProgram.uniforms.point!, x, y);
     gl.uniform3f(this.splatProgram.uniforms.color!, dx, dy, 0.0);
-    gl.uniform1f(this.splatProgram.uniforms.radius!, this.correctRadius(this.config.SPLAT_RADIUS / 100.0));
+    gl.uniform1f(this.splatProgram.uniforms.radius!, this.correctRadius(this.config.SPLAT_RADIUS / 100.0) * radiusScale);
     glBlit(this.gl, this.velocity.write);
     this.velocity.swap();
 
