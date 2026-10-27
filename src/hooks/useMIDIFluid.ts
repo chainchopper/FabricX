@@ -72,13 +72,56 @@ export function useMIDIFluid(
     () => ({ ...noteVelocities, ...virtual.noteVelocities }),
     [noteVelocities, virtual.noteVelocities]
   );
-  const { sendInteraction } = useFluidMultiUser(roomId);
+  const { sendInteraction, sendNote } = useFluidMultiUser(roomId);
   const streamsRef = useRef<Map<NoteName, number>>(new Map());
+  // Hotfix 1.7: notes also travel as discrete note-on/note-off
+  // messages, diffed against the previously-held set below. The
+  // splat stream alone could never make a peer's browser SING —
+  // interactions carry color and force, not pitch — so receivers
+  // rendered the streams in silence. sendNote is session-gated in
+  // the hook, exactly like sendInteraction.
+  const prevNotesRef = useRef<Set<string>>(new Set());
+  const sendNoteRef = useRef(sendNote);
+  sendNoteRef.current = sendNote;
 
   const currentNotes = useMemo(
     () => new Set<NoteName>(mergedActiveNotes as NoteName[]),
     [mergedActiveNotes]
   );
+
+  // Hotfix 1.7: broadcast note transitions. A note that starts here
+  // starts (audibly) on every client in the room; a note released
+  // here releases there. While the layer is disabled, held notes
+  // are flushed off once so peers never ring forever.
+  useEffect(() => {
+    const prev = prevNotesRef.current;
+    if (!enabled) {
+      for (const note of Array.from(prev)) sendNote(note, 0, "off");
+      prevNotesRef.current = new Set();
+      return;
+    }
+    for (const note of Array.from(currentNotes)) {
+      if (!prev.has(note)) {
+        sendNote(note, mergedVelocities[note] ?? 0.5, "on");
+      }
+    }
+    for (const note of Array.from(prev)) {
+      if (!currentNotes.has(note)) sendNote(note, 0, "off");
+    }
+    prevNotesRef.current = new Set(currentNotes);
+  }, [currentNotes, mergedVelocities, sendNote, enabled]);
+
+  // Unmount (experience switch away from piano): release whatever
+  // this client still holds on its peers — a vanished pianist must
+  // not leave notes hanging in the room.
+  useEffect(() => {
+    return () => {
+      for (const note of Array.from(prevNotesRef.current)) {
+        sendNoteRef.current(note, 0, "off");
+      }
+      prevNotesRef.current = new Set();
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled) {

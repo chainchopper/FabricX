@@ -5,6 +5,7 @@ import { useAR } from "../../contexts/ARContext";
 import WebFluidBackground from "../../../app/components/WebFluidBackground";
 import Ambience from "../audio/Ambience";
 import AutoComposer from "../audio/AutoComposer";
+import PianoNoteLayer from "../piano/PianoNoteLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 
@@ -21,6 +22,12 @@ export default function ExperienceRenderer() {
 
   const curtainOpacity = useRef(new Animated.Value(0)).current;
   const wantsAROrCamera = !!activeExperience?.capabilities.ar || !!activeExperience?.capabilities.camera;
+  // Hotfix 1.7: the piano is a LAYER on the fluid canvas (Terrell's
+  // world model — instruments stack on a compatible canvas, they do
+  // not replace it). ar-piano therefore keeps the fluid mounted as
+  // its base instead of swapping to the 3D branch; PianoNoteLayer
+  // (below) runs the note pipeline over it.
+  const isPianoLayer = activeExperience?.id === "ar-piano";
   const lastMode = useRef<boolean>(wantsAROrCamera);
 
   useEffect(() => {
@@ -80,13 +87,27 @@ export default function ExperienceRenderer() {
       {/* Generative composer (web-only) */}
       {musicEnabled ? <AutoComposer /> : null}
 
-      {wantsAROrCamera ? (
+      {wantsAROrCamera && !isPianoLayer ? (
         <Suspense fallback={null}>
           <FabricWeb3DLazy />
         </Suspense>
       ) : (
         <WebFluidBackground onReady={markReady} />
       )}
+
+      {/* Piano layer (Hotfix 1.7): mounted over the SAME
+          WebFluidBackground element the fluid experience uses — same
+          tree position, same type — so switching to or from piano
+          never remounts the canvas (single-canvas authority holds).
+          The layer itself is headless: the HUD's 2D keyboard is the
+          playable surface, and the note pipeline (fluid streams,
+          room broadcast, shared synth) runs here instead of inside
+          the 3D branch. The 3D PianoScene no longer mounts in the
+          shell for ar-piano: it rendered edge-on and invisible
+          (PR #20 trace) and its scene paints an opaque backdrop
+          that would bury the smoke it is supposed to play into.
+          Camera Effects still takes the 3D branch above, untouched. */}
+      {isPianoLayer ? <PianoNoteLayer /> : null}
 
       <Animated.View
         pointerEvents="none"
