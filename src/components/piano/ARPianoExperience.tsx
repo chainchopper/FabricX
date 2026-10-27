@@ -12,6 +12,7 @@ import { useDeviceManager } from "../../hooks/useDeviceManager";
 import { useHaptics } from "../../../app/hooks/useHaptics";
 import { useAR } from "../../contexts/ARContext";
 import { useMIDI } from "../../hooks/useMIDI";
+import { noteBus } from "../../../shared/utils/noteBus";
 
 // Piano key configuration
 const WHITE_KEYS = ["C", "D", "E", "F", "G", "A", "B"];
@@ -272,7 +273,16 @@ export function PianoScene({
       if (synthRef.current) {
         synthRef.current.triggerAttack(key.frequency);
       }
-      
+
+      // Publish to the shared note pipeline (piano-surface hotfix):
+      // before this, a press lived and died inside this component —
+      // the private synth above was its only output, so on-screen
+      // playing could never drive the fluid (useMIDIFluid) or the
+      // shared synth (useToneSynth). Hardware notes mirrored through
+      // the MIDI effect below re-enter the bus here too; consumers
+      // merge by note name, so nothing double-fires.
+      noteBus.emitNoteOn(keyId, 0.8);
+
       // Haptic feedback
       haptics.impactLight();
       
@@ -306,7 +316,10 @@ export function PianoScene({
       if (synthRef.current) {
         synthRef.current.triggerRelease(key.frequency);
       }
-      
+
+      // Close the note on the shared pipeline (see handleKeyPress).
+      noteBus.emitNoteOff(keyId);
+
       // Clear device LED
       if (deviceId) {
         sendCommand(deviceId, "setLED", {

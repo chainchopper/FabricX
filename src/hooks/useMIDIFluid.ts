@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useMIDI, type NoteName } from "./useMIDI";
+import { useVirtualNotes } from "./useVirtualNotes";
 import { useFluidMultiUser } from "./useFluidMultiUser";
 import { eventBus } from "../../shared/utils/eventBus";
 
@@ -57,10 +58,27 @@ export function useMIDIFluid(
   opts?: { transpose?: number; hueMap?: HueMap }
 ) {
   const { activeNotes, noteVelocities } = useMIDI();
+  // On-screen notes (2D keyboard / 3D PianoScene) ride the noteBus and
+  // merge with hardware notes — a tapped key streams into the fluid
+  // exactly like a hardware key. Before the piano-surface hotfix this
+  // hook heard only Web MIDI hardware, so in-app playing could never
+  // reach the fluid at all.
+  const virtual = useVirtualNotes();
+  const mergedActiveNotes = useMemo(
+    () => Array.from(new Set<string>([...activeNotes, ...virtual.activeNotes])),
+    [activeNotes, virtual.activeNotes]
+  );
+  const mergedVelocities = useMemo(
+    () => ({ ...noteVelocities, ...virtual.noteVelocities }),
+    [noteVelocities, virtual.noteVelocities]
+  );
   const { sendInteraction } = useFluidMultiUser(roomId);
   const streamsRef = useRef<Map<NoteName, number>>(new Map());
 
-  const currentNotes = useMemo(() => new Set<NoteName>(activeNotes), [activeNotes]);
+  const currentNotes = useMemo(
+    () => new Set<NoteName>(mergedActiveNotes as NoteName[]),
+    [mergedActiveNotes]
+  );
 
   useEffect(() => {
     if (!enabled) {
@@ -84,7 +102,7 @@ export function useMIDIFluid(
         const idx = hueMap === "fifths" ? fifthsIndex(noteNum) : chromaticIndex(noteNum);
         const x = idx / 12;
 
-        const vRaw = noteVelocities[note] ?? 0.5;
+        const vRaw = mergedVelocities[note] ?? 0.5;
         const vCurved = applyCurve(vRaw, curve);
         const vel = Math.max(0.05, Math.min(1, vCurved * Math.max(0.25, Math.min(1.6, intensityScale))));
         const hue = ((idx * 30) % 360) / 360;
@@ -122,7 +140,7 @@ export function useMIDIFluid(
       for (const id of streamsRef.current.values()) window.cancelAnimationFrame(id);
       streamsRef.current.clear();
     };
-  }, [currentNotes, noteVelocities, sendInteraction, enabled, intensityScale, curve, opts?.transpose, opts?.hueMap]);
+  }, [currentNotes, mergedVelocities, sendInteraction, enabled, intensityScale, curve, opts?.transpose, opts?.hueMap]);
 
   return { activeNotes, noteVelocities };
 }
