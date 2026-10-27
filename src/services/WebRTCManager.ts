@@ -34,7 +34,19 @@ export type MessageHandler = (data: unknown, from: string) => void;
 interface Peer {
   id: string;
   pc: RTCPeerConnection;
+  /** Control channel ('fabric'): ordered, retransmitted. Carries
+   * session/identity/note/ping traffic — rare, small, must arrive. */
   dc: RTCDataChannel | null;
+  /**
+   * Live channel ('fabric-live', Hotfix 1.9): unordered,
+   * maxRetransmits 0. Carries stroke points only — ephemeral data
+   * where a late retransmit is worse than a gap (the fluid sim
+   * interpolates over a dropped point; it cannot un-stall a stream
+   * head-of-line blocked behind one). Null when the remote end is
+   * an older client that only ever offers the control channel;
+   * sendLive falls back to the control channel in that case.
+   */
+  liveDc: RTCDataChannel | null;
   ready: boolean;
   /** ICE candidates waiting for this peer's remote description. */
   pendingIce: RTCIceCandidateInit[];
@@ -308,6 +320,7 @@ export class WebRTCManager {
       id: peerId,
       pc,
       dc: null,
+      liveDc: null,
       ready: false,
       pendingIce: this.earlyIce.get(peerId) ?? [],
     };
@@ -335,8 +348,16 @@ export class WebRTCManager {
     };
 
     pc.ondatachannel = (event) => {
-      peer.dc = event.channel;
-      this.wireDataChannel(peer);
+      // Hotfix 1.9: two lanes exist now. Route by label — anything
+      // that is not the live lane is the control channel (including
+      // the single 'fabric' channel an older client offers).
+      if (event.channel.label === 'fabric-live') {
+        peer.liveDc = event.channel;
+        this.wireDataChannel(peer, event.channel, false);
+      } else {
+        peer.dc = event.channel;
+        this.wireDataChannel(peer, event.channel, true);
+      }
     };
 
     if (asCaller) {
@@ -345,7 +366,20 @@ export class WebRTCManager {
         maxRetransmits: 3
       });
       peer.dc = dc;
-      this.wireDataChannel(peer);
+      this.wireDataChannel(peer, dc, true);
+
+      // Hotfix 1.9: the ephemeral stroke lane. Unordered with zero
+      // retransmits: under loss, stroke points arrive as fast as
+      // the network allows instead of queueing behind a lost
+      // packet's retransmission (the old single channel was
+      // ordered + maxRetransmits 3 — head-of-line blocking on
+      // exactly the traffic that least wants reliability).
+      const liveDc = pc.createDataChannel('fabric-live', {
+        ordered: false,
+        maxRetransmits: 0
+      });
+      peer.liveDc = liveDc;
+      this.wireDataChannel(peer, liveDc, false);
 
       // Create and send offer. createOffer() resolves to a plain
       // RTCSessionDescriptionInit in spec-compliant browsers, so the
@@ -367,22 +401,28 @@ export class WebRTCManager {
   }
 
   /**
-   * Wire up data channel event handlers
+   * Wire up data channel event handlers. Both lanes deliver into
+   * the same notifyMessage path — lane choice is a send-side
+   * property only. Only the CONTROL channel drives peer.ready
+   * (presence): the live lane opening or closing must never flap
+   * the room's peer count.
    */
-  private wireDataChannel(peer: Peer): void {
-    if (!peer.dc) return;
-
-    peer.dc.onopen = () => {
-      peer.ready = true;
-      console.log(`[WebRTCManager] Data channel open with ${peer.id}`);
+  private wireDataChannel(peer: Peer, channel: RTCDataChannel, isControl: boolean): void {
+    channel.onopen = () => {
+      if (isControl) {
+        peer.ready = true;
+      }
+      console.log(`[WebRTCManager] Data channel '${channel.label}' open with ${peer.id}`);
     };
 
-    peer.dc.onclose = () => {
-      peer.ready = false;
-      console.log(`[WebRTCManager] Data channel closed with ${peer.id}`);
+    channel.onclose = () => {
+      if (isControl) {
+        peer.ready = false;
+      }
+      console.log(`[WebRTCManager] Data channel '${channel.label}' closed with ${peer.id}`);
     };
 
-    peer.dc.onmessage = (event) => {
+    channel.onmessage = (event) => {
       let data: unknown = event.data;
       try {
         data = JSON.parse(event.data);
@@ -392,8 +432,8 @@ export class WebRTCManager {
       this.notifyMessage(data, peer.id);
     };
 
-    peer.dc.onerror = () => {
-      console.warn(`[WebRTCManager] Data channel error with ${peer.id}`);
+    channel.onerror = () => {
+      console.warn(`[WebRTCManager] Data channel '${channel.label}' error with ${peer.id}`);
     };
   }
 
@@ -509,6 +549,9 @@ export class WebRTCManager {
         peer.dc?.close();
       } catch {}
       try {
+        peer.liveDc?.close();
+      } catch {}
+      try {
         peer.pc.close();
       } catch {}
       this.peers.delete(peerId);
@@ -555,6 +598,29 @@ export class WebRTCManager {
         } catch (error) {
           console.warn(`[WebRTCManager] Failed to send to ${peer.id}:`, error);
         }
+      }
+    });
+  }
+
+  /**
+   * Hotfix 1.9: send on the LIVE lane (stroke points). Uses the
+   * unordered/no-retransmit channel when it is open; falls back to
+   * the control channel when the peer has no live lane (older
+   * clients) so strokes still flow; drops silently when neither is
+   * open — stroke points are ephemeral and are NEVER queued behind
+   * a connection attempt (a queue would deliver a stale scribble
+   * seconds late, worse than a gap the sim smooths over).
+   */
+  sendLive(data: unknown): void {
+    const message = typeof data === 'string' ? data : JSON.stringify(data);
+    this.peers.forEach(peer => {
+      const live = peer.liveDc?.readyState === 'open' ? peer.liveDc : null;
+      const dc = live ?? (peer.ready && peer.dc?.readyState === 'open' ? peer.dc : null);
+      if (!dc) return;
+      try {
+        dc.send(message);
+      } catch (error) {
+        console.warn(`[WebRTCManager] Failed live send to ${peer.id}:`, error);
       }
     });
   }
@@ -633,6 +699,9 @@ export class WebRTCManager {
     this.peers.forEach(peer => {
       try {
         peer.dc?.close();
+      } catch {}
+      try {
+        peer.liveDc?.close();
       } catch {}
       try {
         peer.pc.close();
