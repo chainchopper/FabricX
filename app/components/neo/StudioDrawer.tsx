@@ -5,6 +5,18 @@ import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { useExperience } from "../../context/ExperienceContext";
 import { FABRIC_SHARE_LIVE_EVENT } from "../../../src/session/sessionStore";
+import {
+  FABRIC_PLAY_PATTERN_EVENT,
+} from "../../../src/ai/PatternComposer";
+import { patternPlayer } from "../../../src/ai/PatternPlayer";
+import { useCompositions } from "../../../src/ai/useCompositions";
+import {
+  MAX_COMPOSITIONS,
+  deleteComposition,
+  renameComposition,
+  saveComposition,
+  type SavedComposition,
+} from "../../../src/ai/compositionsStore";
 
 interface Timeline {
   id: string;
@@ -36,6 +48,16 @@ export default function StudioDrawer() {
   const [activeTab, setActiveTab] = useState<"composer" | "timeline" | "effects">("composer");
   const [isRecording, setIsRecording] = useState(false);
   const [compositionName, setCompositionName] = useState("Untitled");
+  // Slice 8: the saved-compositions list is the real on-device store
+  // now (fabric_compositions_v1) — no demo entries in the list.
+  const compositions = useCompositions();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
+  // The most recent pattern composed/played this session (read at
+  // render, like FabricMenu's share-live): what "Save" below keeps.
+  const lastPattern = patternPlayer.lastPattern;
 
   const handleTabChange = (tab: typeof activeTab) => {
     haptics.impactLight();
@@ -63,11 +85,59 @@ export default function StudioDrawer() {
     { id: "pulse", name: "Haptic Pulse", category: "haptic", enabled: false },
   ];
 
-  const mockCompositions = [
-    { id: "1", name: "Morning Flow", duration: 120, tracks: 4 },
-    { id: "2", name: "Evening Waves", duration: 180, tracks: 3 },
-    { id: "3", name: "Midnight Dream", duration: 240, tracks: 5 },
-  ];
+  // Play a saved composition through the EXISTING playback path:
+  // FABRIC_PLAY_PATTERN_EVENT -> LegacyFluid's dispatchStep ->
+  // sendInteraction, so Slice 5 session-mode enforcement applies —
+  // a view-mode guest's playback renders locally and transmits
+  // nothing, exactly like live input.
+  const playComposition = (comp: SavedComposition) => {
+    haptics.impactMedium();
+    audio.success();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, { detail: comp.pattern })
+      );
+    }
+    closeAll();
+  };
+
+  const shareCompositionLive = (comp: SavedComposition) => {
+    haptics.impactMedium();
+    audio.success();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_SHARE_LIVE_EVENT, {
+          detail: { name: comp.name, id: comp.id },
+        })
+      );
+    }
+    closeAll();
+  };
+
+  // "Save" in Current Composition: keep the session's last composed
+  // pattern under the name typed above. Honest when there is nothing
+  // to save yet — it says so instead of pretending.
+  const saveCurrentPattern = () => {
+    const p = patternPlayer.lastPattern;
+    if (!p) {
+      setSaveNote(
+        "Nothing to save yet — describe a feeling in the composer on the canvas first, then save it here."
+      );
+      return;
+    }
+    const typed = compositionName.trim();
+    void saveComposition({
+      name: typed && typed !== "Untitled" ? typed : undefined,
+      prompt: "",
+      pattern: p,
+    }).then((rec) => {
+      if (rec) {
+        haptics.impactMedium();
+        audio.success();
+        setSaveNote(`Saved “${rec.name}” — it's in your list below.`);
+      }
+    });
+  };
 
   return (
     <Animated.View
@@ -211,7 +281,8 @@ export default function StudioDrawer() {
                   )}
                   
                   <Pressable
-                    onPress={() => { haptics.impactMedium(); audio.success(); }}
+                    pointerEvents="auto"
+                    onPress={saveCurrentPattern}
                     style={{
                       padding: 10,
                       borderRadius: 8,
@@ -226,6 +297,17 @@ export default function StudioDrawer() {
                     <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Save</Text>
                   </Pressable>
                 </View>
+
+                <Text style={{ color: "#9ca3af", fontSize: 12, marginTop: 10 }}>
+                  {lastPattern
+                    ? `Last composed this session: “${lastPattern.name}” (${lastPattern.steps.length} steps). Save keeps it on this device.`
+                    : "Nothing composed yet this session — the composer on the canvas makes patterns you can keep here."}
+                </Text>
+                {saveNote ? (
+                  <Text style={{ color: "#a3e635", fontSize: 12, marginTop: 6 }}>
+                    {saveNote}
+                  </Text>
+                ) : null}
                 
                 {isRecording && (
                   <Text style={{ color: "#ef4444", marginTop: 8, fontSize: 12, textAlign: "center" }}>
@@ -234,7 +316,9 @@ export default function StudioDrawer() {
                 )}
               </View>
 
-              {/* Saved Compositions */}
+              {/* Saved Compositions — the real store (Slice 8):
+                  fabric_compositions_v1 on this device, newest first,
+                  capped at MAX_COMPOSITIONS with the oldest evicted. */}
               <View
                 style={{
                   padding: 12,
@@ -244,8 +328,20 @@ export default function StudioDrawer() {
                   backgroundColor: "rgba(2,8,23,0.5)",
                 }}
               >
-                <Text style={{ color: "white", fontWeight: "700", marginBottom: 8 }}>Saved Compositions</Text>
-                {mockCompositions.map((comp) => (
+                <Text style={{ color: "white", fontWeight: "700", marginBottom: 4 }}>Saved Compositions</Text>
+                <Text style={{ color: "#9ca3af", fontSize: 11, marginBottom: 8 }}>
+                  {compositions.loaded
+                    ? `${compositions.items.length} of ${MAX_COMPOSITIONS} kept on this device`
+                    : "Loading…"}
+                </Text>
+                {compositions.loaded && compositions.items.length === 0 ? (
+                  <Text style={{ color: "#9ca3af", fontSize: 12 }}>
+                    No saved compositions yet. Describe a feeling in the
+                    composer on the canvas, then tap Save — your pattern
+                    will live here on this device.
+                  </Text>
+                ) : null}
+                {compositions.items.map((comp) => (
                   <View
                     key={comp.id}
                     style={{
@@ -255,53 +351,147 @@ export default function StudioDrawer() {
                       borderWidth: 1,
                       borderColor: "rgba(148,163,184,0.2)",
                       marginBottom: 8,
-                      flexDirection: "row",
-                      alignItems: "center",
                     }}
                   >
-                    <Pressable
-                      onPress={() => { haptics.impactLight(); audio.click(); }}
-                      style={{ flex: 1 }}
-                    >
-                      <Text style={{ color: "white", fontWeight: "600" }}>{comp.name}</Text>
-                      <Text style={{ color: "#9ca3af", fontSize: 11 }}>
-                        {comp.duration}s • {comp.tracks} tracks
-                      </Text>
-                    </Pressable>
-                    {/* Share live (Slice 5): hands off to the Fabric
-                        menu, which hosts a session (minting a room
-                        if needed) and surfaces the invite link. The
-                        saved list is still demo data — the menu's
-                        notice states plainly that playing a saved
-                        composition arrives with Studio persistence;
-                        the room, mode and link are fully live. */}
-                    <Pressable
-                      pointerEvents="auto"
-                      onPress={() => {
-                        haptics.impactMedium();
-                        audio.success();
-                        if (typeof window !== "undefined") {
-                          window.dispatchEvent(
-                            new CustomEvent(FABRIC_SHARE_LIVE_EVENT, {
-                              detail: { name: comp.name },
-                            })
-                          );
-                        }
-                        closeAll();
-                      }}
-                      style={{
-                        paddingVertical: 8,
-                        paddingHorizontal: 10,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: "rgba(34,211,238,0.6)",
-                        backgroundColor: "rgba(34,211,238,0.12)",
-                      }}
-                    >
-                      <Text style={{ color: "#22d3ee", fontWeight: "700", fontSize: 12 }}>
-                        Share live
-                      </Text>
-                    </Pressable>
+                    {editingId === comp.id ? (
+                      <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                        <TextInput
+                          value={editName}
+                          onChangeText={setEditName}
+                          placeholder="Composition name..."
+                          placeholderTextColor="#6b7280"
+                          style={{
+                            flex: 1,
+                            backgroundColor: "rgba(0,0,0,0.3)",
+                            borderWidth: 1,
+                            borderColor: "rgba(148,163,184,0.25)",
+                            borderRadius: 8,
+                            padding: 8,
+                            color: "white",
+                          }}
+                        />
+                        <Pressable
+                          pointerEvents="auto"
+                          onPress={() => {
+                            void renameComposition(comp.id, editName);
+                            setEditingId(null);
+                          }}
+                          style={{
+                            paddingVertical: 8,
+                            paddingHorizontal: 10,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: "rgba(163,230,53,0.6)",
+                            backgroundColor: "rgba(163,230,53,0.12)",
+                          }}
+                        >
+                          <Text style={{ color: "#a3e635", fontWeight: "700", fontSize: 12 }}>Done</Text>
+                        </Pressable>
+                        <Pressable
+                          pointerEvents="auto"
+                          onPress={() => setEditingId(null)}
+                          style={{
+                            paddingVertical: 8,
+                            paddingHorizontal: 10,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: "rgba(148,163,184,0.4)",
+                          }}
+                        >
+                          <Text style={{ color: "#9ca3af", fontWeight: "700", fontSize: 12 }}>Cancel</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <>
+                        <Text style={{ color: "white", fontWeight: "600" }}>{comp.name}</Text>
+                        <Text style={{ color: "#9ca3af", fontSize: 11 }}>
+                          {`${comp.pattern.steps.length} steps • ${(comp.pattern.durationMs / 1000).toFixed(1)}s • ${new Date(comp.createdAt).toLocaleDateString()}`}
+                        </Text>
+                        {comp.prompt ? (
+                          <Text style={{ color: "#6b7280", fontSize: 11 }} numberOfLines={2}>
+                            {`“${comp.prompt}”`}
+                          </Text>
+                        ) : null}
+                        <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                          {/* Play: the existing playback path — session
+                              mode gating rides along (see above). */}
+                          <Pressable
+                            pointerEvents="auto"
+                            onPress={() => playComposition(comp)}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              borderWidth: 1,
+                              borderColor: "rgba(16,185,129,0.6)",
+                              backgroundColor: "rgba(16,185,129,0.12)",
+                            }}
+                          >
+                            <Text style={{ color: "#10b981", fontWeight: "700", fontSize: 12 }}>▶ Play</Text>
+                          </Pressable>
+                          {/* Share live (Slice 5 + 8): hands off to the
+                              Fabric menu, which hosts a session (minting
+                              a room if needed), plays this composition
+                              into it, and surfaces the invite link. */}
+                          <Pressable
+                            pointerEvents="auto"
+                            onPress={() => shareCompositionLive(comp)}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              borderWidth: 1,
+                              borderColor: "rgba(34,211,238,0.6)",
+                              backgroundColor: "rgba(34,211,238,0.12)",
+                            }}
+                          >
+                            <Text style={{ color: "#22d3ee", fontWeight: "700", fontSize: 12 }}>Share live</Text>
+                          </Pressable>
+                          <Pressable
+                            pointerEvents="auto"
+                            onPress={() => {
+                              setEditName(comp.name);
+                              setEditingId(comp.id);
+                            }}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              borderWidth: 1,
+                              borderColor: "rgba(148,163,184,0.4)",
+                            }}
+                          >
+                            <Text style={{ color: "#e5e7eb", fontWeight: "700", fontSize: 12 }}>Rename</Text>
+                          </Pressable>
+                          <Pressable
+                            pointerEvents="auto"
+                            onPress={() => {
+                              if (armedDeleteId === comp.id) {
+                                void deleteComposition(comp.id);
+                                setArmedDeleteId(null);
+                              } else {
+                                setArmedDeleteId(comp.id);
+                              }
+                            }}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              borderWidth: 1,
+                              borderColor: "rgba(239,68,68,0.6)",
+                              backgroundColor:
+                                armedDeleteId === comp.id
+                                  ? "rgba(239,68,68,0.25)"
+                                  : "rgba(239,68,68,0.08)",
+                            }}
+                          >
+                            <Text style={{ color: "#fca5a5", fontWeight: "700", fontSize: 12 }}>
+                              {armedDeleteId === comp.id ? "Tap again to delete" : "Delete"}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </>
+                    )}
                   </View>
                 ))}
               </View>

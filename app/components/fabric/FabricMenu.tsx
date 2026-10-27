@@ -72,6 +72,11 @@ import {
 } from "../../../src/identity/useIdentity";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
+import {
+  getCompositionById,
+  type SavedComposition,
+} from "../../../src/ai/compositionsStore";
+import { useCompositions } from "../../../src/ai/useCompositions";
 import BackgroundControls from "../controls/BackgroundControls";
 import FluidQualityControls from "../controls/FluidQualityControls";
 import ParticleDensityControls from "../controls/ParticleDensityControls";
@@ -216,6 +221,11 @@ export default function FabricMenu() {
   const localIdentity = useLocalIdentity();
   const [nameDraft, setNameDraft] = useState<string | null>(null);
 
+  // ---- Studio compositions (Slice 8) ------------------------------
+  // The real saved-compositions store: the share-live rows in the
+  // STUDIO section below read the same list Studio shows.
+  const compositions = useCompositions();
+
   const pickedModeRef = useRef(pickedMode);
   pickedModeRef.current = pickedMode;
 
@@ -272,24 +282,33 @@ export default function FabricMenu() {
 
   // Studio's "Share live" (FABRIC_SHARE_LIVE_EVENT): make sure a
   // hosted session exists, close the drawer, and open this menu on
-  // the SHARE section with the link ready. The notice is honest
-  // about playback: Studio's saved list is demo data until Studio
-  // persists real patterns (see sessionStore).
+  // the SHARE section with the link ready. Since Slice 8 the event
+  // carries the saved composition's id; its real pattern is looked
+  // up in the compositions store and played into the room through
+  // the same playback path as everything else.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onShareLive = (ev: Event) => {
-      const name =
-        (ev as CustomEvent<{ name?: string }>).detail?.name ?? "Composition";
+      const detail = (ev as CustomEvent<{ name?: string; id?: string }>)
+        .detail;
+      const name = detail?.name ?? "Composition";
       drawers.closeAll();
       if (getSessionPublicState().role !== "host") {
         startHostingRef.current(pickedModeRef.current);
       }
-      setShareNotice(
-        `“${name}” is live — send the invite link under SHARE and guests land in this room. ` +
-          `One honest note: Studio's saved list is still demo data, so this share opens the live room today; ` +
-          `playing a saved composition itself arrives when Studio saves real patterns. ` +
-          `Patterns you compose on the canvas can be shared live right now (see STUDIO below).`
-      );
+      const comp = getCompositionById(detail?.id);
+      if (comp) {
+        window.dispatchEvent(
+          new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, { detail: comp.pattern })
+        );
+        setShareNotice(
+          `“${name}” is playing live in this room — send the invite link under SHARE and guests feel it as they land.`
+        );
+      } else {
+        setShareNotice(
+          `“${name}” is live — send the invite link under SHARE and guests land in this room.`
+        );
+      }
       setMenuOpen(true);
     };
     window.addEventListener(FABRIC_SHARE_LIVE_EVENT, onShareLive as EventListener);
@@ -408,12 +427,11 @@ export default function FabricMenu() {
     moveRoom("main");
   };
 
-  // Replay the last pattern composed this session into the room so
-  // guests feel it — hosting first if needed. Playback rides
-  // FABRIC_PLAY_PATTERN_EVENT into LegacyFluid's pattern dispatch,
-  // which broadcasts through sendInteraction like live input.
-  const sharePatternLive = () => {
-    const p = patternPlayer.lastPattern;
+  // Replay a pattern into the room so guests feel it — hosting first
+  // if needed. Playback rides FABRIC_PLAY_PATTERN_EVENT into
+  // LegacyFluid's pattern dispatch, which broadcasts through
+  // sendInteraction like live input.
+  const sharePatternLive = (p: typeof patternPlayer.lastPattern) => {
     if (!p || typeof window === "undefined") return;
     noteActivity();
     if (getSessionPublicState().role !== "host") {
@@ -425,6 +443,12 @@ export default function FabricMenu() {
     setShareNotice(
       `Playing “${p.name}” into the room now — everyone here feels it. Send the invite link under SHARE so others can join live.`
     );
+  };
+
+  // Slice 8: a saved composition shares live exactly the same way —
+  // the store is the data source, the playback path is unchanged.
+  const shareCompositionLive = (comp: SavedComposition) => {
+    sharePatternLive(comp.pattern);
   };
 
   const renderModeRows = (
@@ -1083,16 +1107,15 @@ export default function FabricMenu() {
           ))}
         </View>
 
-        {/* Share live (Slice 5): replay the pattern composed this
-            session into the room — hosting first if nobody does, so
-            guests actually feel it. Saved Studio compositions get
-            their own Share live in the Studio panel; until Studio
-            persists real patterns, that share opens this room + link
-            (the notice under SHARE says so plainly). */}
+        {/* Share live (Slice 5 + 8): replay a pattern into the room —
+            hosting first if nobody does, so guests actually feel it.
+            Two data sources, one playback path: the pattern composed
+            this session, and the saved compositions store (the same
+            real list Studio shows). */}
         {lastPattern ? (
           <Pressable
             pointerEvents="auto"
-            onPress={sharePatternLive}
+            onPress={() => sharePatternLive(lastPattern)}
             accessibilityRole="button"
             style={({ pressed }) => ({
               flexDirection: "row",
@@ -1113,6 +1136,39 @@ export default function FabricMenu() {
             </Text>
             <Icon name="chevronRight" size={16} color={colors.textDim} />
           </Pressable>
+        ) : null}
+        {/* Saved compositions (Slice 8): share-live rows read the
+            same store Studio persists to — most recent first. */}
+        {compositions.items.slice(0, 8).map((comp) => (
+          <Pressable
+            key={comp.id}
+            pointerEvents="auto"
+            onPress={() => shareCompositionLive(comp)}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: spacing.md,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: radius.card,
+              borderWidth: 1,
+              borderColor: colors.accentLine,
+              backgroundColor: pressed ? colors.accentDim : "transparent",
+              marginTop: spacing.sm,
+            })}
+          >
+            <Icon name="people" size={20} color={colors.accent} />
+            <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+              Share live — play “{comp.name}” to the room
+            </Text>
+            <Icon name="chevronRight" size={16} color={colors.textDim} />
+          </Pressable>
+        ))}
+        {compositions.items.length > 8 ? (
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: spacing.sm }}>
+            {`+${compositions.items.length - 8} more saved in Studio`}
+          </Text>
         ) : null}
 
         {/* ---------------- UNIVERSAL ---------------- */}
