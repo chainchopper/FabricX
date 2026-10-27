@@ -8,6 +8,16 @@ import {
   verbInteraction,
   type SensoryVerb,
 } from "../../sensory/verbs";
+import {
+  FABRIC_COMPOSE_EVENT,
+  FABRIC_COMPOSE_STATE_EVENT,
+  FABRIC_COMPOSE_STOP_EVENT,
+  composePattern,
+  getHapticPattern,
+  hueToRgb,
+  type PatternStep,
+} from "../../ai/PatternComposer";
+import { patternPlayer } from "../../ai/PatternPlayer";
 import { useAudioCues } from "../../../app/hooks/useAudioCues";
 import type { FluidInteraction } from "../../types/fluid";
 import { useGhostPeer } from "../../ghost/useGhostPeer";
@@ -226,6 +236,88 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
     window.addEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
     return () => window.removeEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
+  }, []);
+
+  // ---- Pattern composer (Slice 4) --------------------------------------
+  // The HUD's ComposeBar dispatches FABRIC_COMPOSE_EVENT with a
+  // plain-language prompt. Composition lives here because this
+  // component owns the transport: PatternComposer turns the prompt
+  // into a validated Pattern (Muse Spark via the existing LLMService
+  // config, or a built-in offline pattern), and patternPlayer
+  // dispatches its steps through the sinks below —
+  //   verb steps:  sendInteraction(verbInteraction) + playVerbEffects,
+  //                the exact path the VerbBar uses, so every peer feels
+  //                the verb's vibration + cue through their remote path.
+  //   splat steps: sendInteraction + a local engine.splatAt with the
+  //                same fields, so this canvas renders what peers
+  //                render from the broadcast interaction.
+  //   haptic steps: local navigator.vibrate only. The transport has
+  //                no haptic-only payload (a verb-less interaction
+  //                would paint dye on peers); verbs are the broadcast
+  //                haptic channel.
+  // Playback state is relayed to the HUD on FABRIC_COMPOSE_STATE_EVENT;
+  // FABRIC_COMPOSE_STOP_EVENT cancels globally via the shared player.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const publishState = (name: string | null) => {
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_COMPOSE_STATE_EVENT, { detail: name })
+      );
+    };
+    patternPlayer.setStateListener(publishState);
+
+    const dispatchStep = (step: PatternStep) => {
+      if (step.kind === "verb") {
+        const verb = step.verbId ? getVerbById(step.verbId) : undefined;
+        if (!verb) return;
+        sendRef.current(verbInteraction(verb));
+        playVerbEffects(verb, true);
+      } else if (step.kind === "splat") {
+        const color = hueToRgb(step.hue ?? 200, step.intensity);
+        const interaction: Omit<FluidInteraction, "userId" | "timestamp"> = {
+          position: { x: step.x ?? 0.5, y: step.y ?? 0.5 },
+          force: { x: 0, y: -((step.radius ?? 0.3) * 220) },
+          pressure: step.intensity,
+          color,
+        };
+        sendRef.current(interaction);
+        engineRef.current?.splatAt(
+          interaction.position.x,
+          interaction.position.y,
+          interaction.force.x,
+          interaction.force.y,
+          color
+        );
+      } else {
+        const haptic = getHapticPattern(step.hapticId);
+        if (haptic && typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(haptic);
+        }
+      }
+      ghostRef.current.noteUserActivity();
+    };
+
+    const onCompose = (ev: Event) => {
+      const prompt = (ev as CustomEvent<string>).detail;
+      if (typeof prompt !== "string" || !prompt.trim()) return;
+      void (async () => {
+        const pattern = await composePattern(prompt);
+        if (pattern) {
+          patternPlayer.play(pattern, dispatchStep);
+        } else {
+          publishState(null);
+        }
+      })();
+    };
+    const onStop = () => patternPlayer.stop();
+    window.addEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
+    window.addEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
+    return () => {
+      window.removeEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
+      window.removeEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
+      patternPlayer.stop();
+      patternPlayer.setStateListener(null);
+    };
   }, []);
 
   // Incoming remote interactions -> splats (+ verb haptics/audio).
