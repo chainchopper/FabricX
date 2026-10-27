@@ -5,9 +5,11 @@ import { useExperience } from "../../context/ExperienceContext";
 import { useFabricChat } from "../../../src/hooks/useFabricChat";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../../shared/utils/realtimeStatus";
 import { peerColor } from "../../../shared/utils/peerColor";
+import SheetHeader from "./SheetHeader";
+import { colors, type } from "../../../src/theme/tokens";
 
 export default function FriendsDrawer() {
-  const { back, getAnim } = useNewDrawers();
+  const { back, closeAll, getAnim } = useNewDrawers();
   const { tx, width } = getAnim("friends");
 
   const { state } = useExperience();
@@ -40,22 +42,7 @@ export default function FriendsDrawer() {
   }, [chat.messages.length]);
 
   const Title = () => (
-    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
-      <Pressable
-        onPress={() => back()}
-        style={{
-          paddingVertical: 8,
-          paddingHorizontal: 10,
-          borderRadius: 10,
-          borderWidth: 1,
-          borderColor: "rgba(148,163,184,0.35)",
-          marginRight: 8,
-        }}
-      >
-        <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>← Back</Text>
-      </Pressable>
-      <Text style={{ color: "white", fontWeight: "800", fontSize: 18 }}>Friends & Chat</Text>
-    </View>
+    <SheetHeader title="Friends & Chat" onBack={() => back()} onClose={closeAll} />
   );
 
   if (Platform.OS !== "web") {
@@ -74,15 +61,15 @@ export default function FriendsDrawer() {
           style={{
             position: "absolute",
             top: 0, bottom: 0, left: 0, width,
-            backgroundColor: "rgba(6,10,22,0.96)",
-            borderRightColor: "rgba(34,211,238,0.35)",
+            backgroundColor: colors.sheet,
+            borderRightColor: colors.line,
             borderRightWidth: 1,
             paddingTop: 56,
             paddingHorizontal: 16,
           }}
         >
           <Title />
-          <Text style={{ color: "#93c5fd" }}>
+          <Text style={{ color: colors.textDim }}>
             Chat is web-only for now. Peers visible on web sessions.
           </Text>
         </View>
@@ -105,8 +92,8 @@ export default function FriendsDrawer() {
         style={{
           position: "absolute",
           top: 0, bottom: 0, left: 0, width,
-          backgroundColor: "rgba(6,10,22,0.96)",
-          borderRightColor: "rgba(34,211,238,0.35)",
+          backgroundColor: colors.sheet,
+          borderRightColor: colors.line,
           borderRightWidth: 1,
           paddingTop: 56,
           paddingHorizontal: 16,
@@ -116,7 +103,7 @@ export default function FriendsDrawer() {
 
         {/* Room / Transport */}
         <View style={{ marginBottom: 12 }}>
-          <Text style={{ color: "#93c5fd" }}>Room: {roomId}</Text>
+          <Text style={{ color: colors.textDim }}>Room: {roomId}</Text>
           <Text style={{ color: "#e5e7eb", marginTop: 4 }}>
             Transport: {rt.transport === "webrtc" ? "WebRTC" : "Broadcast"} • Peers: {rt.peers ?? 0}
           </Text>
@@ -157,7 +144,11 @@ export default function FriendsDrawer() {
                 );
               })}
             </View>
-          ) : null}
+          ) : (
+            <Text style={{ color: colors.textDim, fontSize: type.body, marginTop: 8 }}>
+              No one else is here yet — when someone fabrics you, they&apos;ll show up here.
+            </Text>
+          )}
         </View>
 
         {/* Name editor */}
@@ -197,6 +188,19 @@ export default function FriendsDrawer() {
             contentContainerStyle={{ padding: 10, gap: 6 }}
             showsVerticalScrollIndicator={false}
           >
+            {chat.messages.length === 0 ? (
+              <Text
+                style={{
+                  color: colors.textDim,
+                  fontSize: type.body,
+                  textAlign: "center",
+                  marginTop: 24,
+                  paddingHorizontal: 16,
+                }}
+              >
+                No messages yet — say the first thing, and they&apos;ll feel it land.
+              </Text>
+            ) : null}
             {chat.messages.map((m) => {
               const mine = m.userId === chat.userId;
               return (
