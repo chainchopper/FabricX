@@ -13,16 +13,20 @@
  *   (Meta Model API) as the ghost's teacher brain.
  *
  * What this does since the Ghost Brain build — stated plainly so
- * nobody over-reads the row in AI Services: flipping it DOES route
- * the ghost's deliberation layer (GhostBrain.ts). The ghost's
- * reflexes always run on-device regardless; every ~10s of changed
- * context the ghost deliberates, and the tier picks the brain:
+ * nobody over-reads the switch: flipping it DOES route the ghost's
+ * deliberation layer (GhostBrain.ts). The ghost's reflexes always
+ * run on-device regardless; every ~10s of changed context the
+ * ghost deliberates, and the tier picks the brain:
  * - "on-device": the distilled decision table decides locally. No
  *   network, instant, offline.
  * - "spark-cloud": the scenario is posted to the AI Services
  *   configured model through the same loader the composer uses. If
  *   no key is saved there, the on-device table decides instead and
- *   the AI Services row says so — never a silent fake.
+ *   the live brain line says so — never a silent fake.
+ *
+ * The switch itself lives in Your Ghostie (Slice 20, GhostieHome)
+ * — it moved out of AI Services, which now carries only a pointer
+ * line. This module (key, values, defaults) is unchanged.
  *
  * Powered by Nirvana
  */

@@ -63,12 +63,16 @@ import {
   type GhostIdentity,
 } from "./GhostPeer";
 import {
+  applyPersonalityBias,
   consultSparkBrain,
   decideOnDevice,
+  parseGhostPersonality,
   type GhostDecision,
   type GhostScenario,
 } from "./GhostBrain";
 import { getGhostBrainTier } from "./ghostBrainPref";
+import { getGhostPersonality } from "./ghostPersonalityPref";
+import { subscribeGhostSharedSettings } from "./ghostSharedPref";
 import {
   FABRIC_GHOST_SESSION_EVENT,
   FABRIC_GHOST_TOGGLE_EVENT,
@@ -248,32 +252,55 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
       const peer = peerRef.current;
       if (!peer || !enabledRef.current) return;
       try {
+        // Personality (Slice 20): the primary's words for their
+        // ghostie, read fresh each deliberation (at most 1/10s).
+        // On the Spark tier they ride as context in the consult;
+        // on the table paths they steer via the legible bias map.
+        // Either way they act WITHIN the hard invariants — see
+        // GhostBrain.ts's Personality section for the table stakes.
+        const personality = await getGhostPersonality();
+        const traits = parseGhostPersonality(personality);
         const tier = await getGhostBrainTier();
         if (tier === "spark-cloud") {
           const config = await loadLLMConfig();
           if (!config) {
             // Spark picked but no key saved in AI Services: the
             // on-device table decides, and the row says so.
-            const { decision } = decideOnDevice(scenario);
+            const raw = decideOnDevice(scenario).decision;
+            const { decision, steeredBy } = applyPersonalityBias(
+              raw,
+              scenario,
+              traits
+            );
             peerRef.current?.applyBrainDecision(decision, "table");
             publishBrain({
               source: "table",
               tierLabel: "On-device table · Spark picked, no key saved",
-              lastText: describeDecision(decision),
+              lastText:
+                describeDecision(decision) +
+                (steeredBy.length
+                  ? ` · personality: ${steeredBy.join("; ")}`
+                  : ""),
               lastAt: Date.now(),
             });
             return;
           }
           const service = getLLMService(config);
-          const decision = await consultSparkBrain(scenario, (messages, opts) =>
-            service.chat(messages, opts).then((r) => r.text)
+          const decision = await consultSparkBrain(
+            scenario,
+            (messages, opts) =>
+              service.chat(messages, opts).then((r) => r.text),
+            6_000,
+            personality
           );
           if (decision) {
             peerRef.current?.applyBrainDecision(decision, "spark");
             publishBrain({
               source: "spark",
               tierLabel: "Spark",
-              lastText: describeDecision(decision),
+              lastText:
+                describeDecision(decision) +
+                (personality ? " · personality heard" : ""),
               lastAt: Date.now(),
             });
           } else {
@@ -287,12 +314,21 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
           }
           return;
         }
-        const { decision } = decideOnDevice(scenario);
+        const raw = decideOnDevice(scenario).decision;
+        const { decision, steeredBy } = applyPersonalityBias(
+          raw,
+          scenario,
+          traits
+        );
         peerRef.current?.applyBrainDecision(decision, "table");
         publishBrain({
           source: "table",
           tierLabel: "On-device table",
-          lastText: describeDecision(decision),
+          lastText:
+            describeDecision(decision) +
+            (steeredBy.length
+              ? ` · personality: ${steeredBy.join("; ")}`
+              : ""),
           lastAt: Date.now(),
         });
       } catch {
@@ -386,6 +422,19 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   useEffect(() => {
     peerRef.current?.setHumansPresent(humanPeers > 0);
   }, [humanPeers]);
+
+  // Shared settings (Slice 20): feed the peer the primary's
+  // "how my ghostie is with others" switches — the stored record
+  // when it loads, and every toggle in Your Ghostie the moment it
+  // flips. The peer gates greetings/approaches and remote pets
+  // on these; followHostFabric resolves at the layer gate instead.
+  useEffect(
+    () =>
+      subscribeGhostSharedSettings((s) => {
+        peerRef.current?.setSharedSettings(s);
+      }),
+    []
+  );
 
   // Per-layer feature gate: the brain's effective enabled state is
   // the per-user preference AND the active layer's toggle. Switching

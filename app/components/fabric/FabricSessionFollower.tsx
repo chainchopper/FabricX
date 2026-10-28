@@ -40,6 +40,7 @@ import {
   fabricStateKey,
   getFabricDivergence,
   noteFabricDivergence,
+  noteHostArrivedFabric,
   subscribeSessionFabric,
   type SessionFabricState,
 } from "../../../src/session/fabricStore";
@@ -122,6 +123,14 @@ export default function FabricSessionFollower() {
         divergedLayerId: getFabricDivergence(),
       });
       lastKeyRef.current = key;
+      // Host-arrival bookkeeping (Slice 20): the note marks layers
+      // this device was MOVED to by following, and only those —
+      // the ghostie's "Follow the host's fabric" setting binds
+      // them. Anything that is not a live guest on a live session
+      // fabric clears the note: solo, hosting, or a session whose
+      // fabric is gone means every fabric here was opened by hand.
+      const role = getSessionPublicState().role;
+      if (role !== "guest" || !fab.layerId) noteHostArrivedFabric(null);
       // A guest who lands already ON the session fabric (invite
       // link) has nothing to announce — the first sighting of the
       // state that merely confirms where they already are is not
@@ -138,6 +147,9 @@ export default function FabricSessionFollower() {
         // the host (claim, mode, and rules intact), not in the
         // fabric's default lobby.
         noteFabricDivergence(null);
+        // This arrival is host-led: mark it before the switch so
+        // the new layer's ghost gate resolves with the note set.
+        noteHostArrivedFabric(fab.layerId);
         toastRef.current.show(`${hostName} moved the room to ${layer.name}`);
         const sessionRoom = getSessionPublicState().roomId;
         void switchRef.current(fab.layerId);

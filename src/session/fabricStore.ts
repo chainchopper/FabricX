@@ -376,3 +376,31 @@ export function noteFabricDivergence(layerId: string | null): void {
 export function getFabricDivergence(): string | null {
   return divergedLayerId;
 }
+
+// ------------------------------------------------------------------
+// Host arrival (follower -> layer gate) — Slice 20
+// ------------------------------------------------------------------
+
+let hostArrivedLayerId: string | null = null;
+
+/**
+ * Note the layer this device arrived on by FOLLOWING the host
+ * (the session follower switched it), or clear the note (null)
+ * when the primary opens a fabric themselves, the session ends,
+ * or this device is no longer a guest.
+ *
+ * Read by the canvas's ghost gate (LegacyFluid): the ghostie's
+ * "Follow the host's fabric" shared setting binds ONLY these
+ * arrivals — with follow off, the ghost does not join fabrics its
+ * primary was moved to, while fabrics the primary opened
+ * themselves always get their ghost (subject to the layer's own
+ * "Ghost in this layer" setting). Manual opens clear the note in
+ * FabricMenu's card handlers; only the follower sets it.
+ */
+export function noteHostArrivedFabric(layerId: string | null): void {
+  hostArrivedLayerId = layerId;
+}
+
+export function getHostArrivedFabric(): string | null {
+  return hostArrivedLayerId;
+}
