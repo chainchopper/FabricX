@@ -9,6 +9,7 @@ import ComposeBar from "../../src/components/sensory/ComposeBar";
 import GhostIndicator from "../../src/ghost/GhostIndicator";
 import { useFabricChrome } from "./fabric/FabricChromeContext";
 import PianoKeyboard from "./PianoKeyboard";
+import FrequencyDancer from "../../src/components/piano/FrequencyDancer";
 import { colors, radius, spacing } from "../../src/theme/tokens";
 import {
   SESSION_MODE_LABEL,
@@ -92,6 +93,11 @@ export default function ExperienceHUD() {
 
   const isARPiano = activeExperience?.id === "ar-piano";
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
+  // Frequency Dancer (spike v0): a per-layer feature of the piano
+  // layer, stored like the ghost/ambient toggles (specific.
+  // dancerEnabled, mirrored per layer id). Absent means ON — the
+  // dancer is the piano layer's showpiece.
+  const dancerEnabled = Boolean((experienceConfig.specific as any)?.dancerEnabled ?? true);
   const activeNotes = isARPiano && midiEnabled ? midi.activeNotes : [];
 
   const audioReactiveEnabled = Boolean((experienceConfig.specific as any)?.audioReactiveEnabled ?? false);
@@ -110,6 +116,11 @@ export default function ExperienceHUD() {
         opacity: chromeOpacity,
       }}
     >
+      {/* Frequency Dancer (spike v0): stands on top of the cluster,
+          dancing to the note bus — local and remote notes alike.
+          Pure overlay: pointerEvents="none" throughout, so it can
+          never eat a touch meant for the keys or the canvas. */}
+      {isARPiano && midiEnabled && dancerEnabled ? <FrequencyDancer /> : null}
       <View
         pointerEvents="box-none"
         style={{
