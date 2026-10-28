@@ -10,6 +10,43 @@ It implements exactly the message protocol in
 ice-candidate in; presence / peer-joined / peer-left / relayed messages
 out). Rooms are in-memory; nothing is stored.
 
+## The `relay` message (Hotfix 2.0)
+
+One addition: `{ type: "relay", roomId, from, to?, payload }` — the
+fallback transport for rooms whose WebRTC data channels could not
+open (networks that pass WSS but kill P2P). The server forwards the
+frame to the OTHER joined members of the sender's room (or only to
+`to` when present, so a peer with an open data channel never gets a
+payload twice), never echoes the sender, and stamps `from` from the
+sender's membership. `payload` is opaque — the exact interaction
+envelope the client would have sent over its data channel. Bounds:
+frames over 8KB and per-connection floods over 600 frames / 10s are
+dropped silently. Both servers in this folder implement it
+(`index.js` for Node, `worker.js` for Cloudflare); old servers
+ignore the unknown type and old clients ignore relay frames, so
+either side can deploy first.
+
+## Deploying the Cloudflare worker (`worker.js`)
+
+`worker.js` + `wrangler.toml` in this folder are the production
+`fabric-signaling` worker (one global Durable Object; the live
+endpoint is `wss://fabric-signaling.iaminc.workers.dev`). To deploy
+an update from a machine with the account's Cloudflare access:
+
+```bash
+cd server/signaling
+npx wrangler deploy        # uses wrangler.toml; name + DO binding unchanged
+# verify:
+curl https://fabric-signaling.iaminc.workers.dev/health
+# then run the protocol test (../../.. see repo history) or two
+# clients: join a room from both, kill P2P, draw — strokes must
+# still land and ?diag=1 must show "path relay".
+```
+
+Deploy order does not matter: new clients against the old worker
+behave exactly as before (relay frames are ignored), and the new
+worker serves old clients unchanged.
+
 ## Run it locally
 
 ```bash

@@ -22,6 +22,13 @@ export function useWebRTC(roomId: string) {
   const managerRef = useRef<WebRTCManager | null>(null);
   const [peersCount, setPeersCount] = useState(0);
   const [peerIds, setPeerIds] = useState<string[]>([]);
+  /**
+   * Hotfix 2.0: the signaling socket is up and the room has known
+   * members on it — so sends route through the manager (data channel
+   * when open, signaling relay past the grace window) even while
+   * `active` is still false, and relayed frames may arrive anytime.
+   */
+  const [hasSignalingPeers, setHasSignalingPeers] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('local');
   const msgHandlers = useRef<Set<MessageHandler>>(new Set());
 
@@ -56,6 +63,7 @@ export function useWebRTC(roomId: string) {
     // consumers 2x/sec forever for no change).
     let lastCount = -1;
     let lastIds = "";
+    let lastSigPeers = false;
     const updatePeers = () => {
       const count = manager.getPeerCount();
       const ids = manager.getPeerIds();
@@ -67,6 +75,11 @@ export function useWebRTC(roomId: string) {
       if (key !== lastIds) {
         lastIds = key;
         setPeerIds(ids);
+      }
+      const sigPeers = manager.hasSignalingPeers();
+      if (sigPeers !== lastSigPeers) {
+        lastSigPeers = sigPeers;
+        setHasSignalingPeers(sigPeers);
       }
     };
     updatePeers();
@@ -121,5 +134,5 @@ export function useWebRTC(roomId: string) {
     };
   };
 
-  return { peerId, active, peersCount, peerIds, send, sendLive, onMessage, connectionState };
+  return { peerId, active, peersCount, peerIds, send, sendLive, onMessage, connectionState, hasSignalingPeers };
 }

@@ -21,6 +21,19 @@
  * - Every transport dispatch and every consumer handler is isolated: a
  *   malformed message or a throwing handler is logged and dropped, never
  *   propagated toward the rendering/canvas code paths.
+ *
+ * Hotfix 2.0 (relay fallback):
+ * - Interaction traffic was data-channel-only; on networks that pass
+ *   WSS but kill P2P (hotel/conference NATs, corporate firewalls) the
+ *   channels never open and the room silently never syncs. Now, when
+ *   a peer's channel has been down past RELAY_GRACE_MS, sends to that
+ *   peer fall back — per message, per peer — to the signaling
+ *   socket's opaque `relay` (see SignalingService). The envelope is
+ *   identical (sequence numbers included), so receivers run one
+ *   dedupe/order path for both transports, and the moment a channel
+ *   (re)opens the relay stops for that peer. Inside the grace window
+ *   sends drop exactly as they always have: a healthy negotiation is
+ *   never raced, and nothing is ever queued.
  */
 
 import {
@@ -50,6 +63,43 @@ interface Peer {
   ready: boolean;
   /** ICE candidates waiting for this peer's remote description. */
   pendingIce: RTCIceCandidateInit[];
+  /**
+   * Hotfix 2.0 down-clocks for the relay fallback. Each is the
+   * Date.now() moment the corresponding path was last known DOWN,
+   * or null while it is open:
+   * - anyDownSince:     no usable channel at all (live or control).
+   * - controlDownSince: the control channel specifically.
+   * Both start at the peer's creation time — a channel that has
+   * never opened gets the full grace window to negotiate before
+   * the relay takes over for that peer.
+   */
+  anyDownSince: number | null;
+  controlDownSince: number | null;
+}
+
+/**
+ * Hotfix 2.0: how long a peer's data channel may stay down before
+ * the signaling relay takes over its traffic. Healthy negotiations
+ * complete in well under a second even across the public internet;
+ * 2.5s is generous headroom that still rescues a stroke session
+ * before the user concludes the room is dead.
+ */
+const RELAY_GRACE_MS = 2500;
+
+/** The interaction path a diag screenshot should report. */
+export type TransportPath = 'p2p' | 'relay' | 'p2p+relay' | '—';
+
+/**
+ * The live canvas's manager registers itself here so the ?diag=1
+ * panel (LegacyFluid) can read the current interaction path without
+ * prop-drilling through three hooks. One live room at a time is the
+ * app's shape; if two managers ever coexist, the newest wins and
+ * destroy() clears only its own registration.
+ */
+let activeManager: WebRTCManager | null = null;
+
+export function getActiveTransportPath(): TransportPath {
+  return activeManager ? activeManager.getTransportPath() : '—';
 }
 
 /**
@@ -98,11 +148,22 @@ export class WebRTCManager {
   private unsubscribeSignalingState: (() => void) | null = null;
   /** Candidates received before we have a Peer for their sender. */
   private earlyIce: Map<string, RTCIceCandidateInit[]> = new Map();
+  /**
+   * Hotfix 2.0: remote peers the signaling room (or the local
+   * BroadcastChannel) has told us about, mapped to when we first
+   * heard of them. Deliberately broader than `peers`: a peer whose
+   * connection failed ICE and was torn down — or one negotiation
+   * never created a Peer for — is still a room member, still a
+   * relay target, and its first-heard time is its down-clock until
+   * a Peer object exists to keep a more precise one.
+   */
+  private signalingPeerSince: Map<string, number> = new Map();
 
   constructor(roomId: string, peerId: string, signaling: SignalingService | null = null) {
     this.roomId = roomId;
     this.peerId = peerId;
     this.signaling = signaling;
+    activeManager = this;
 
     // Local transport first: it works with zero network infrastructure
     // and is the designed mode when no signaling server is configured.
@@ -138,16 +199,47 @@ export class WebRTCManager {
     );
   }
 
+  /** Hotfix 2.0: remember a room member the signaling layer named. */
+  private noteSignalingPeer(peerId: string): void {
+    if (peerId === this.peerId) return;
+    if (!this.signalingPeerSince.has(peerId)) {
+      this.signalingPeerSince.set(peerId, Date.now());
+    }
+  }
+
+  /** Hotfix 2.0: a member left the room for good — no longer a target. */
+  private forgetSignalingPeer(peerId: string): void {
+    this.signalingPeerSince.delete(peerId);
+  }
+
   private handleSignalingMessage(message: SignalingMessage): void {
     if (!message || message.roomId !== this.roomId) return;
 
     switch (message.type) {
       case 'peer-joined':
         if (message.peerId !== this.peerId) {
+          this.noteSignalingPeer(message.peerId);
           // We initiate connection to the new peer
           this.createPeer(message.peerId, true);
         }
         break;
+
+      case 'relay': {
+        // Hotfix 2.0: an interaction envelope that traveled the
+        // signaling socket because the sender's data channel path
+        // was down. It enters the EXACT path data-channel messages
+        // take (notifyMessage), payload untouched — downstream
+        // dedupe keys on the envelope's own sender + seq, so the
+        // two transports are indistinguishable to consumers,
+        // including a stroke that starts on one and ends on the
+        // other. Targeted frames for someone else are not ours.
+        if (message.from === this.peerId) return;
+        if (message.to && message.to !== this.peerId) return;
+        if (!message.payload || typeof message.payload !== 'object') return;
+        this.noteSignalingPeer(message.from);
+        this.notifyMessage(message.payload, message.from);
+        break;
+      }
 
       case 'offer':
         if (message.to === this.peerId) {
@@ -169,6 +261,7 @@ export class WebRTCManager {
 
       case 'peer-left':
         if (message.peerId !== this.peerId) {
+          this.forgetSignalingPeer(message.peerId);
           this.removePeer(message.peerId);
         }
         break;
@@ -177,6 +270,9 @@ export class WebRTCManager {
         // Handle initial peer list
         if (!Array.isArray(message.peers)) return;
         message.peers.forEach(otherId => {
+          if (otherId !== this.peerId) {
+            this.noteSignalingPeer(otherId);
+          }
           if (otherId !== this.peerId && !this.peers.has(otherId)) {
             // Determine who initiates based on peer ID comparison
             const weInitiate = this.peerId > otherId;
@@ -227,6 +323,7 @@ export class WebRTCManager {
 
         switch (message.type) {
           case 'hello':
+            this.noteSignalingPeer(from);
             if (!this.peers.has(from)) {
               const weInitiate = this.peerId > from;
               this.createPeer(from, weInitiate);
@@ -252,6 +349,7 @@ export class WebRTCManager {
             break;
 
           case 'bye':
+            this.forgetSignalingPeer(from);
             this.removePeer(from);
             break;
         }
@@ -316,6 +414,7 @@ export class WebRTCManager {
       iceCandidatePoolSize: 2
     });
 
+    const now = Date.now();
     const peer: Peer = {
       id: peerId,
       pc,
@@ -323,8 +422,13 @@ export class WebRTCManager {
       liveDc: null,
       ready: false,
       pendingIce: this.earlyIce.get(peerId) ?? [],
+      // Hotfix 2.0: both paths start DOWN at creation; the relay
+      // grace clock runs from here until a channel actually opens.
+      anyDownSince: now,
+      controlDownSince: now,
     };
     this.earlyIce.delete(peerId);
+    this.noteSignalingPeer(peerId);
 
     pc.onicecandidate = (event) => {
       if (!event.candidate) return;
@@ -407,11 +511,36 @@ export class WebRTCManager {
    * (presence): the live lane opening or closing must never flap
    * the room's peer count.
    */
+  /**
+   * Hotfix 2.0: keep a peer's down-clocks honest after any channel
+   * state change. A path that is open clears its clock; a path that
+   * just went down starts its clock NOW (a path already down keeps
+   * its original moment — the grace measures the whole outage, not
+   * the latest flap).
+   */
+  private refreshDownState(peer: Peer): void {
+    const now = Date.now();
+    const anyOpen =
+      peer.liveDc?.readyState === 'open' || peer.dc?.readyState === 'open';
+    if (anyOpen) {
+      peer.anyDownSince = null;
+    } else if (peer.anyDownSince === null) {
+      peer.anyDownSince = now;
+    }
+    const controlOpen = peer.dc?.readyState === 'open';
+    if (controlOpen) {
+      peer.controlDownSince = null;
+    } else if (peer.controlDownSince === null) {
+      peer.controlDownSince = now;
+    }
+  }
+
   private wireDataChannel(peer: Peer, channel: RTCDataChannel, isControl: boolean): void {
     channel.onopen = () => {
       if (isControl) {
         peer.ready = true;
       }
+      this.refreshDownState(peer);
       console.log(`[WebRTCManager] Data channel '${channel.label}' open with ${peer.id}`);
     };
 
@@ -419,6 +548,7 @@ export class WebRTCManager {
       if (isControl) {
         peer.ready = false;
       }
+      this.refreshDownState(peer);
       console.log(`[WebRTCManager] Data channel '${channel.label}' closed with ${peer.id}`);
     };
 
@@ -587,17 +717,132 @@ export class WebRTCManager {
   }
 
   /**
-   * Send a message to all connected peers
+   * Hotfix 2.0: every remote peer we know of — live Peer objects
+   * plus members only the signaling room has named.
+   */
+  private knownRemoteIds(): Set<string> {
+    const ids = new Set<string>(this.signalingPeerSince.keys());
+    this.peers.forEach((_, id) => ids.add(id));
+    return ids;
+  }
+
+  /** Is this peer's path for `lane` served by an open data channel? */
+  private servedByDc(peerId: string, lane: 'live' | 'control'): boolean {
+    const peer = this.peers.get(peerId);
+    if (!peer) return false;
+    if (lane === 'live') {
+      return (
+        peer.liveDc?.readyState === 'open' || peer.dc?.readyState === 'open'
+      );
+    }
+    return peer.ready && peer.dc?.readyState === 'open';
+  }
+
+  /**
+   * When did this peer's path for `lane` go down? A number is a
+   * Date.now() moment; null means the path is currently UP (a live
+   * Peer's clock); undefined means we have never heard of the peer
+   * (no clock, never relay-eligible). A signaling-only peer's clock
+   * is its first-heard moment: no channel to us has ever opened, so
+   * its whole acquaintance is the outage.
+   */
+  private downSinceFor(
+    peerId: string,
+    lane: 'live' | 'control'
+  ): number | null | undefined {
+    const peer = this.peers.get(peerId);
+    if (peer) {
+      return lane === 'live' ? peer.anyDownSince : peer.controlDownSince;
+    }
+    return this.signalingPeerSince.get(peerId);
+  }
+
+  /** Has the path been down long enough for the relay to take over? */
+  private relayEligible(peerId: string, lane: 'live' | 'control'): boolean {
+    const since = this.downSinceFor(peerId, lane);
+    if (typeof since !== 'number') return false;
+    return Date.now() - since >= RELAY_GRACE_MS;
+  }
+
+  /**
+   * One relay attempt for one peer, through the signaling socket.
+   * Never throws, never queues: if the socket is down the message
+   * drops, exactly as a data-channel send to a closed channel did.
+   * Addressed to this peer only (the `to` narrowing) so a peer with
+   * an open channel never receives the same envelope twice.
+   */
+  private tryRelay(peerId: string, message: string): void {
+    if (!this.signaling || !this.signaling.isConnected()) return;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(message);
+    } catch {
+      return; // The relay carries JSON envelopes only.
+    }
+    try {
+      this.signaling.sendRelay(this.roomId, this.peerId, peerId, payload);
+    } catch (error) {
+      console.warn(`[WebRTCManager] Relay send to ${peerId} failed:`, error);
+    }
+  }
+
+  /**
+   * Is the signaling socket up, with at least one known room member
+   * on it? When true, interaction sends route through this manager
+   * even with zero open data channels (the relay may be carrying
+   * them), and relayed frames may arrive at any moment.
+   */
+  hasSignalingPeers(): boolean {
+    return (
+      !!this.signaling &&
+      this.signaling.isConnected() &&
+      this.knownRemoteIds().size > 0
+    );
+  }
+
+  /**
+   * The room's current interaction path, for the ?diag=1 panel:
+   * 'p2p' when peers are served by data channels, 'relay' when the
+   * signaling relay carries the peers the channels can't reach,
+   * 'p2p+relay' for a mixed room, '—' when nobody is reachable by
+   * either path right now.
+   */
+  getTransportPath(): TransportPath {
+    let dc = 0;
+    let relay = 0;
+    this.knownRemoteIds().forEach(peerId => {
+      if (this.servedByDc(peerId, 'live')) {
+        dc += 1;
+      } else if (this.relayEligible(peerId, 'live')) {
+        relay += 1;
+      }
+    });
+    if (dc > 0 && relay > 0) return 'p2p+relay';
+    if (dc > 0) return 'p2p';
+    if (relay > 0) return 'relay';
+    return '—';
+  }
+
+  /**
+   * Send a message to all connected peers (control lane). Hotfix
+   * 2.0: a peer whose control channel is down past the relay grace
+   * window receives the message through the signaling relay
+   * instead; a peer inside the window drops it, exactly as before.
    */
   send(data: unknown): void {
     const message = typeof data === 'string' ? data : JSON.stringify(data);
-    this.peers.forEach(peer => {
-      if (peer.ready && peer.dc?.readyState === 'open') {
+    this.knownRemoteIds().forEach(peerId => {
+      const peer = this.peers.get(peerId);
+      if (peer && peer.ready && peer.dc?.readyState === 'open') {
         try {
           peer.dc.send(message);
         } catch (error) {
-          console.warn(`[WebRTCManager] Failed to send to ${peer.id}:`, error);
+          console.warn(`[WebRTCManager] Failed to send to ${peerId}:`, error);
         }
+        return;
+      }
+      if (this.relayEligible(peerId, 'control')) {
+        this.tryRelay(peerId, message);
       }
     });
   }
@@ -610,33 +855,52 @@ export class WebRTCManager {
    * open — stroke points are ephemeral and are NEVER queued behind
    * a connection attempt (a queue would deliver a stale scribble
    * seconds late, worse than a gap the sim smooths over).
+   *
+   * Hotfix 2.0: "neither is open" now has one exception — when the
+   * outage has outlived the relay grace window, the batch rides
+   * the signaling relay to that peer instead of dropping. Still
+   * never queued: it leaves NOW, over whichever path is up, or not
+   * at all.
    */
   sendLive(data: unknown): void {
     const message = typeof data === 'string' ? data : JSON.stringify(data);
-    this.peers.forEach(peer => {
-      const live = peer.liveDc?.readyState === 'open' ? peer.liveDc : null;
-      const dc = live ?? (peer.ready && peer.dc?.readyState === 'open' ? peer.dc : null);
-      if (!dc) return;
-      try {
-        dc.send(message);
-      } catch (error) {
-        console.warn(`[WebRTCManager] Failed live send to ${peer.id}:`, error);
+    this.knownRemoteIds().forEach(peerId => {
+      const peer = this.peers.get(peerId);
+      const live = peer?.liveDc?.readyState === 'open' ? peer.liveDc : null;
+      const dc =
+        live ??
+        (peer && peer.ready && peer.dc?.readyState === 'open' ? peer.dc : null);
+      if (dc) {
+        try {
+          dc.send(message);
+        } catch (error) {
+          console.warn(`[WebRTCManager] Failed live send to ${peerId}:`, error);
+        }
+        return;
+      }
+      if (this.relayEligible(peerId, 'live')) {
+        this.tryRelay(peerId, message);
       }
     });
   }
 
   /**
-   * Send a message to a specific peer
+   * Send a message to a specific peer (control lane, with the same
+   * Hotfix 2.0 relay fallback as send()).
    */
   sendTo(peerId: string, data: unknown): void {
     const peer = this.peers.get(peerId);
+    const message = typeof data === 'string' ? data : JSON.stringify(data);
     if (peer && peer.ready && peer.dc?.readyState === 'open') {
-      const message = typeof data === 'string' ? data : JSON.stringify(data);
       try {
         peer.dc.send(message);
       } catch (error) {
         console.warn(`[WebRTCManager] Failed to send to ${peerId}:`, error);
       }
+      return;
+    }
+    if (this.relayEligible(peerId, 'control')) {
+      this.tryRelay(peerId, message);
     }
   }
 
@@ -677,6 +941,11 @@ export class WebRTCManager {
    * Cleanup and disconnect
    */
   destroy(): void {
+    if (activeManager === this) {
+      activeManager = null;
+    }
+    this.signalingPeerSince.clear();
+
     // Leave room if using signaling
     if (this.signaling && this.signaling.isConnected()) {
       this.signaling.leaveRoom(this.roomId, this.peerId);
