@@ -45,6 +45,13 @@ export interface ExperienceCapabilities {
  * author learns the contract exists. Declaring is cheap: it is this
  * one field, plus honoring the per-layer ambient setting if the
  * layer implements self-play.
+ *
+ * The contract binds live inputs too (Slice 12): a sensor-driven
+ * layer feature (device motion — specific.motionEnabled, default
+ * OFF) must declare what it does at rest — listeners pause while
+ * the tab is hidden, a physically still device injects no phantom
+ * input, and turning the layer setting off tears the listeners
+ * down entirely rather than muting them.
  */
 export type IdleBehavior = "ambient" | "breathe" | "still";
 
