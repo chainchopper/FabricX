@@ -5,9 +5,31 @@ export type ExperienceType =
   | "ar-piano"
   | "camera-effects"
   | "sam-see"
+  | "dancer-stage"
   | "multi-sensory"
   | "gesture-control"
   | "custom";
+
+/**
+ * The CANVAS KIND (realignment, Oct 28 — Terrell: "there are
+ * multiple fabrics, each an experience with its own rules; the
+ * fluid is ONE fabric canvas AND an effect usable inside others —
+ * it is not the ground under every experience").
+ *
+ * An experience declares which canvas is its ground:
+ *
+ * - "fluid" (the default when undeclared): the LegacyFluid WebGL
+ *   canvas is the base, and layers stack on it (piano, SAM, …).
+ * - "stage3d": the experience owns a full react-three-fiber stage
+ *   instead — its own camera, lights, and GPU shaders. The fluid
+ *   canvas is NOT mounted as its base; fluid-derived work may
+ *   appear inside it only as an effect. The Dancer Stage is the
+ *   first stage3d fabric.
+ *
+ * ExperienceRenderer branches on this field, so a future fabric
+ * with its own canvas kind never has to impersonate a fluid layer.
+ */
+export type ExperienceCanvasKind = "fluid" | "stage3d";
 
 export interface ExperienceCapabilities {
   ar: boolean;
@@ -75,6 +97,12 @@ export interface ExperienceLayer {
   version: string;
   author: string;
   capabilities: ExperienceCapabilities;
+  /**
+   * Which canvas is this experience's ground (see
+   * ExperienceCanvasKind above). Undeclared means "fluid" — every
+   * pre-realignment layer keeps its exact behavior.
+   */
+  canvas?: ExperienceCanvasKind;
   configDefaults: ExperienceConfig;
   /**
    * The idle contract (see IdleBehavior above): what this layer

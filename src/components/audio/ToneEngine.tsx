@@ -5,7 +5,12 @@ import { Platform } from "react-native";
 
 export default function ToneEngine() {
   const { state } = useExperience();
-  const enabled = state.activeExperience?.id === "ar-piano" && Platform.OS === "web";
+  // The piano layer and the Dancer Stage both play notes (the stage
+  // has its own key strip on the same note bus).
+  const activeId = state.activeExperience?.id;
+  const enabled =
+    (activeId === "ar-piano" || activeId === "dancer-stage") &&
+    Platform.OS === "web";
   useToneSynth(!!enabled);
   return null;
 }

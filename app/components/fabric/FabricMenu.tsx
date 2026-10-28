@@ -74,6 +74,13 @@ import LifePacketCard from "./LifePacketCard";
 import { useSoundfontPianoStatus } from "../../../src/audio/soundfontPiano";
 import LintSimulatorCard from "./LintSimulatorCard";
 import {
+  clearStageCharacter,
+  getStageCharacterState,
+  requestCharacterPick,
+  subscribeStageCharacter,
+  type StageCharacterState,
+} from "../../../src/dancer/stageCharacter";
+import {
   getMotionPublicState,
   requestMotionPermission,
   subscribeMotionState,
@@ -428,26 +435,57 @@ export default function FabricMenu() {
     });
   };
 
-  // "Dancer in this layer" — the Frequency Dancer (spike v0) is a
-  // feature OF the piano layer: a figure above the keys whose body
-  // is played by the note bus (high notes → head, low notes → feet;
-  // velocity = amplitude; every move springs back to rest). Same
-  // per-layer storage as the ghost/ambient toggles above
-  // (specific.dancerEnabled, absent means on — it's the layer's
-  // showpiece). Only meaningful on ar-piano, so the toggle renders
-  // only there; ExperienceHUD reads the same field to mount it.
+  // Dancer Stage settings — the realignment (Oct 28) moved the
+  // Frequency Dancer OUT of the piano layer: it is its own fabric
+  // now (the "dancer-stage" experience, a full 3D stage canvas),
+  // so the old per-layer dancerEnabled toggle is gone and the
+  // stage's own rules live here instead, stored per layer id like
+  // every THIS LAYER setting (specific.stage*):
+  //   stageDancerEnabled — the figure dances vs stands at rest
+  //   stageCameraDrift   — the camera's slow cinematic sway
+  //   stageTheme         — cyan | violet | magenta | amber
+  // The character slot itself is device-local state, not layer
+  // config: the stageCharacter store holds the loaded glTF's object
+  // URL + load status, and the rig reports back through it.
   const isPianoLayer = active?.id === "ar-piano";
-  const dancerInLayer =
-    (state.experienceConfig.specific as any)?.dancerEnabled !== false;
-  const setDancerInLayer = (next: boolean) => {
+  const isStageLayer = active?.id === "dancer-stage";
+  const stageDancer =
+    (state.experienceConfig.specific as any)?.stageDancerEnabled !== false;
+  const setStageDancer = (next: boolean) => {
     noteActivity();
     updateConfig({
       specific: {
         ...(state.experienceConfig.specific as any),
-        dancerEnabled: next,
+        stageDancerEnabled: next,
       },
     });
   };
+  const stageDrift =
+    (state.experienceConfig.specific as any)?.stageCameraDrift !== false;
+  const setStageDrift = (next: boolean) => {
+    noteActivity();
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        stageCameraDrift: next,
+      },
+    });
+  };
+  const stageTheme: string =
+    (state.experienceConfig.specific as any)?.stageTheme ?? "cyan";
+  const setStageTheme = (next: string) => {
+    noteActivity();
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        stageTheme: next,
+      },
+    });
+  };
+  const [charUi, setCharUi] = useState<StageCharacterState>(() =>
+    getStageCharacterState()
+  );
+  useEffect(() => subscribeStageCharacter(setCharUi), []);
 
   // "Motion" — Slice 12 ("The Body's Sensors"). The layer's gyro/
   // tilt + shake input, stored per layer id like the toggles above
@@ -892,25 +930,45 @@ export default function FabricMenu() {
           </Text>
         </View>
 
-        {/* Dancer in this layer — piano layer only (see the state
-            block above): the Frequency Dancer figure above the keys,
-            played by the note bus. On is the layer's default. */}
+        {/* The Frequency Dancer no longer lives on the piano layer
+            (realignment, Oct 28): it is its own fabric, the Dancer
+            Stage. This note points there; the stage's settings
+            render below when the stage is the loaded layer. */}
         {isPianoLayer ? (
           <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
             <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
               Dancer
             </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              The Frequency Dancer has its own fabric now — open the
+              Dancer Stage layer: a full 3D stage with its own camera,
+              lights, and character slot. Its figure, camera drift,
+              and theme live in that layer's settings.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Dancer Stage — THIS LAYER settings (stage layer only):
+            figure on/off, camera drift on/off, hue theme, and the
+            character slot. Stored per layer id (specific.stage*);
+            the character file itself is device-local (see the
+            stageCharacter store) and never leaves this device. */}
+        {isStageLayer ? (
+          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              Dancer figure
+            </Text>
             <View style={{ flexDirection: "row", gap: spacing.sm }}>
               {([true, false] as const).map((val) => {
-                const selected = dancerInLayer === val;
+                const selected = stageDancer === val;
                 return (
                   <Pressable
                     key={String(val)}
                     pointerEvents="auto"
-                    onPress={() => setDancerInLayer(val)}
+                    onPress={() => setStageDancer(val)}
                     accessibilityRole="radio"
                     accessibilityState={{ selected }}
-                    accessibilityLabel={`Dancer ${val ? "on" : "off"}`}
+                    accessibilityLabel={`Dancer figure ${val ? "on" : "off"}`}
                     style={{
                       paddingVertical: 8,
                       paddingHorizontal: 14,
@@ -934,10 +992,159 @@ export default function FabricMenu() {
               })}
             </View>
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-              A figure above the keys dances to the notes — high notes
-              move its head, low notes its feet, and every move springs
-              back to rest. It dances to the whole room's playing, not
-              just yours. Off removes it from this layer only.
+              The figure dances to every note in the room — yours, the
+              key strip's, and peers'. Off: it stands at rest while
+              the floor and lights keep answering the music.
+            </Text>
+
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.sm }}>
+              Camera drift
+            </Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm }}>
+              {([true, false] as const).map((val) => {
+                const selected = stageDrift === val;
+                return (
+                  <Pressable
+                    key={String(val)}
+                    pointerEvents="auto"
+                    onPress={() => setStageDrift(val)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Camera drift ${val ? "on" : "off"}`}
+                    style={{
+                      paddingVertical: 8,
+                      paddingHorizontal: 14,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: selected ? colors.accent : colors.line,
+                      backgroundColor: selected ? colors.accentDim : "transparent",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? colors.accent : colors.text,
+                        fontSize: typeScale.body,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {val ? "On" : "Off"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              The camera's slow cinematic sway when the stage is idle.
+              Either way, dragging the stage orbits the camera within
+              its limits.
+            </Text>
+
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.sm }}>
+              Stage theme
+            </Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
+              {(["cyan", "violet", "magenta", "amber"] as const).map((val) => {
+                const selected = stageTheme === val;
+                return (
+                  <Pressable
+                    key={val}
+                    pointerEvents="auto"
+                    onPress={() => setStageTheme(val)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Stage theme ${val}`}
+                    style={{
+                      paddingVertical: 8,
+                      paddingHorizontal: 14,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: selected ? colors.accent : colors.line,
+                      backgroundColor: selected ? colors.accentDim : "transparent",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? colors.accent : colors.text,
+                        fontSize: typeScale.body,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {val.charAt(0).toUpperCase() + val.slice(1)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              The rim light and floor glow take this hue; notes still
+              flash their own colors through it.
+            </Text>
+
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.sm }}>
+              Character
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {charUi.status === "ready"
+                ? `${charUi.name ?? "Character"} is on stage.`
+                : charUi.status === "loading"
+                  ? `Loading ${charUi.name ?? "character"}…`
+                  : charUi.status === "failed"
+                    ? `Couldn't load ${charUi.name ?? "that file"} — the mannequin kept the stage.`
+                    : "The procedural mannequin is on stage."}
+            </Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => {
+                  noteActivity();
+                  requestCharacterPick();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Load character (glTF)"
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 14,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: colors.accent,
+                  backgroundColor: colors.accentDim,
+                }}
+              >
+                <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                  Load character (glTF)
+                </Text>
+              </Pressable>
+              {charUi.url ? (
+                <Pressable
+                  pointerEvents="auto"
+                  onPress={() => {
+                    noteActivity();
+                    clearStageCharacter();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Restore mannequin"
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: colors.line,
+                    backgroundColor: "transparent",
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                    Restore mannequin
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              A .glb or .gltf whose skeleton uses the UE5 Mannequin
+              bone names (pelvis, spine_01, upperarm_l, …) takes the
+              stage and dances with the same driver — this is the
+              door for Unreal exports. Missing bones are skipped; a
+              file that fails to load leaves the mannequin standing.
+              The file is read locally and stays on this device.
             </Text>
           </View>
         ) : null}

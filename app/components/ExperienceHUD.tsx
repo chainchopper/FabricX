@@ -9,7 +9,6 @@ import ComposeBar from "../../src/components/sensory/ComposeBar";
 import GhostIndicator from "../../src/ghost/GhostIndicator";
 import { useFabricChrome } from "./fabric/FabricChromeContext";
 import PianoKeyboard from "./PianoKeyboard";
-import FrequencyDancer from "../../src/components/piano/FrequencyDancer";
 import { colors, radius, spacing } from "../../src/theme/tokens";
 import {
   SESSION_MODE_LABEL,
@@ -93,11 +92,12 @@ export default function ExperienceHUD() {
 
   const isARPiano = activeExperience?.id === "ar-piano";
   const midiEnabled = Boolean((experienceConfig.specific as any)?.midiEnabled ?? true);
-  // Frequency Dancer (spike v0): a per-layer feature of the piano
-  // layer, stored like the ghost/ambient toggles (specific.
-  // dancerEnabled, mirrored per layer id). Absent means ON — the
-  // dancer is the piano layer's showpiece.
-  const dancerEnabled = Boolean((experienceConfig.specific as any)?.dancerEnabled ?? true);
+  // Dancer Stage (realignment, Oct 28): the dancer is its own
+  // fabric now — the flat FrequencyDancer overlay that stood over
+  // this cluster on the piano layer is REMOVED (the DancerDriver
+  // lives on inside the stage). The stage's playable surface is
+  // the slim key strip mounted below.
+  const isDancerStage = activeExperience?.id === "dancer-stage";
   const activeNotes = isARPiano && midiEnabled ? midi.activeNotes : [];
 
   const audioReactiveEnabled = Boolean((experienceConfig.specific as any)?.audioReactiveEnabled ?? false);
@@ -116,11 +116,10 @@ export default function ExperienceHUD() {
         opacity: chromeOpacity,
       }}
     >
-      {/* Frequency Dancer (spike v0): stands on top of the cluster,
-          dancing to the note bus — local and remote notes alike.
-          Pure overlay: pointerEvents="none" throughout, so it can
-          never eat a touch meant for the keys or the canvas. */}
-      {isARPiano && midiEnabled && dancerEnabled ? <FrequencyDancer /> : null}
+      {/* The flat FrequencyDancer overlay used to stand here on the
+          piano layer (spike v0). Removed in the realignment: the
+          dancer has its own stage fabric (Dancer Stage), where it
+          has a real body, a real camera, and real lights. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -187,6 +186,14 @@ export default function ExperienceHUD() {
             doctrine's home for layer controls. Notes ride the noteBus
             into the same sound + fluid pipeline hardware MIDI uses. */}
         {isARPiano && midiEnabled ? <PianoKeyboard /> : null}
+
+        {/* Dancer Stage's playable surface: the same keyboard,
+            slim — its notes ride the note bus into the stage, where
+            they move the rig, ripple the floor, and stream to the
+            room like the piano layer's do. */}
+        {isDancerStage ? (
+          <PianoKeyboard slim caption="STAGE KEYS — PLAY THE DANCER" />
+        ) : null}
 
         {/* Hotfix 1.8 "Sound on" chip: shown only when gestures have
             happened but the shared audio context is STILL suspended

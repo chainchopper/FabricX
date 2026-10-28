@@ -7,6 +7,13 @@ import { DancerDriver, type DancerPose } from "../../dancer/DancerDriver";
  * FrequencyDancer — the placeholder figure for Terrell's frequency
  * dancer (spike v0; challenge in fabric-world-model.md).
  *
+ * SUPERSEDED (realignment, Oct 28): this flat overlay is no longer
+ * mounted anywhere. The dancer is its own fabric now — the Dancer
+ * Stage (src/dancer/DancerStage.tsx), a full 3D stage where the
+ * same DancerDriver drives a rigged UE5-bone figure. This file is
+ * kept only as the spike's record (the push tooling cannot delete
+ * files); the driver and its check are the living pieces.
+ *
  * A flat light-puppet of pills and one circle, in six band groups
  * that mirror DancerDriver's band map exactly: head+neck, chest,
  * arms, torso, hips, legs+feet. It is a RENDERING of the note bus:

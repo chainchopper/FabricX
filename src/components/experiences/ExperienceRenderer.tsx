@@ -9,6 +9,7 @@ import PianoNoteLayer from "../piano/PianoNoteLayer";
 import SamLayer from "../sam/SamLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
+const DancerStageLazy = lazy(() => import("../dancer/DancerStage"));
 
 declare global {
   interface Window {
@@ -35,6 +36,12 @@ export default function ExperienceRenderer() {
   // mounted as its base and SamLayer renders the camera + region
   // objects above it.
   const isSamLayer = activeExperience?.id === "sam-see";
+  // Realignment (Oct 28): an experience may declare a non-fluid
+  // canvas kind (ExperienceLayer.canvas). "stage3d" experiences own
+  // a full react-three-fiber stage as THE canvas — the fluid is not
+  // mounted beneath them. The Dancer Stage is the first; the fluid
+  // experience above is untouched.
+  const isStageCanvas = activeExperience?.canvas === "stage3d";
   const lastMode = useRef<boolean>(wantsAROrCamera);
 
   useEffect(() => {
@@ -94,7 +101,11 @@ export default function ExperienceRenderer() {
       {/* Generative composer (web-only) */}
       {musicEnabled ? <AutoComposer /> : null}
 
-      {wantsAROrCamera && !isPianoLayer && !isSamLayer ? (
+      {isStageCanvas ? (
+        <Suspense fallback={null}>
+          <DancerStageLazy onReady={markReady} />
+        </Suspense>
+      ) : wantsAROrCamera && !isPianoLayer && !isSamLayer ? (
         <Suspense fallback={null}>
           <FabricWeb3DLazy />
         </Suspense>
