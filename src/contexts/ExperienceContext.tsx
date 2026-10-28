@@ -98,6 +98,36 @@ const builtin: ExperienceLayer[] = [
     },
   },
   {
+    id: "sam-see",
+    name: "See",
+    description:
+      "SAM 3.1 camera layer — name what the camera sees, get touchable regions on the fabric",
+    type: "sam-see" as ExperienceType,
+    version: "1.0.0",
+    author: "Fanalogy",
+    capabilities: { ...defaultCapabilities, ar: false, camera: true, midi: false, audio: false },
+    // Idle contract: STILL, by decision. The camera pauses when the
+    // layer isn't front or the tab hides, and nothing self-plays —
+    // a seeing layer at rest should be a resting eye, not a show.
+    idleBehavior: "still",
+    configDefaults: {
+      common: {
+        backgroundColor: "transparent",
+        particleDensity: 0.5,
+        audioVolume: 0.7,
+        hapticIntensity: 0.8,
+        renderMode: "compat", // camera path stays on WebGL pipeline
+      } as any,
+      specific: {
+        // The main room on purpose: a region fired from this layer
+        // is a touch ON the shared fabric, so peers on the default
+        // layer in the same room see and feel it land.
+        roomId: "main",
+        samEnabled: true,
+      },
+    },
+  },
+  {
     id: "camera-effects",
     name: "Camera Effects",
     description: "Real-time camera effects and filters",

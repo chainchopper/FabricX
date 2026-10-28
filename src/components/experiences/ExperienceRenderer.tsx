@@ -6,6 +6,7 @@ import WebFluidBackground from "../../../app/components/WebFluidBackground";
 import Ambience from "../audio/Ambience";
 import AutoComposer from "../audio/AutoComposer";
 import PianoNoteLayer from "../piano/PianoNoteLayer";
+import SamLayer from "../sam/SamLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 
@@ -28,6 +29,12 @@ export default function ExperienceRenderer() {
   // its base instead of swapping to the 3D branch; PianoNoteLayer
   // (below) runs the note pipeline over it.
   const isPianoLayer = activeExperience?.id === "ar-piano";
+  // Slice 14: the SAM "See" layer follows the piano precedent — a
+  // layer ON the fluid, never a replacement for it. It therefore
+  // also stays out of the 3D camera branch below: the fluid remains
+  // mounted as its base and SamLayer renders the camera + region
+  // objects above it.
+  const isSamLayer = activeExperience?.id === "sam-see";
   const lastMode = useRef<boolean>(wantsAROrCamera);
 
   useEffect(() => {
@@ -87,7 +94,7 @@ export default function ExperienceRenderer() {
       {/* Generative composer (web-only) */}
       {musicEnabled ? <AutoComposer /> : null}
 
-      {wantsAROrCamera && !isPianoLayer ? (
+      {wantsAROrCamera && !isPianoLayer && !isSamLayer ? (
         <Suspense fallback={null}>
           <FabricWeb3DLazy />
         </Suspense>
@@ -108,6 +115,14 @@ export default function ExperienceRenderer() {
           that would bury the smoke it is supposed to play into.
           Camera Effects still takes the 3D branch above, untouched. */}
       {isPianoLayer ? <PianoNoteLayer /> : null}
+
+      {/* SAM layer (Slice 14): same tree position discipline as the
+          piano layer — mounted above the SAME WebFluidBackground, so
+          entering or leaving "See" never remounts the canvas. The
+          component owns its camera stream, the Segment action, and
+          the region objects; the fluid beneath receives region
+          touches through the normal pattern/interaction funnel. */}
+      {isSamLayer ? <SamLayer /> : null}
 
       <Animated.View
         pointerEvents="none"
