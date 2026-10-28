@@ -78,7 +78,12 @@ export default function ComposeBar() {
           style={{
             flex: 1,
             color: "#e5e7eb",
-            fontSize: 12,
+            // 16px floor (Hotfix 2.3): below 16px, iOS Safari
+            // auto-zooms on focus and can strand the page scrolled
+            // with unstyled white below the app once the keyboard
+            // closes — Terrell's long-standing "typing breaks the
+            // piano layout" report. 16px is iOS's no-zoom threshold.
+            fontSize: 16,
             backgroundColor: "rgba(34,211,238,0.08)",
             borderColor: "rgba(34,211,238,0.45)",
             borderWidth: 1,

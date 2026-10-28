@@ -45,6 +45,7 @@ import {
 } from "./components/fabric/FabricChromeContext";
 import FabricAnchor from "./components/fabric/FabricAnchor";
 import FabricMenu from "./components/fabric/FabricMenu";
+import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
 import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
 import ExperienceHUD from "./components/ExperienceHUD";
@@ -107,7 +108,7 @@ const FabricNavTheme = {
  * cannot be stripped by any ancestor rule.
  */
 function ChromeLayer() {
-  const { voiceOpen } = useFabricChrome();
+  const { voiceOpen, menuOpen, setMenuOpen } = useFabricChrome();
   return (
     <>
       <LayerSettingsMirror />
@@ -119,7 +120,19 @@ function ChromeLayer() {
           mounts before the menu so a deliberately opened menu
           covers it, and it never touches the canvas branch. */}
       <FirstBreath />
-      <FabricMenu />
+      {/* Hotfix 2.3: the menu renders its whole tree on first open
+          and had no error boundary — one throw anywhere in it
+          unmounted the entire app to a white screen. The boundary
+          keeps a menu failure inside the menu's own slot; resetKey
+          (menuOpen) retries the real menu on the next open. */}
+      <FabricErrorBoundary
+        label="menu"
+        variant="menu"
+        resetKey={menuOpen}
+        onDismiss={() => setMenuOpen(false)}
+      >
+        <FabricMenu />
+      </FabricErrorBoundary>
       {voiceOpen ? <VoiceInputButton /> : null}
     </>
   );

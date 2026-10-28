@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { Platform, View } from "react-native";
 import FabricCanvas from "./FabricCanvas";
 import ExperienceRenderer from "./ExperienceRenderer";
+import FabricErrorBoundary from "./fabric/FabricErrorBoundary";
 import ARStatus from "./ARStatus";
 import { useOverlays } from "../context/OverlayContext";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
@@ -55,7 +56,12 @@ export default function GlobalFabricBackground() {
           backgroundColor: "transparent",
         }}
       >
-        <ExperienceRenderer />
+        {/* Hotfix 2.3: a renderer/canvas throw must degrade to a
+            calm, reloadable panel — never unmount the whole app
+            (chrome included) into a white screen. */}
+        <FabricErrorBoundary label="canvas" variant="canvas">
+          <ExperienceRenderer />
+        </FabricErrorBoundary>
         {/* ExperienceHUD and ConnectionBadge are NOT rendered here any
             more (F-doctrine rebuild). They are interactive, and this
             branch is the zIndex-0 stacking context under the routes
