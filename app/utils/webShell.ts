@@ -85,4 +85,32 @@ export function initWebShell(): void {
     },
     true
   );
+
+  // Hotfix 2.3: post-keyboard scroll recovery (iOS Safari). Every
+  // Fabric layer is positioned against the layout viewport, so when
+  // the software keyboard closes and Safari leaves the page scrolled
+  // or offset, the region below the app reads as unstyled white —
+  // the piano layer's "bottom half is void" field report, which
+  // typing in the compose field reliably triggered. When the visual
+  // viewport settles and NO text field is focused (editing is over),
+  // ease the page back to the origin. While a field is focused this
+  // never fires: the user's own scroll position is theirs.
+  const vv = window.visualViewport;
+  if (vv) {
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    vv.addEventListener("resize", () => {
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        const active = document.activeElement as HTMLElement | null;
+        const editing =
+          !!active &&
+          (active.tagName === "INPUT" ||
+            active.tagName === "TEXTAREA" ||
+            active.isContentEditable);
+        if (!editing && (window.scrollY !== 0 || window.scrollX !== 0)) {
+          window.scrollTo(0, 0);
+        }
+      }, 250);
+    });
+  }
 }

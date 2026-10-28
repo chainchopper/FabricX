@@ -1812,7 +1812,11 @@ export default function FabricMenu() {
             maxLength={40}
             style={{
               color: colors.text,
-              fontSize: typeScale.body,
+              // 16px floor (Hotfix 2.3): iOS Safari auto-zooms any
+              // focused field under 16px and can leave the page
+              // scrolled/zoomed after the keyboard closes — the
+              // stuck half-blank layout Terrell keeps hitting.
+              fontSize: 16,
               borderWidth: 1,
               borderColor: colors.line,
               borderRadius: radius.card,
