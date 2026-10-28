@@ -68,7 +68,21 @@ export type SignalingMessage =
   | { type: 'ice-candidate'; roomId: string; from: string; to: string; candidate: RTCIceCandidateInit }
   | { type: 'presence'; roomId: string; peers: string[] }
   | { type: 'peer-joined'; roomId: string; peerId: string }
-  | { type: 'peer-left'; roomId: string; peerId: string };
+  | { type: 'peer-left'; roomId: string; peerId: string }
+  /**
+   * Hotfix 2.0: opaque interaction relay — the fallback transport for
+   * a room whose WebRTC data channels could not open (networks that
+   * pass WSS but kill P2P). `payload` is the exact interaction
+   * envelope that would have gone over the data channel, sequence
+   * numbers included; the server forwards it to the other joined
+   * members of the room (or only to `to` when set) without looking
+   * inside. There is deliberately NO capability handshake: a server
+   * without relay support ignores the unknown type by design, the
+   * frames simply go nowhere, and the client behaves exactly as it
+   * did before this fallback existed — support is detected by
+   * behavior (payloads arrive), never negotiated.
+   */
+  | { type: 'relay'; roomId: string; from: string; to?: string; payload: unknown };
 
 export type SignalingEventHandler = (message: SignalingMessage) => void;
 
@@ -411,6 +425,17 @@ export class SignalingService {
    */
   sendIceCandidate(roomId: string, from: string, to: string, candidate: RTCIceCandidateInit): void {
     this.send({ type: 'ice-candidate', roomId, from, to, candidate });
+  }
+
+  /**
+   * Hotfix 2.0: send an interaction envelope through the signaling
+   * socket's relay, addressed to ONE room member (the caller —
+   * WebRTCManager — relays per unserved peer so a peer with an open
+   * data channel never receives a payload twice). Fire-and-forget
+   * like every send here: dropped silently when the socket is down.
+   */
+  sendRelay(roomId: string, from: string, to: string, payload: unknown): void {
+    this.send({ type: 'relay', roomId, from, to, payload });
   }
 
   /**

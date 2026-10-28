@@ -43,6 +43,13 @@ type TransportMsg =
   // transports as interactions (WebRTC data channels, or the
   // BroadcastChannel fallback) — the signaling channel stays pure
   // SDP/presence, so mode changes need no relay support.
+  // Hotfix 2.0 qualifies that purity in exactly one way: when a
+  // data channel is down past the relay grace window, these SAME
+  // envelopes may ride the signaling socket inside its opaque
+  // `relay` frame (see WebRTCManager). The session gate is
+  // untouched by that — computeCanSend runs in sendInteraction /
+  // sendNote before any transport is chosen, so a gated message
+  // never reaches either wire.
   | {
       type: "session-announce";
       from: string;
@@ -323,8 +330,14 @@ export function useFluidMultiUser(roomId: string) {
       // caller says so; everything else (session, identity, notes,
       // ping) stays on the reliable ordered control lane. The
       // BroadcastChannel fallback carries either, unchanged.
+      // Hotfix 2.0: the manager also gets the message when no data
+      // channel is open yet but the signaling room has members —
+      // WebRTCManager decides per peer: data channel when open,
+      // signaling relay once the outage outlives the grace window,
+      // drop inside it. BroadcastChannel remains the transport of
+      // last resort (local mode / empty signaling room).
       try {
-        if (webrtc.active) {
+        if (webrtc.active || webrtc.hasSignalingPeers) {
           if (lane === "live") {
             webrtc.sendLive(msg);
           } else {
@@ -666,9 +679,13 @@ export function useFluidMultiUser(roomId: string) {
     };
   }, [roomId, userId, webrtc.active, updateStatus, handleTransportMsg]);
 
-  // Wire WebRTC onMessage to interactions and ping/pong
+  // Wire WebRTC onMessage to interactions and ping/pong.
+  // Hotfix 2.0: also wire it when the data channels are down but
+  // the signaling room is populated — relayed envelopes arrive
+  // through the manager in exactly that state, and gating the
+  // subscription on `active` alone would drop every one of them.
   useEffect(() => {
-    if (!webrtc.active) return;
+    if (!webrtc.active && !webrtc.hasSignalingPeers) return;
     const off = webrtc.onMessage((payload) => {
       try {
         handleTransportMsg(payload as TransportMsg, (m) => webrtc.send(m));
@@ -686,7 +703,10 @@ export function useFluidMultiUser(roomId: string) {
       window.clearInterval(pingTimerRef.current);
       pingTimerRef.current = null;
     }
-    const canSend = webrtc.active || !!bcRef.current;
+    // Hotfix 2.0: pings also flow when only the relay path exists —
+    // they are how a relay-only room measures its latency, and how
+    // its members keep learning each other's presence.
+    const canSend = webrtc.active || webrtc.hasSignalingPeers || !!bcRef.current;
     if (!canSend) return;
 
     // Slice 6 join latency: the first ping used to wait out the
@@ -711,7 +731,7 @@ export function useFluidMultiUser(roomId: string) {
         pingTimerRef.current = null;
       }
     };
-  }, [webrtc.active, bcRef.current, postViaCurrent, userId]);
+  }, [webrtc.active, webrtc.hasSignalingPeers, bcRef.current, postViaCurrent, userId]);
 
   // Slice 5: apply menu host intent to this room. Intent is store
   // state (not a fire-and-forget event), so a claim minted a moment

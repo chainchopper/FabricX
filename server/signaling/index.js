@@ -17,6 +17,19 @@
  *     { type: "peer-left",   roomId, peerId }            (to remaining members)
  *     offer / answer / ice-candidate relayed verbatim to the `to` peer.
  *
+ * Hotfix 2.0 adds one message type, "relay" — the fallback transport
+ * for rooms whose WebRTC data channels could not open:
+ *     { type: "relay", roomId, from, to?, payload }
+ *   forwarded to the OTHER joined members of the sender's room (or
+ *   only to `to` when present); the sender is never echoed and the
+ *   forwarded `from` is stamped from the sender's membership, never
+ *   trusted from the frame. `payload` is opaque — the exact envelope
+ *   the client would have sent over its data channel. Frames over
+ *   RELAY_MAX_BYTES and per-connection floods over
+ *   RELAY_MAX_PER_WINDOW per RELAY_WINDOW_MS are dropped silently.
+ *   This mirrors the Cloudflare worker (worker.js, same folder);
+ *   unknown types are still ignored, so old clients/servers interop.
+ *
  * Rooms are in-memory only; a single process instance serves all rooms, so
  * every peer of a room must land on the same instance (no sticky sessions =
  * no cross-device rooms). No messages are stored or logged.
@@ -30,6 +43,11 @@ const http = require("http");
 const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 8080;
+
+/** Hotfix 2.0 relay bounds — identical to the Cloudflare worker's. */
+const RELAY_MAX_BYTES = 8192;
+const RELAY_WINDOW_MS = 10000;
+const RELAY_MAX_PER_WINDOW = 600;
 
 /** @type {Map<string, Map<string, import("ws").WebSocket>>} roomId -> peerId -> socket */
 const rooms = new Map();
@@ -79,6 +97,16 @@ const wss = new WebSocketServer({ server });
 wss.on("connection", (ws) => {
   /** Rooms this socket has joined, for disconnect cleanup. @type {Map<string, string>} roomId -> peerId */
   const memberships = new Map();
+  /** Hotfix 2.0: this connection's relay rate window. */
+  let relayWindow = { start: 0, count: 0 };
+  const relayAllowed = () => {
+    const now = Date.now();
+    if (now - relayWindow.start >= RELAY_WINDOW_MS) {
+      relayWindow = { start: now, count: 0 };
+    }
+    relayWindow.count += 1;
+    return relayWindow.count <= RELAY_MAX_PER_WINDOW;
+  };
 
   ws.on("message", (raw) => {
     let msg;
@@ -115,6 +143,27 @@ wss.on("connection", (ws) => {
         const room = rooms.get(msg.roomId);
         const target = room && room.get(msg.to);
         if (target) send(target, msg); // Relay verbatim.
+        break;
+      }
+      case "relay": {
+        // Hotfix 2.0: opaque interaction relay (see header). The
+        // sender must be a joined member of the room it names.
+        const peerId = memberships.get(msg.roomId);
+        if (!peerId) return;
+        if (!msg.payload || typeof msg.payload !== "object") return;
+        const rawLen = raw ? raw.length : 0; // Buffer bytes / string chars
+        if (typeof rawLen !== "number" || rawLen > RELAY_MAX_BYTES) return;
+        if (!relayAllowed()) return; // excess dropped, never a disconnect
+        const room = rooms.get(msg.roomId);
+        if (!room) return;
+        const out = { type: "relay", roomId: msg.roomId, from: peerId, payload: msg.payload };
+        if (typeof msg.to === "string" && msg.to) {
+          out.to = msg.to;
+          const target = room.get(msg.to);
+          if (target && target !== ws) send(target, out);
+        } else {
+          broadcast(room, peerId, out); // never echoes the sender
+        }
         break;
       }
       default:

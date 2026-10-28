@@ -39,6 +39,10 @@ import {
   type SignalingConnectionState,
 } from "../../services/SignalingService";
 import {
+  getActiveTransportPath,
+  type TransportPath,
+} from "../../services/WebRTCManager";
+import {
   getIdentitySnapshot,
   getPeerIdentity,
   subscribeIdentity,
@@ -111,6 +115,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // device's channel — e.g. the hardware mute switch routing
   // WebAudio to the ringer path — not the app; see sharedAudio).
   const [diagAudio, setDiagAudio] = useState<string>("…");
+  // Hotfix 2.0: the interaction path this device is on — "path
+  // relay" in a field screenshot is the whole hostile-network story
+  // in two words: P2P could not open, the signaling relay is
+  // carrying the room, and sync is alive anyway.
+  const [diagPath, setDiagPath] = useState<TransportPath>("—");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -423,6 +432,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       setDiagAmbient({ ...ambientStatsRef.current });
       // Hotfix 1.8: shared audio context state, same screenshot.
       setDiagAudio(getAudioContextState());
+      // Hotfix 2.0: p2p / relay / p2p+relay / —, same screenshot.
+      setDiagPath(getActiveTransportPath());
     }, 500);
     return () => window.clearInterval(id);
   }, []);
@@ -672,6 +683,7 @@ input   ${diagStats.inputEvents} events → ${diagStats.pointerSplats} local spl
 api     ${diagStats.apiSplats} remote/ghost splats
 error   ${diagStats.lastError ?? "—"}
 signal  ${diagSig ? `${diagSig.state} · ${diagSig.url ?? "none"}` : "…"}
+path    ${diagPath}
 audio   ${diagAudio}
 who     ${(() => {
             const snap = getIdentitySnapshot();
