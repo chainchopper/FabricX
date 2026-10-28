@@ -72,6 +72,7 @@ import {
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
 import { useSoundfontPianoStatus } from "../../../src/audio/soundfontPiano";
+import LintSimulatorCard from "./LintSimulatorCard";
 import { requestFirstBreath } from "../../../src/onboarding/onboardingStore";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
@@ -406,27 +407,6 @@ export default function FabricMenu() {
       specific: {
         ...(state.experienceConfig.specific as any),
         pianoVoice: next,
-      },
-    });
-  };
-
-  // "Dancer in this layer" — the Frequency Dancer (spike v0) is a
-  // feature OF the piano layer: a figure above the keys whose body
-  // is played by the note bus (high notes → head, low notes → feet;
-  // velocity = amplitude; every move springs back to rest). Same
-  // per-layer storage as the ghost/ambient toggles above
-  // (specific.dancerEnabled, absent means on — it's the layer's
-  // showpiece). Only meaningful on ar-piano, so the toggle renders
-  // only there; ExperienceHUD reads the same field to mount it.
-  const isPianoLayer = active?.id === "ar-piano";
-  const dancerInLayer =
-    (state.experienceConfig.specific as any)?.dancerEnabled !== false;
-  const setDancerInLayer = (next: boolean) => {
-    noteActivity();
-    updateConfig({
-      specific: {
-        ...(state.experienceConfig.specific as any),
-        dancerEnabled: next,
       },
     });
   };
@@ -827,56 +807,6 @@ export default function FabricMenu() {
             takes over instantly. Off lets this layer rest still.
           </Text>
         </View>
-
-        {/* Dancer in this layer — piano layer only (see the state
-            block above): the Frequency Dancer figure above the keys,
-            played by the note bus. On is the layer's default. */}
-        {isPianoLayer ? (
-          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
-            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-              Dancer
-            </Text>
-            <View style={{ flexDirection: "row", gap: spacing.sm }}>
-              {([true, false] as const).map((val) => {
-                const selected = dancerInLayer === val;
-                return (
-                  <Pressable
-                    key={String(val)}
-                    pointerEvents="auto"
-                    onPress={() => setDancerInLayer(val)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={`Dancer ${val ? "on" : "off"}`}
-                    style={{
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      borderRadius: radius.pill,
-                      borderWidth: 1,
-                      borderColor: selected ? colors.accent : colors.line,
-                      backgroundColor: selected ? colors.accentDim : "transparent",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: selected ? colors.accent : colors.text,
-                        fontSize: typeScale.body,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {val ? "On" : "Off"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-              A figure above the keys dances to the notes — high notes
-              move its head, low notes its feet, and every move springs
-              back to rest. It dances to the whole room's playing, not
-              just yours. Off removes it from this layer only.
-            </Text>
-          </View>
-        ) : null}
 
         {/* ---------------- SHARE ---------------- */}
         <SectionHeader>SHARE — SESSION</SectionHeader>
@@ -1328,6 +1258,13 @@ export default function FabricMenu() {
             {`+${compositions.items.length - 8} more saved in Studio`}
           </Text>
         ) : null}
+
+        {/* Lint (Slice 13): the room's objects. The simulator is a
+            real protocol client (its own socket, its own lint:
+            peer id) rendered as a menu card — hardware speaks the
+            same protocol; see docs/LINT.md. */}
+        <SectionHeader>LINT — OBJECTS</SectionHeader>
+        <LintSimulatorCard />
 
         {/* ---------------- UNIVERSAL ---------------- */}
         <SectionHeader>UNIVERSAL</SectionHeader>

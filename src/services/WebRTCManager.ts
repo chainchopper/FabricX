@@ -202,6 +202,11 @@ export class WebRTCManager {
   /** Hotfix 2.0: remember a room member the signaling layer named. */
   private noteSignalingPeer(peerId: string): void {
     if (peerId === this.peerId) return;
+    // Slice 13 (lint): room OBJECTS (peer ids "lint:…") are not WebRTC
+    // peers and must never become interaction-relay targets — they
+    // receive the bridge's summarized lint frames by broadcast, not
+    // raw interaction envelopes. They are noted nowhere here.
+    if (peerId.startsWith('lint:')) return;
     if (!this.signalingPeerSince.has(peerId)) {
       this.signalingPeerSince.set(peerId, Date.now());
     }
@@ -217,7 +222,9 @@ export class WebRTCManager {
 
     switch (message.type) {
       case 'peer-joined':
-        if (message.peerId !== this.peerId) {
+        // Slice 13: never offer WebRTC to a lint object — it has no
+        // RTC stack; the offer would sit unanswered forever.
+        if (message.peerId !== this.peerId && !message.peerId.startsWith('lint:')) {
           this.noteSignalingPeer(message.peerId);
           // We initiate connection to the new peer
           this.createPeer(message.peerId, true);
@@ -273,7 +280,7 @@ export class WebRTCManager {
           if (otherId !== this.peerId) {
             this.noteSignalingPeer(otherId);
           }
-          if (otherId !== this.peerId && !this.peers.has(otherId)) {
+          if (otherId !== this.peerId && !otherId.startsWith('lint:') && !this.peers.has(otherId)) {
             // Determine who initiates based on peer ID comparison
             const weInitiate = this.peerId > otherId;
             if (weInitiate) {

@@ -12,6 +12,7 @@ import {
 } from "../session/sessionStore";
 import {
   ensureLocalIdentity,
+  getPeerIdentity,
   notePeerHue,
   prunePeerIdentities,
   setPeerIdentity,
@@ -19,6 +20,11 @@ import {
   type ParticipantIdentity,
 } from "../identity/identityStore";
 import { getSignalingService } from "../services/SignalingService";
+import {
+  bindLintBridge,
+  lintObserveInteraction,
+  lintObserveNote,
+} from "../lint/lintBridge";
 import { StrokeBatcher, type StrokePoint } from "../services/strokeBatch";
 
 type TransportMsg =
@@ -457,6 +463,10 @@ export function useFluidMultiUser(roomId: string) {
   const acceptRemote = useCallback(
     (data: FluidInteraction) => {
       if (data.userId === userId) return;
+      // Slice 13 (lint): remote interactions summarize for the
+      // room's objects at the same single entry point that renders
+      // them. The bridge filters ghost/lint senders itself.
+      lintObserveInteraction(data);
       pendingRemoteRef.current.push(data);
       if (remoteFlushTimerRef.current === null) {
         remoteFlushTimerRef.current = window.setTimeout(
@@ -556,8 +566,22 @@ export function useFluidMultiUser(roomId: string) {
               ? Math.max(0.05, Math.min(1, msg.velocity))
               : 0.8;
           noteBus.emitRemoteNoteOn(msg.note, v);
+          // Slice 13 (lint): the room's objects hear notes too,
+          // in the player's signature hue.
+          lintObserveNote({
+            note: msg.note,
+            velocity: v,
+            phase: "on",
+            hue: getPeerIdentity(msg.from)?.hue ?? null,
+          });
         } else {
           noteBus.emitRemoteNoteOff(msg.note);
+          lintObserveNote({
+            note: msg.note,
+            velocity: 0,
+            phase: "off",
+            hue: getPeerIdentity(msg.from)?.hue ?? null,
+          });
         }
       } else if (msg.type === "fabric-ping") {
         noteBcPeer(msg.from);
@@ -974,6 +998,14 @@ export function useFluidMultiUser(roomId: string) {
   const sendNote = useCallback(
     (note: string, velocity: number, phase: "on" | "off") => {
       if (!sessionRef.current.canSend) return;
+      // Slice 13 (lint): a note that passed the gate is a room
+      // event — the bridge summarizes it for the room's objects.
+      lintObserveNote({
+        note,
+        velocity,
+        phase,
+        hue: identityRef.current?.hue ?? null,
+      });
       if (phase === "on") {
         postRef.current({ type: "note-on", from: userId, note, velocity });
       } else {
@@ -1002,6 +1034,23 @@ export function useFluidMultiUser(roomId: string) {
       // change inside a 30ms window, and an edit re-announces the
       // identity card anyway (Slice 6).
       const hue = identityRef.current?.hue;
+      // Slice 13 (lint): the bridge hears every point that actually
+      // leaves — same gate, same flush. Batched points are observed
+      // HERE and nowhere else (sendInteraction skips its tap for the
+      // batched path), so nothing is summarized twice.
+      points.forEach((p) =>
+        lintObserveInteraction({
+          userId,
+          position: p.position,
+          force: p.force,
+          pressure: p.pressure,
+          color: p.color,
+          radiusScale: p.radiusScale,
+          timestamp: p.timestamp,
+          seq: p.seq,
+          ...(hue !== undefined ? { hue } : {}),
+        })
+      );
       if (points.length === 1) {
         const p = points[0];
         postRef.current(
@@ -1113,6 +1162,11 @@ export function useFluidMultiUser(roomId: string) {
             fromUserId || full.verb ? "control" : "live";
           const msg: TransportMsg = { type: "fluid-interaction", data: full };
           postViaCurrent(msg, lane as "control" | "live");
+          // Slice 13 (lint): unbatched sends (verbs, pattern steps,
+          // proxy sends) are observed here; the bridge filters
+          // ghost/lint senders, so a lint's own touch never loops
+          // back into the summary it hears.
+          lintObserveInteraction(full);
         }
       }
 
@@ -1141,6 +1195,18 @@ export function useFluidMultiUser(roomId: string) {
     },
     [acceptRemote]
   );
+
+  // Slice 13 (lint): the room's object bridge lives and dies with
+  // this room client. It summarizes the taps above for lint devices
+  // (ESP32s, lights, the in-app simulator) and injects their touches
+  // back through this hook's own funnels — sendInteraction under the
+  // lint's id, injectRemoteInteraction for the local render.
+  useEffect(() => {
+    return bindLintBridge(roomId, userId, {
+      sendInteraction,
+      injectRemoteInteraction,
+    });
+  }, [roomId, userId, sendInteraction, injectRemoteInteraction]);
 
   return {
     userId,
