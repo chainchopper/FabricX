@@ -128,6 +128,41 @@ const builtin: ExperienceLayer[] = [
     },
   },
   {
+    // Dancer Stage (realignment, Oct 28): the Frequency Dancer is
+    // its own fabric — a full 3D stage canvas (canvas: "stage3d"),
+    // NOT an overlay on the fluid. Its own room ("stage"), its own
+    // rules: the rig dances to the note bus (local key strip +
+    // remote room notes), verbs are choreographed, and the figure
+    // is swappable for a UE5-boned glTF (docs/DANCER.md). Idle
+    // contract: "breathe" — the figure sways, the camera drifts,
+    // motes float; the stage is alive when alone.
+    id: "dancer-stage",
+    name: "Dancer Stage",
+    description:
+      "A lit 3D stage where a rigged dancer moves to every note in the room — play the key strip, send verbs, or load your own UE5 character.",
+    type: "dancer-stage" as ExperienceType,
+    version: "1.0.0",
+    author: "Fanalogy",
+    capabilities: { ...defaultCapabilities, ar: false, camera: false, midi: true },
+    canvas: "stage3d",
+    idleBehavior: "breathe",
+    configDefaults: {
+      common: {
+        backgroundColor: "#070a12",
+        particleDensity: 0.6,
+        audioVolume: 0.8,
+        hapticIntensity: 0.7,
+        renderMode: "default",
+      } as any,
+      specific: {
+        roomId: "stage",
+        stageDancerEnabled: true,
+        stageCameraDrift: true,
+        stageTheme: "cyan",
+      },
+    },
+  },
+  {
     id: "camera-effects",
     name: "Camera Effects",
     description: "Real-time camera effects and filters",

@@ -136,7 +136,17 @@ function buildKeys(): { whites: WhiteKey[]; blacks: BlackKey[] } {
   return { whites, blacks };
 }
 
-export default function PianoKeyboard() {
+export default function PianoKeyboard({
+  slim = false,
+  caption,
+}: {
+  /** Slim variant (Dancer Stage key strip): shorter keys, same
+   *  pointer-tracking surface and note-bus wiring. */
+  slim?: boolean;
+  caption?: string;
+}) {
+  const whiteHeight = slim ? 72 : WHITE_HEIGHT;
+  const blackHeight = slim ? 42 : BLACK_HEIGHT;
   const [localPressed, setLocalPressed] = useState<Set<string>>(new Set());
   const haptics = useHaptics();
   const { whites, blacks } = useMemo(buildKeys, []);
@@ -181,7 +191,7 @@ export default function PianoKeyboard() {
       if (x < -EDGE_SLACK_PX || x > rect.width + EDGE_SLACK_PX) return null;
       if (y < -EDGE_SLACK_PX || y > rect.height + EDGE_SLACK_PX) return null;
       const whiteW = rect.width / whiteCount;
-      if (y <= BLACK_HEIGHT) {
+      if (y <= blackHeight) {
         for (const b of blacks) {
           const cx = (b.afterWhiteIndex + 1) * whiteW;
           if (Math.abs(x - cx) <= BLACK_WIDTH / 2) return b.note;
@@ -193,7 +203,7 @@ export default function PianoKeyboard() {
       );
       return whites[idx].note;
     },
-    [blacks, whites, whiteCount]
+    [blacks, whites, whiteCount, blackHeight]
   );
 
   useEffect(() => {
@@ -305,7 +315,7 @@ export default function PianoKeyboard() {
           marginBottom: spacing.xs,
         }}
       >
-        PIANO — NOTES STREAM INTO THE FABRIC
+        {caption ?? "PIANO — NOTES STREAM INTO THE FABRIC"}
       </Text>
       {/* THE input surface (Hotfix 1.8): one pointer-tracking element
           owns every touch; the keys below are pointerEvents="none"
@@ -315,7 +325,7 @@ export default function PianoKeyboard() {
         style={{
           position: "relative",
           flexDirection: "row",
-          height: WHITE_HEIGHT,
+          height: whiteHeight,
           width: "100%",
           ...NO_CALLOUT,
         }}
@@ -352,7 +362,7 @@ export default function PianoKeyboard() {
               style={{
                 position: "absolute",
                 top: 0,
-                height: BLACK_HEIGHT,
+                height: blackHeight,
                 width: BLACK_WIDTH,
                 left: `${((k.afterWhiteIndex + 1) / whiteCount) * 100}%`,
                 marginLeft: -BLACK_WIDTH / 2,
