@@ -47,6 +47,9 @@ import {
   isGhostPeerId,
 } from "../../ghost/GhostPeer";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
+import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
+import { useGhostSharedSettings } from "../../ghost/ghostSharedPref";
+import { getHostArrivedFabric } from "../../session/fabricStore";
 import {
   setGhostPublicState,
   getGhostPublicState,
@@ -236,9 +239,23 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // the settings mirror loads and persists per layer id
   // (fabric_layer_settings_v1:<layerId>). Absent means on — the ghost
   // is a default feature of a layer until that layer opts out.
-  const ghostLayerEnabled =
-    ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
-      ?.ghostEnabled as boolean | undefined) !== false;
+  //
+  // Slice 20 adds the primary's "Follow the host's fabric" switch
+  // (Your Ghostie › shared settings): with follow OFF, a layer this
+  // device was host-MOVED into (the follower's arrival note) does
+  // not get the ghost — the ghostie stays with fabrics its primary
+  // chose. The layer's own toggle stays sovereign either way; the
+  // resolver in ghostShared.ts is the whole rule.
+  const ghostShared = useGhostSharedSettings();
+  const ghostLayerEnabled = resolveGhostLayerEnabled({
+    storedEnabled:
+      ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
+        ?.ghostEnabled as boolean | undefined) !== false,
+    followHostFabric: ghostShared.followHostFabric,
+    arrivedViaHost:
+      state.activeExperience?.id != null &&
+      getHostArrivedFabric() === state.activeExperience.id,
+  });
 
   // ---- Ambient life (Slice 7, "Alive") --------------------------------
   // The idle contract (src/types/experience.ts) requires every layer

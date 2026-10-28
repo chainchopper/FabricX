@@ -44,6 +44,11 @@
  * talks. A decision is a steer, never a command — GhostPeer clamps
  * everything it applies through its existing action machinery.
  *
+ * Personality (Slice 20): the primary's own words for their ghostie
+ * steer deliberation on both tiers — context in the Spark consult,
+ * legible keyword biases over the table on-device — always within
+ * those invariants. See the Personality section below.
+ *
  * Pure module: no imports, no storage, no timers of its own, so the
  * node check can exercise the table, the validator, and the Spark
  * path (with a mocked chat function) outside the app.
@@ -417,6 +422,213 @@ export function decideOnDevice(scenario: GhostScenario): {
 }
 
 /* ------------------------------------------------------------------ */
+/* Personality (Slice 20)                                              */
+/* ------------------------------------------------------------------ */
+/*
+ * The primary describes their ghostie in their own words — the
+ * "Personality" field in Your Ghostie — and the words steer
+ * deliberation for real, on both tiers:
+ *
+ *   - Spark tier: the text rides in the consult as context (see
+ *     buildSparkMessages) and the model deliberates with it.
+ *   - On-device tier: parseGhostPersonality reads a small, legible
+ *     keyword map into three axes, and applyPersonalityBias nudges
+ *     the table's decision along them.
+ *
+ * TABLE STAKES — read before touching the bias: personality steers
+ * WITHIN the hard invariants, never around them. It may only
+ * re-pick between approach/drift when other ghosts are present,
+ * and scale intensity/linger inside the validator's ranges. It
+ * cannot invent intents outside the vocabulary, cannot shift
+ * mood, cannot lift a budget, cannot make petting land that the
+ * shared settings refused, and cannot make a session-mode heart
+ * into a room-wide verb. If a described trait has no honest
+ * mapping here (loves rain sounds, tells jokes), it simply does
+ * nothing on this tier — the Spark tier still hears the words.
+ * Nothing in this section fakes an effect it does not have.
+ */
+
+export const PERSONALITY_MAX_CHARS = 280;
+
+/** Clamp an unknown stored value to personality text (string, capped). */
+export function sanitizePersonalityText(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.trim().slice(0, PERSONALITY_MAX_CHARS);
+}
+
+export interface GhostPersonalityTraits {
+  /** -2 shy/reserved … +2 bold/outgoing. */
+  approach: number;
+  /** -2 calm/slow … +2 playful/energetic. */
+  energy: number;
+  /** 0 neutral … +2 affectionate/cuddly. */
+  warmth: number;
+  /** Canonical trait words actually found, for the Home's "Reading:" line. */
+  labels: string[];
+}
+
+const EMPTY_PERSONALITY_TRAITS: GhostPersonalityTraits = {
+  approach: 0,
+  energy: 0,
+  warmth: 0,
+  labels: [],
+};
+
+/** The bias map. Whole-word matches only; each word steps its axis by 1. */
+const PERSONALITY_TRAIT_WORDS: {
+  word: string;
+  axis: "approach" | "energy" | "warmth";
+  step: number;
+}[] = [
+  // approach — will it go to others?
+  { word: "bold", axis: "approach", step: 1 },
+  { word: "brave", axis: "approach", step: 1 },
+  { word: "outgoing", axis: "approach", step: 1 },
+  { word: "social", axis: "approach", step: 1 },
+  { word: "friendly", axis: "approach", step: 1 },
+  { word: "confident", axis: "approach", step: 1 },
+  { word: "adventurous", axis: "approach", step: 1 },
+  { word: "shy", axis: "approach", step: -1 },
+  { word: "timid", axis: "approach", step: -1 },
+  { word: "reserved", axis: "approach", step: -1 },
+  { word: "bashful", axis: "approach", step: -1 },
+  { word: "nervous", axis: "approach", step: -1 },
+  { word: "cautious", axis: "approach", step: -1 },
+  // energy — how big and how long?
+  { word: "playful", axis: "energy", step: 1 },
+  { word: "bouncy", axis: "energy", step: 1 },
+  { word: "silly", axis: "energy", step: 1 },
+  { word: "mischievous", axis: "energy", step: 1 },
+  { word: "energetic", axis: "energy", step: 1 },
+  { word: "wild", axis: "energy", step: 1 },
+  { word: "calm", axis: "energy", step: -1 },
+  { word: "gentle", axis: "energy", step: -1 },
+  { word: "chill", axis: "energy", step: -1 },
+  { word: "relaxed", axis: "energy", step: -1 },
+  { word: "serene", axis: "energy", step: -1 },
+  { word: "mellow", axis: "energy", step: -1 },
+  { word: "sleepy", axis: "energy", step: -1 },
+  { word: "slow", axis: "energy", step: -1 },
+  // warmth — how much does it give back?
+  { word: "affectionate", axis: "warmth", step: 1 },
+  { word: "cuddly", axis: "warmth", step: 1 },
+  { word: "loving", axis: "warmth", step: 1 },
+  { word: "sweet", axis: "warmth", step: 1 },
+  { word: "loyal", axis: "warmth", step: 1 },
+  { word: "warm", axis: "warmth", step: 1 },
+  { word: "snuggly", axis: "warmth", step: 1 },
+  { word: "devoted", axis: "warmth", step: 1 },
+];
+
+/**
+ * Read personality text into trait axes. Deterministic and
+ * inspectable: every axis point traces to a word in the text, and
+ * the labels list exactly the words that counted — the Home shows
+ * the same list, so the primary can see what the ghost heard.
+ */
+export function parseGhostPersonality(
+  text: unknown
+): GhostPersonalityTraits {
+  const clean = sanitizePersonalityText(text);
+  if (!clean) return { ...EMPTY_PERSONALITY_TRAITS, labels: [] };
+  const found = new Set(
+    clean
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter(Boolean)
+  );
+  const traits: GhostPersonalityTraits = {
+    approach: 0,
+    energy: 0,
+    warmth: 0,
+    labels: [],
+  };
+  for (const entry of PERSONALITY_TRAIT_WORDS) {
+    if (!found.has(entry.word)) continue;
+    traits.labels.push(entry.word);
+    if (entry.axis === "approach") traits.approach += entry.step;
+    else if (entry.axis === "energy") traits.energy += entry.step;
+    else traits.warmth += entry.step;
+  }
+  traits.approach = clamp(traits.approach, -2, 2);
+  traits.energy = clamp(traits.energy, -2, 2);
+  traits.warmth = clamp(traits.warmth, 0, 2);
+  return traits;
+}
+
+/**
+ * Nudge a table decision along the personality axes. Pure and
+ * total: any input yields a decision that still passes
+ * validateGhostDecision's ranges (re-clamped here), and an empty
+ * personality returns the decision untouched. `steeredBy` names
+ * the exact adjustments applied — the router surfaces them in the
+ * live brain line, so the steering is visible, never silent.
+ *
+ * What it may do (and nothing else):
+ *   - shy + company + the table said "sniff" (go meet them):
+ *     soften to "drift" at lower intensity;
+ *   - bold + company + the table said "drift": step up to "sniff";
+ *   - energy: scale play/startle intensity, nap linger;
+ *   - warmth: scale mirror/heart intensity and linger.
+ * mood_shift always passes through: temperament is the seed's,
+ * not the text's.
+ */
+export function applyPersonalityBias(
+  decision: GhostDecision,
+  scenario: GhostScenario,
+  traits: GhostPersonalityTraits
+): { decision: GhostDecision; steeredBy: string[] } {
+  const steeredBy: string[] = [];
+  if (
+    traits.approach === 0 &&
+    traits.energy === 0 &&
+    traits.warmth === 0
+  ) {
+    return { decision, steeredBy };
+  }
+  const next: GhostDecision = { ...decision };
+  const hasCompany = scenario.other_ghosts.length > 0;
+
+  if (traits.approach < 0 && hasCompany && next.intent === "sniff") {
+    next.intent = "drift";
+    next.pattern_id = null;
+    next.intensity = clamp(next.intensity * 0.7, 0.05, 0.9);
+    steeredBy.push("shy: stays back instead of approaching");
+  } else if (traits.approach > 0 && hasCompany && next.intent === "drift") {
+    next.intent = "sniff";
+    next.intensity = clamp(next.intensity * 1.1, 0.05, 0.9);
+    steeredBy.push("bold: goes to meet the others");
+  }
+
+  if (traits.energy > 0) {
+    if (next.intent === "play" || next.intent === "startle") {
+      next.intensity = clamp(next.intensity * 1.2, 0.05, 0.9);
+      if (next.intent === "play") {
+        next.linger_s = clamp(next.linger_s * 1.15, 0.5, 30);
+      }
+      steeredBy.push("playful energy: bigger, longer");
+    }
+  } else if (traits.energy < 0) {
+    if (next.intent === "play" || next.intent === "startle") {
+      next.intensity = clamp(next.intensity * 0.75, 0.05, 0.9);
+      steeredBy.push("calm energy: softer");
+    }
+    if (next.intent === "nap") {
+      next.linger_s = clamp(next.linger_s * 1.25, 0.5, 30);
+      steeredBy.push("calm energy: rests longer");
+    }
+  }
+
+  if (traits.warmth > 0 && (next.intent === "mirror" || next.intent === "heart")) {
+    next.intensity = clamp(next.intensity * 1.15, 0.05, 0.9);
+    next.linger_s = clamp(next.linger_s * 1.25, 0.5, 30);
+    steeredBy.push("warmth: gives a little more back");
+  }
+
+  return { decision: next, steeredBy };
+}
+
+/* ------------------------------------------------------------------ */
 /* Spark-cloud brain                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -488,13 +700,30 @@ const SPARK_SYSTEM_PROMPT = [
   "pattern_id is only for intent \"play\". mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
 ].join("\n");
 
-/** Build the few-shot message list for one live scenario. */
+/**
+ * Build the few-shot message list for one live scenario. When the
+ * primary has written a Personality for their ghostie (Slice 20),
+ * their words ride as an extra system note right after the main
+ * instructions: context the model deliberates WITH, in the
+ * primary's own phrasing. It is steering, not a new rulebook —
+ * the decision contract above still governs the reply shape.
+ */
 export function buildSparkMessages(
-  scenario: GhostScenario
+  scenario: GhostScenario,
+  personality?: string
 ): GhostBrainChatMessage[] {
   const messages: GhostBrainChatMessage[] = [
     { role: "system", content: SPARK_SYSTEM_PROMPT },
   ];
+  const personalityText = sanitizePersonalityText(personality);
+  if (personalityText) {
+    messages.push({
+      role: "system",
+      content:
+        `The ghost's primary describes its personality in their own words: "${personalityText}". ` +
+        "Let that description color the decision — how readily it approaches others, how energetic or calm it is, how warmly it responds — within the decision contract.",
+    });
+  }
   for (const ex of GHOST_BRAIN_FEW_SHOT) {
     messages.push({
       role: "user",
@@ -523,7 +752,8 @@ export function buildSparkMessages(
 export async function consultSparkBrain(
   scenario: GhostScenario,
   chat: GhostBrainChatFn,
-  timeoutMs = 6_000
+  timeoutMs = 6_000,
+  personality?: string
 ): Promise<GhostDecision | null> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -531,7 +761,10 @@ export async function consultSparkBrain(
       timer = setTimeout(() => resolve(null), timeoutMs);
     });
     const reply = await Promise.race([
-      chat(buildSparkMessages(scenario), { maxTokens: 1024, temperature: 0.4 }),
+      chat(buildSparkMessages(scenario, personality), {
+        maxTokens: 1024,
+        temperature: 0.4,
+      }),
       timeout,
     ]);
     if (typeof reply !== "string") return null;

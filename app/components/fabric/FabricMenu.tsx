@@ -77,6 +77,7 @@ import {
   useLocalIdentity,
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
+import GhostieHome from "./GhostieHome";
 import { layerSettingsKey } from "./LayerSettingsMirror";
 import { carrySessionRoom } from "./FabricSessionFollower";
 import {
@@ -86,6 +87,7 @@ import {
   FABRIC_RULE_LABEL,
   getSessionFabricState,
   noteFabricDivergence,
+  noteHostArrivedFabric,
   sanitizeHostRulesMap,
   setHostFabric,
   subscribeSessionFabric,
@@ -373,6 +375,15 @@ export default function FabricMenu() {
   const [editLayerId, setEditLayerId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [leaveWarn, setLeaveWarn] = useState<ExperienceLayer | null>(null);
+
+  // Your Ghostie (Slice 20): the Home replaces the section list
+  // inside this same sheet while open — the F-menu stays the one
+  // anchor, and the Hotfix 2.3 boundary around the menu covers it.
+  // Closing the menu always lands back on the list next open.
+  const [ghostHomeOpen, setGhostHomeOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) setGhostHomeOpen(false);
+  }, [menuOpen]);
 
   // While I host, my recorded host fabric IS my current layer +
   // its rules — keep the store (and therefore the room) in sync
@@ -731,7 +742,10 @@ export default function FabricMenu() {
     if (session.role === "guest") {
       if (fabric.layerId && exp.id === fabric.layerId) {
         // Following, not leaving — and the session room carries,
-        // exactly as the automatic follow carries it.
+        // exactly as the automatic follow carries it. A manual
+        // open is the primary's own choice, so it is NOT a host
+        // arrival for the ghostie's follow setting (Slice 20).
+        noteHostArrivedFabric(null);
         void switchExperience(exp.id);
         if (session.roomId) {
           carrySessionRoom(updateConfig, session.roomId, exp.id);
@@ -747,12 +761,15 @@ export default function FabricMenu() {
       // Record the pick first (the room follows by broadcast),
       // then switch — carrying the session room so the claim,
       // the mode, and the rules all survive the move.
+      noteHostArrivedFabric(null);
       setHostFabric(exp.id, rulesFor(exp.id));
       const room = session.roomId;
       void switchExperience(exp.id);
       if (room) carrySessionRoom(updateConfig, room, exp.id);
       return;
     }
+    // Solo open: my own pick, never a host arrival (Slice 20).
+    noteHostArrivedFabric(null);
     void switchExperience(exp.id);
   };
 
@@ -762,6 +779,8 @@ export default function FabricMenu() {
   const confirmLeaveTo = (exp: ExperienceLayer) => {
     noteActivity();
     if (fabric.layerId) noteFabricDivergence(fabric.layerId);
+    // Leaving to a fabric I picked myself: not a host arrival.
+    noteHostArrivedFabric(null);
     setLeaveWarn(null);
     setMenuOpen(false);
     void switchExperience(exp.id);
@@ -996,6 +1015,15 @@ export default function FabricMenu() {
         contentContainerStyle={{ paddingBottom: spacing.md }}
         showsVerticalScrollIndicator={false}
       >
+        {ghostHomeOpen ? (
+          <GhostieHome
+            onBack={() => {
+              noteActivity();
+              setGhostHomeOpen(false);
+            }}
+          />
+        ) : (
+          <>
         {/* ---------------- FABRICS (Slice 19) ---------------- */}
         <SectionHeader>FABRICS</SectionHeader>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
@@ -2204,6 +2232,49 @@ export default function FabricMenu() {
           Yours, on this device — the same on every layer.
         </Text>
 
+        {/* Your Ghostie (Slice 20) — the ghostie's HOME leads this
+            section: its living fDNA and secure tag, its brain, its
+            Personality, and how it is with others, in one place
+            instead of scattered across the menu and AI Services. */}
+        <Pressable
+          onPress={() => {
+            noteActivity();
+            setGhostHomeOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Open Your Ghostie"
+          style={({ pressed }) => ({
+            borderWidth: 1,
+            borderColor: colors.ghostLine,
+            borderRadius: radius.card,
+            padding: spacing.md,
+            marginBottom: spacing.sm,
+            backgroundColor: pressed ? colors.ghostDim : "transparent",
+          })}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: colors.ghost,
+              }}
+            />
+            <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.label, fontWeight: "700" }}>
+              Your Ghostie{ghost.ghostName ? ` — ${ghost.ghostName}` : ""}
+            </Text>
+            <Icon name="chevronRight" size={16} color={colors.textDim} />
+          </View>
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+            {ghost.temperament
+              ? `${ghost.temperament} · ${ghost.presence} · `
+              : ""}
+            its living fDNA and secure tag, its brain, its Personality,
+            and how it is with others.
+          </Text>
+        </Pressable>
+
         <ToggleRow
           label="Haptics"
           value={prefs.hapticsEnabled}
@@ -2380,11 +2451,10 @@ export default function FabricMenu() {
           </Text>
         </Pressable>
 
-        {/* Identity — the ghost keeps its OWN persistent, device-bound
-            identity (name + signature hue + seed, fabric_ghost_v1).
-            Deriving the ghost from the human packet above is the
-            designed LifePacket step; until then the two faces are
-            parallel, and the ghost is always labeled an agent. */}
+        {/* Your ghost & privacy — the ghost's identity, status, and
+            settings live in Your Ghostie (top of this section) since
+            Slice 20; what stays here is the standing privacy
+            statement, which belongs next to the identity it covers. */}
         <View
           style={{
             borderWidth: 1,
@@ -2396,16 +2466,11 @@ export default function FabricMenu() {
           }}
         >
           <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-            Identity · your ghost
+            Your ghost & privacy
           </Text>
           <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-            {ghost.ghostName
-              ? `${ghost.ghostName} · ${ghost.temperament ?? ghost.presence} · bound to this device`
-              : "Your ghost's persistent, device-bound identity lives here."}
-          </Text>
-          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-            Privacy: the ghost is always labeled as an AI agent, never
-            appears as a person, and a visiting ghost's sensations can be
+            The ghost is always labeled as an AI agent, never appears
+            as a person, and a visiting ghost's sensations can be
             muted from its pill on the canvas.
           </Text>
         </View>
@@ -2478,6 +2543,8 @@ export default function FabricMenu() {
         >
           Powered by Nirvana
         </Text>
+          </>
+        )}
       </ScrollView>
     </Animated.View>
   );

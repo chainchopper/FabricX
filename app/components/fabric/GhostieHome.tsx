@@ -1,0 +1,638 @@
+/**
+ * GhostieHome — "Your Ghostie" (Slice 20).
+ *
+ * The ghostie's HOME: one surface that gathers what used to be
+ * scattered — the LifePacket fDNA (a small card in UNIVERSAL), the
+ * brain tier switch (a row inside AI Services), and the ghost's
+ * manners (nowhere at all) — into a single place a primary can
+ * actually find, reached from the door card at the top of the
+ * F-menu's UNIVERSAL section. It renders inside the menu sheet,
+ * under the menu's FabricErrorBoundary (Hotfix 2.3).
+ *
+ * What's here, top to bottom:
+ *
+ * 1. THE fDNA, ALIVE AND LARGE. The LifePacket Game-of-Life grid —
+ *    the same toroidal B3/S23 life, seeded from the identity seed,
+ *    that Slice 9's card ran — now at full card width, stepping
+ *    every 300ms. Around it: the ghostie's name, its binding to
+ *    this device, and its SECURE TAG: a short one-way fingerprint
+ *    derived from the ghost's seed (src/identity/fdna). The seed
+ *    itself is never displayed and never transmitted; the tag is
+ *    a name-tag, not a key.
+ *
+ * 2. STATUS + BRAIN. Name, temperament, live presence from the
+ *    ghost store, the brain tier switch (moved here from AI
+ *    Services — ghostBrainPref is unchanged underneath), and the
+ *    LIVE brain line: the last deliberation and its age.
+ *
+ * 3. PERSONALITY. The primary's own words for their ghostie
+ *    (fabric_ghost_personality_v1, 280 chars). The words steer
+ *    deliberation for real — context in the Spark-tier consult,
+ *    legible keyword biases over the on-device table (GhostBrain)
+ *    — within the hard invariants, never around them. The
+ *    "Reading:" line shows exactly which words the on-device
+ *    brain can act on; the rest still ride to the Spark tier as
+ *    context. Nothing here pretends to steer what it cannot.
+ *
+ * 4. HOW {NAME} IS WITH OTHERS. Three switches, each wired to a
+ *    real gate (ghostShared.ts): socializing in GhostPeer,
+ *    remote pets in GhostPeer, host-fabric following at the
+ *    canvas's layer gate. Persisted in fabric_ghost_shared_v1;
+ *    defaults are all on, so an untouched ghostie behaves exactly
+ *    as it always has.
+ *
+ * Terminology: the human is the ghostie's PRIMARY. Never "owner".
+ * The Personality field is never called anything else.
+ *
+ * Powered by Nirvana
+ */
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { colors, radius, spacing, type as typeScale } from "../../../src/theme/tokens";
+import { useIdentitySnapshot } from "../../../src/identity/useIdentity";
+import { hueCss } from "../../../src/identity/identityStore";
+import {
+  FDNA_COLS,
+  countLiveCells,
+  deriveFdnaTag,
+  seedFdnaGrid,
+  stepFdnaGrid,
+} from "../../../src/identity/fdna";
+import {
+  getGhostPublicState,
+  subscribeGhostState,
+  type GhostPublicState,
+} from "../../../src/ghost/ghostStore";
+import {
+  getGhostBrainTier,
+  setGhostBrainTier,
+  type GhostBrainTier,
+} from "../../../src/ghost/ghostBrainPref";
+import {
+  PERSONALITY_MAX_CHARS,
+  parseGhostPersonality,
+} from "../../../src/ghost/GhostBrain";
+import {
+  getGhostPersonality,
+  setGhostPersonality,
+} from "../../../src/ghost/ghostPersonalityPref";
+import {
+  updateGhostSharedSettings,
+  useGhostSharedSettings,
+} from "../../../src/ghost/ghostSharedPref";
+import { GHOST_PREF_KEY } from "../../../src/ghost/useGhostPeer";
+import { getJSON } from "../../utils/storage";
+
+const GRID_STEP_MS = 300;
+const GRID_GAP = 2;
+
+const PRESENCE_LINES: Record<GhostPublicState["presence"], string> = {
+  present: "on the canvas with you",
+  summoned: "summoned into the room",
+  sleeping: "sleeping",
+  away: "away for now",
+  off: "off",
+};
+
+function HomeToggleRow({
+  label,
+  caption,
+  value,
+  onPress,
+}: {
+  label: string;
+  caption: string;
+  value: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+      style={({ pressed }) => ({
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: colors.line,
+        backgroundColor: pressed ? colors.ghostDim : "transparent",
+        marginBottom: spacing.sm,
+      })}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+          {label}
+        </Text>
+        <Text
+          style={{
+            color: value ? colors.ghost : colors.textDim,
+            fontSize: typeScale.body,
+            fontWeight: "700",
+          }}
+        >
+          {value ? "On" : "Off"}
+        </Text>
+      </View>
+      <Text
+        style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}
+      >
+        {caption}
+      </Text>
+    </Pressable>
+  );
+}
+
+function brainAge(lastAt: number | null, now: number): string {
+  if (!lastAt) return "";
+  const s = Math.max(0, Math.round((now - lastAt) / 1000));
+  if (s < 5) return "just now";
+  if (s < 60) return `${s}s ago`;
+  return `${Math.floor(s / 60)}m ago`;
+}
+
+export default function GhostieHome({ onBack }: { onBack: () => void }) {
+  const identity = useIdentitySnapshot();
+  const self = identity.self;
+  const shared = useGhostSharedSettings();
+
+  const [ghost, setGhost] = useState<GhostPublicState>(() =>
+    getGhostPublicState()
+  );
+  useEffect(() => subscribeGhostState(setGhost), []);
+
+  const ghostName = ghost.ghostName ?? "your ghostie";
+
+  /* ---------------- fDNA: the living grid ---------------- */
+  // The card's exact life, at Home scale: generation counts steps;
+  // a burned-out lineage re-seeds from the root + generation.
+  const seed = self?.seed;
+  const gridRef = useRef<Uint8Array | null>(null);
+  const genRef = useRef(0);
+  const [grid, setGrid] = useState<Uint8Array | null>(null);
+  const [generation, setGeneration] = useState(0);
+  const [gridWidth, setGridWidth] = useState(0);
+
+  useEffect(() => {
+    if (seed == null) return;
+    gridRef.current = seedFdnaGrid(seed);
+    genRef.current = 0;
+    setGeneration(0);
+    setGrid(gridRef.current);
+    const id = setInterval(() => {
+      // A hidden tab's DNA holds still — no churn nobody can see.
+      if (typeof document !== "undefined" && document.hidden) return;
+      const cur = gridRef.current;
+      if (!cur) return;
+      let next = stepFdnaGrid(cur);
+      genRef.current += 1;
+      if (countLiveCells(next) === 0) {
+        next = seedFdnaGrid(
+          (seed ^ Math.imul(genRef.current, 0x9e3779b9)) | 0
+        );
+      }
+      gridRef.current = next;
+      setGeneration(genRef.current);
+      setGrid(next);
+    }, GRID_STEP_MS);
+    return () => clearInterval(id);
+  }, [seed]);
+
+  const cell =
+    gridWidth > 0
+      ? Math.max(
+          9,
+          Math.floor((gridWidth - (FDNA_COLS - 1) * GRID_GAP) / FDNA_COLS)
+        )
+      : 14;
+  const aliveTint = self ? hueCss(self.hue) : colors.ghost;
+
+  /* ---------------- the secure tag ---------------- */
+  // Derived from the GHOST's seed (Slice 9 binding), falling back
+  // to the identity seed before the ghost record loads. One-way:
+  // the tag names the ghostie; it cannot be turned back into a seed.
+  const [ghostSeed, setGhostSeed] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getJSON<{ identity?: { seed?: unknown } } | null>(GHOST_PREF_KEY, null)
+      .then((pref) => {
+        if (cancelled) return;
+        const s = pref?.identity?.seed;
+        if (typeof s === "number") setGhostSeed(s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const tag = useMemo(() => {
+    const s = ghostSeed ?? seed;
+    return typeof s === "number" ? deriveFdnaTag(s) : null;
+  }, [ghostSeed, seed]);
+
+  /* ---------------- brain tier + live line ---------------- */
+  const [tier, setTier] = useState<GhostBrainTier>("on-device");
+  useEffect(() => {
+    let cancelled = false;
+    getGhostBrainTier()
+      .then((t) => {
+        if (!cancelled) setTier(t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const pickTier = (next: GhostBrainTier) => {
+    setTier(next);
+    void setGhostBrainTier(next);
+  };
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const brain = ghost.brain;
+
+  /* ---------------- personality ---------------- */
+  const [personalityDraft, setPersonalityDraft] = useState("");
+  const [personalityLoaded, setPersonalityLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getGhostPersonality()
+      .then((text) => {
+        if (cancelled) return;
+        setPersonalityDraft(text);
+        setPersonalityLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setPersonalityLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const savePersonality = () => {
+    if (!personalityLoaded) return;
+    void setGhostPersonality(personalityDraft);
+  };
+  const reading = useMemo(
+    () => parseGhostPersonality(personalityDraft),
+    [personalityDraft]
+  );
+
+  return (
+    <View>
+      {/* Back + title */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          marginTop: spacing.sm,
+          marginBottom: spacing.sm,
+        }}
+      >
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to menu"
+          style={({ pressed }) => ({
+            paddingVertical: 8,
+            paddingHorizontal: 10,
+            borderRadius: radius.card,
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: pressed ? colors.ghostDim : "transparent",
+            marginRight: spacing.sm,
+          })}
+        >
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+            ← Menu
+          </Text>
+        </Pressable>
+        <Text style={{ color: colors.text, fontSize: typeScale.title, fontWeight: "700" }}>
+          Your Ghostie
+        </Text>
+      </View>
+
+      {!self ? (
+        <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+          Waking your ghostie…
+        </Text>
+      ) : (
+        <>
+          {/* ---------- fDNA, alive and large ---------- */}
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.ghostLine,
+              borderRadius: radius.card,
+              padding: spacing.md,
+              marginBottom: spacing.md,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: spacing.sm,
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.ghost,
+                  fontSize: typeScale.caption,
+                  fontWeight: "700",
+                  letterSpacing: 1.5,
+                }}
+              >
+                fDNA · LIFEPACKET
+              </Text>
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                generation {generation}
+              </Text>
+            </View>
+
+            <View
+              onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}
+              style={{ flexDirection: "row", flexWrap: "wrap", gap: GRID_GAP }}
+            >
+              {grid
+                ? Array.from(grid).map((alive, idx) => (
+                    <View
+                      key={idx}
+                      style={{
+                        width: cell,
+                        height: cell,
+                        borderRadius: 2,
+                        backgroundColor: alive
+                          ? aliveTint
+                          : "rgba(167,139,250,0.07)",
+                      }}
+                    />
+                  ))
+                : null}
+            </View>
+
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: typeScale.body,
+                fontWeight: "600",
+                marginTop: spacing.md,
+              }}
+            >
+              {ghostName} · bound to this device
+            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginTop: spacing.xs,
+              }}
+            >
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                Secure tag
+              </Text>
+              <Text
+                style={{
+                  color: colors.ghost,
+                  fontSize: typeScale.body,
+                  fontWeight: "700",
+                  letterSpacing: 1,
+                }}
+              >
+                {tag ?? "…"}
+              </Text>
+            </View>
+            <Text
+              style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: spacing.sm }}
+            >
+              The tag is a one-way fingerprint of the seed — it names your
+              ghostie without ever showing the seed.
+            </Text>
+            <Text
+              style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}
+            >
+              On this device only — your seed never leaves this device.
+            </Text>
+          </View>
+
+          {/* ---------- status + brain ---------- */}
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.line,
+              borderRadius: radius.card,
+              padding: spacing.md,
+              marginBottom: spacing.md,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.label, fontWeight: "700" }}>
+              {ghostName}
+            </Text>
+            <Text style={{ color: colors.ghost, fontSize: typeScale.body, marginTop: 2 }}>
+              You’re {ghostName}’s primary.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.body, marginTop: spacing.sm }}>
+              {ghost.temperament
+                ? `${ghost.temperament} · `
+                : ""}
+              {PRESENCE_LINES[ghost.presence]}
+              {ghost.otherGhostCount > 0
+                ? ` · ${ghost.otherGhostCount} other ghostie${ghost.otherGhostCount === 1 ? "" : "s"} in the room`
+                : ""}
+            </Text>
+            {!ghost.enabled ? (
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+                Muted at the ghost toggle — {ghostName} is resting everywhere.
+              </Text>
+            ) : !ghost.layerEnabled ? (
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+                Off on this layer — {ghostName} joins on layers that allow it,
+                and on fabrics you open yourself when host-following is off.
+              </Text>
+            ) : null}
+
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: typeScale.body,
+                fontWeight: "600",
+                marginTop: spacing.md,
+                marginBottom: spacing.sm,
+              }}
+            >
+              {ghostName}’s brain
+            </Text>
+            {(
+              [
+                {
+                  value: "on-device" as GhostBrainTier,
+                  title: "On-device",
+                  sub: "A decision table distilled from curated ghost scenarios. Instant, offline, private.",
+                },
+                {
+                  value: "spark-cloud" as GhostBrainTier,
+                  title: "Muse Spark — cloud",
+                  sub: "Your configured model (AI Services) deliberates with the same scenario. Needs a saved key; without one the table decides and says so.",
+                },
+              ]
+            ).map((opt) => {
+              const selected = tier === opt.value;
+              return (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => pickTier(opt.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: selected ? colors.ghostLine : colors.line,
+                    backgroundColor: selected ? colors.ghostDim : "transparent",
+                    borderRadius: radius.card,
+                    padding: spacing.md,
+                    marginBottom: spacing.sm,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+                    {opt.title}
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}>
+                    {opt.sub}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {brain
+                ? `Live: ${brain.tierLabel} · ${brain.lastText}${brain.lastAt ? ` · ${brainAge(brain.lastAt, nowMs)}` : ""}`
+                : "Live: no deliberation yet — the brain speaks up when something changes (a pet, a visitor, a long quiet)."}
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+              Either way, the emit budgets and the petting rules stay
+              hard-coded — a decision steers the ghost, it never commands it.
+            </Text>
+          </View>
+
+          {/* ---------- personality ---------- */}
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.line,
+              borderRadius: radius.card,
+              padding: spacing.md,
+              marginBottom: spacing.md,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+              Personality
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}>
+              Describe {ghostName} in your own words. The words genuinely
+              steer it: on-device they bias its decisions (see what’s read,
+              below); on the Spark tier they’re part of every deliberation.
+              They never override the budgets or the petting rules.
+            </Text>
+            <TextInput
+              value={personalityDraft}
+              onChangeText={setPersonalityDraft}
+              onEndEditing={savePersonality}
+              onSubmitEditing={savePersonality}
+              placeholder="Shy at first, bold with friends, loves rain sounds…"
+              placeholderTextColor="rgba(242,247,249,0.35)"
+              multiline
+              maxLength={PERSONALITY_MAX_CHARS}
+              accessibilityLabel="Personality"
+              style={{
+                // 16px floor: below it, iOS Safari auto-zooms on focus
+                // and wrecks the sheet (Hotfix 2.3). Do not lower.
+                fontSize: 16,
+                color: colors.text,
+                borderWidth: 1,
+                borderColor: colors.line,
+                borderRadius: radius.card,
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                marginTop: spacing.sm,
+                minHeight: 64,
+                textAlignVertical: "top",
+              }}
+            />
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+              {reading.labels.length > 0
+                ? `Reading: ${reading.labels.join(", ")}`
+                : personalityDraft.trim()
+                  ? "Reading: nothing the on-device brain can act on yet — words like shy, bold, playful, calm or cuddly steer it here. (The Spark tier still hears all of it.)"
+                  : "Reading: nothing yet."}
+            </Text>
+            <Text
+              style={{
+                color: colors.textDim,
+                fontSize: typeScale.caption,
+                textAlign: "right",
+              }}
+            >
+              {personalityDraft.length}/{PERSONALITY_MAX_CHARS}
+            </Text>
+          </View>
+
+          {/* ---------- how {name} is with others ---------- */}
+          <Text
+            style={{
+              color: colors.ghost,
+              fontSize: typeScale.caption,
+              fontWeight: "700",
+              letterSpacing: 1.5,
+              marginBottom: spacing.sm,
+            }}
+          >
+            HOW {ghostName.toUpperCase()} IS WITH OTHERS
+          </Text>
+          <HomeToggleRow
+            label="Socialize with other ghosties"
+            caption={`Greets, approaches, and plays with other ghosties in the room. Off: ${ghostName} still sees them, but never goes to them.`}
+            value={shared.socialize}
+            onPress={() =>
+              updateGhostSharedSettings({ socialize: !shared.socialize })
+            }
+          />
+          <HomeToggleRow
+            label="Accept pets from others"
+            caption={`Other people's strokes on ${ghostName} land as pets. Off: they don't land at all. Your own pets always land.`}
+            value={shared.acceptRemotePets}
+            onPress={() =>
+              updateGhostSharedSettings({
+                acceptRemotePets: !shared.acceptRemotePets,
+              })
+            }
+          />
+          <HomeToggleRow
+            label="Follow the host’s fabric"
+            caption={`When your host moves the room to a new fabric, ${ghostName} comes along. Off: ${ghostName} only joins fabrics you open yourself. Your own view follows the host either way.`}
+            value={shared.followHostFabric}
+            onPress={() =>
+              updateGhostSharedSettings({
+                followHostFabric: !shared.followHostFabric,
+              })
+            }
+          />
+        </>
+      )}
+    </View>
+  );
+}

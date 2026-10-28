@@ -18,7 +18,7 @@ import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { getJSON, setJSON } from "../../utils/storage";
 import { useToast } from "../Toast";
-import GhostBrainRow from "./GhostBrainRow";
+
 
 const STORAGE_KEY = "fabric_ai_config_v1";
 
@@ -323,9 +323,20 @@ export default function AISettingsDrawer() {
           Configure AI endpoints and API keys
         </Text>
 
-        {/* Ghost brain tier preference (Slice 9) — the routing
-            preference only; see src/ghost/ghostBrainPref. */}
-        <GhostBrainRow />
+        {/* The ghost brain tier moved to Your Ghostie (Slice 20) —
+            the preference itself (fabric_ghost_brain_v1) and its
+            routing are unchanged; only the switch's home moved. */}
+        <Text
+          style={{
+            color: "#93c5fd",
+            fontSize: 13,
+            paddingHorizontal: 16,
+            marginBottom: 16,
+          }}
+        >
+          Ghost brain lives in Your Ghostie — F menu › UNIVERSAL › Your
+          Ghostie.
+        </Text>
 
         {/* Section Tabs */}
         <View

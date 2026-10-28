@@ -91,6 +91,10 @@ import type {
   GhostScenarioOther,
 } from "./GhostBrain";
 import { seedTraitsForTemperament } from "./GhostBrain";
+import {
+  DEFAULT_GHOST_SHARED_SETTINGS,
+  type GhostSharedSettings,
+} from "./ghostShared";
 
 /** Peer-id convention: every ghost broadcasts as "ghost:<ownerUserId>". */
 export const GHOST_PEER_PREFIX = "ghost:";
@@ -363,6 +367,18 @@ export class GhostPeer {
     nextActionAt: 0,
   };
 
+  /**
+   * How this ghostie is with others (Slice 20 shared settings,
+   * ghostShared.ts). Fed live by useGhostPeer from the persisted
+   * preference; starts at the permissive defaults so the ghost
+   * behaves exactly as it always has until the record loads.
+   * followHostFabric is NOT read here — it resolves at the layer
+   * gate (LegacyFluid), not inside the peer.
+   */
+  private sharedSettings: GhostSharedSettings = {
+    ...DEFAULT_GHOST_SHARED_SETTINGS,
+  };
+
   private bias: GhostMoodBias | null = null;
   private biasExpiresAt = 0;
 
@@ -443,6 +459,21 @@ export class GhostPeer {
       this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
     }
     this.publishPresence();
+  }
+
+  /**
+   * Apply the primary's shared settings (Slice 20). Live-fed by
+   * useGhostPeer whenever the persisted record changes. Turning
+   * socialize OFF mid-episode ends any approach/chase in flight —
+   * the ghost stops going to others immediately, though it keeps
+   * perceiving them (the brain's scenario stays honest).
+   */
+  setSharedSettings(next: GhostSharedSettings): void {
+    const wasSocial = this.sharedSettings.socialize;
+    this.sharedSettings = { ...next };
+    if (wasSocial && !next.socialize && this.social.phase !== "none") {
+      this.social = { phase: "none", targetId: null, until: 0, nextActionAt: 0 };
+    }
   }
 
   setHumansPresent(present: boolean): void {
@@ -712,7 +743,7 @@ export class GhostPeer {
     }
 
     this.maybeStartle(i, now);
-    this.registerPet(i, now);
+    this.registerPet(i, now, origin);
 
     let contact = this.contacts.get(i.userId);
     if (contact && now - contact.lastAt > CONTACT_GAP_MS) {
@@ -763,10 +794,14 @@ export class GhostPeer {
     }
 
     // Greetings only happen while my own ghost is summoned & social.
+    // Shared settings gate (Slice 20): with "Socialize with other
+    // ghosties" off, sightings are still tracked above (perception
+    // stays honest) but no greeting ever starts.
     if (
       this.mode !== "session" ||
       !this.enabled ||
       this.dismissing ||
+      !this.sharedSettings.socialize ||
       this.social.phase !== "none" ||
       (this.aloofUntil.get(i.userId) ?? 0) > now
     ) {
@@ -789,7 +824,19 @@ export class GhostPeer {
 
   // ---------------------------------------------------------- petting
 
-  private registerPet(i: FluidInteraction, now: number): void {
+  private registerPet(
+    i: FluidInteraction,
+    now: number,
+    origin: "local" | "remote"
+  ): void {
+    // Shared settings gate (Slice 20): "Accept pets from others"
+    // off means a REMOTE stroke on the ghost does not land as a
+    // pet at all — no lean, no burst, no PURR/HEART credit, no
+    // pet context for the brain. The primary's own hand always
+    // lands; PURR/HEART mechanics for accepted pets are unchanged.
+    if (origin === "remote" && !this.sharedSettings.acceptRemotePets) {
+      return;
+    }
     if (
       dist2(i.position.x, i.position.y, this.position.x, this.position.y) >
       PET_RADIUS * PET_RADIUS
@@ -1653,7 +1700,11 @@ export class GhostPeer {
   }
 
   private performSniff(): void {
-    if (this.mode === "session" && this.social.phase === "none") {
+    if (
+      this.mode === "session" &&
+      this.social.phase === "none" &&
+      this.sharedSettings.socialize
+    ) {
       // Deliberate greeting: approach the nearest sensed ghost; the
       // existing social machine runs the sniff/play from there.
       const now = Date.now();
