@@ -27,6 +27,14 @@
  *   as it does to live input. A view-mode guest's playback renders
  *   locally and transmits nothing.
  *
+ * Slice 15 ("Agent Shapes"): entries are now a discriminated union
+ * on `kind`. Pattern entries are exactly what Slice 8 shipped —
+ * entries persisted before this slice carry no `kind` field and
+ * normalize as patterns, untouched. Recipe entries carry the
+ * validated Recipe payload instead and play through
+ * FABRIC_PLAY_RECIPE_EVENT; they are re-validated through
+ * validateRecipe on load AND on save, under the same honesty rules.
+ *
  * Powered by Nirvana
  */
 
@@ -35,6 +43,10 @@ import {
   validatePattern,
   type Pattern,
 } from "./PatternComposer";
+import {
+  validateRecipe,
+  type Recipe,
+} from "./RecipeCore";
 
 export const COMPOSITIONS_KEY = "fabric_compositions_v1";
 
@@ -43,16 +55,30 @@ export const MAX_COMPOSITIONS = 50;
 
 const MAX_NAME = 60;
 
-export interface SavedComposition {
+interface SavedCompositionBase {
   id: string;
-  /** Display name — starts as the pattern's name, user-editable. */
+  /** Display name — starts as the artifact's name, user-editable. */
   name: string;
-  /** The plain-language prompt that produced the pattern ("" if none). */
+  /** The plain-language prompt that produced it ("" if none). */
   prompt: string;
-  /** The validated PatternComposer payload — the playable artifact. */
-  pattern: Pattern;
   createdAt: number;
 }
+
+export interface SavedPatternComposition extends SavedCompositionBase {
+  kind: "pattern";
+  /** The validated PatternComposer payload — the playable artifact. */
+  pattern: Pattern;
+}
+
+export interface SavedRecipeComposition extends SavedCompositionBase {
+  kind: "recipe";
+  /** The validated Recipe payload — the playable artifact. */
+  recipe: Recipe;
+}
+
+export type SavedComposition =
+  | SavedPatternComposition
+  | SavedRecipeComposition;
 
 export interface CompositionsSnapshot {
   /** False until the persisted list has been read once. */
@@ -105,8 +131,9 @@ function cleanName(raw: unknown, fallback: string): string {
 
 /**
  * Normalize one persisted entry, or return null to drop it. The
- * pattern goes through the composer's own validator (with its stored
- * source), so what loads is exactly what the player may ever see.
+ * payload goes through its own validator (with its stored source),
+ * so what loads is exactly what the players may ever see. Entries
+ * with no `kind` are Slice 8 patterns — the original shape, kept.
  */
 function normalizeEntry(raw: unknown): SavedComposition | null {
   if (!raw || typeof raw !== "object") return null;
@@ -115,6 +142,22 @@ function normalizeEntry(raw: unknown): SavedComposition | null {
   if (typeof e.createdAt !== "number" || !Number.isFinite(e.createdAt)) {
     return null;
   }
+  const prompt = typeof e.prompt === "string" ? e.prompt.slice(0, 280) : "";
+  if (e.kind === "recipe") {
+    const rawRecipe = e.recipe as Record<string, unknown> | null;
+    if (!rawRecipe || typeof rawRecipe !== "object") return null;
+    const source = rawRecipe.source === "builtin" ? "builtin" : "llm";
+    const recipe = validateRecipe(rawRecipe, source);
+    if (!recipe) return null;
+    return {
+      id: e.id,
+      kind: "recipe",
+      name: cleanName(e.name, recipe.name),
+      prompt,
+      recipe,
+      createdAt: e.createdAt,
+    };
+  }
   const rawPattern = e.pattern as Record<string, unknown> | null;
   if (!rawPattern || typeof rawPattern !== "object") return null;
   const source = rawPattern.source === "builtin" ? "builtin" : "llm";
@@ -122,8 +165,9 @@ function normalizeEntry(raw: unknown): SavedComposition | null {
   if (!pattern) return null;
   return {
     id: e.id,
+    kind: "pattern",
     name: cleanName(e.name, pattern.name),
-    prompt: typeof e.prompt === "string" ? e.prompt.slice(0, 280) : "",
+    prompt,
     pattern,
     createdAt: e.createdAt,
   };
@@ -185,11 +229,45 @@ export async function saveComposition(input: {
   const prompt = (input.prompt || "").trim().slice(0, 280);
   const fallback =
     pattern.name || (prompt ? prompt.slice(0, MAX_NAME) : "Untitled pattern");
-  const record: SavedComposition = {
+  const record: SavedPatternComposition = {
     id: newId(),
+    kind: "pattern",
     name: cleanName(input.name, fallback),
     prompt,
     pattern,
+    createdAt: Date.now(),
+  };
+  items = [record, ...items].slice(0, MAX_COMPOSITIONS);
+  persist();
+  emit();
+  return record;
+}
+
+/**
+ * Save a recipe (Slice 15) into the same list, as a `kind:"recipe"`
+ * entry. Same contract as saveComposition: validated at the door,
+ * newest first, the cap evicts the oldest of either kind.
+ */
+export async function saveRecipeComposition(input: {
+  name?: string;
+  prompt: string;
+  recipe: Recipe;
+}): Promise<SavedComposition | null> {
+  await ensureCompositionsLoaded();
+  const recipe = validateRecipe(
+    input.recipe,
+    input.recipe?.source === "builtin" ? "builtin" : "llm"
+  );
+  if (!recipe) return null;
+  const prompt = (input.prompt || "").trim().slice(0, 280);
+  const fallback =
+    recipe.name || (prompt ? prompt.slice(0, MAX_NAME) : "Untitled recipe");
+  const record: SavedRecipeComposition = {
+    id: newId(),
+    kind: "recipe",
+    name: cleanName(input.name, fallback),
+    prompt,
+    recipe,
     createdAt: Date.now(),
   };
   items = [record, ...items].slice(0, MAX_COMPOSITIONS);

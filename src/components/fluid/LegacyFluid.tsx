@@ -13,12 +13,24 @@ import {
   FABRIC_COMPOSE_STATE_EVENT,
   FABRIC_COMPOSE_STOP_EVENT,
   FABRIC_PLAY_PATTERN_EVENT,
-  composePattern,
   getHapticPattern,
   hueToRgb,
   type Pattern,
   type PatternStep,
 } from "../../ai/PatternComposer";
+import {
+  FABRIC_PLAY_RECIPE_EVENT,
+  composeWithShapes,
+} from "../../ai/RecipeComposer";
+import {
+  recipeBus,
+  recipePlayer,
+  type RecipeSplat,
+} from "../../ai/RecipePlayer";
+import {
+  validateRecipe,
+  type Recipe,
+} from "../../ai/RecipeCore";
 import {
   getSessionPublicState,
   subscribeSessionState,
@@ -146,6 +158,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     userId,
     remoteInteractions,
     sendInteraction,
+    sendRecipe,
     injectRemoteInteraction,
     humanPeers,
   } = useFluidMultiUser(roomId);
@@ -156,6 +169,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // capture stale closures.
   const sendRef = useRef(sendInteraction);
   sendRef.current = sendInteraction;
+  const sendRecipeRef = useRef(sendRecipe);
+  sendRecipeRef.current = sendRecipe;
   const cuesRef = useRef(audioCues);
   cuesRef.current = audioCues;
   const sfxRef = useRef(ghostSfx);
@@ -375,6 +390,68 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     if (typeof cue === "function") cue();
   };
 
+  // ---- Agent Shapes (Slice 15) ---------------------------------------
+  // A recipe renders HERE, on the same splat seam pattern splats use
+  // (engine.splatAt, locally). It never renders by broadcasting its
+  // splats: the sender ships ONE fabric-recipe message and every
+  // device cooks its own copy. dispatchRecipeSplat is the player's
+  // sink — a playing recipe is real room activity (Slice 7's clock
+  // moves, ambient stands down) and the ghost brain hears it like
+  // any performance.
+  const dispatchRecipeSplat = useCallback(
+    (splat: RecipeSplat) => {
+      markActivity();
+      const color = hueToRgb(splat.hue, 0.85);
+      engineRef.current?.splatAt(
+        splat.x,
+        splat.y,
+        splat.forceX,
+        splat.forceY,
+        color,
+        splat.radiusScale
+      );
+      ghostRef.current.noteUserActivity();
+    },
+    [markActivity]
+  );
+
+  /**
+   * Play a recipe on this canvas. `send` is true for locally
+   * originated playback (a fresh composition, a Studio replay):
+   * the hook's sendRecipe ships the one compact message under the
+   * session gate, so a gated guest's replay renders here and goes
+   * nowhere — the recipe mirror of pattern-step semantics. `send`
+   * is false for recipes that ARRIVED from a peer: rendering only,
+   * never re-broadcast (no echo, ever).
+   */
+  const playRecipe = useCallback(
+    (recipe: Recipe, opts: { send: boolean; defaultHue?: number }) => {
+      patternPlayer.stop();
+      recipePlayer.play(recipe, dispatchRecipeSplat, {
+        defaultHue: opts.defaultHue,
+      });
+      if (opts.send) sendRecipeRef.current(recipe);
+    },
+    [dispatchRecipeSplat]
+  );
+  const playRecipeRef = useRef(playRecipe);
+  playRecipeRef.current = playRecipe;
+
+  // Inbound recipes: the hook validated them and handed them over
+  // on the recipe bus. The sender's signature hue (when a step
+  // doesn't carry its own) is the dye default — a peer's shapes
+  // arrive in the peer's color, like their strokes do (Slice 6).
+  useEffect(
+    () =>
+      recipeBus.subscribe((recipe, from) => {
+        playRecipeRef.current(recipe, {
+          send: false,
+          defaultHue: getPeerIdentity(from)?.hue,
+        });
+      }),
+    []
+  );
+
   /**
    * Effects for a ghost-authored interaction on the render path. The
    * splat itself is rendered by the caller exactly like any remote.
@@ -558,6 +635,12 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   //                haptic channel.
   // Playback state is relayed to the HUD on FABRIC_COMPOSE_STATE_EVENT;
   // FABRIC_COMPOSE_STOP_EVENT cancels globally via the shared player.
+  //
+  // Slice 15 extends the same effect with the second vocabulary:
+  // drawing prompts compose into Recipes (composeWithShapes), which
+  // render through the recipe player + dispatchRecipeSplat above and
+  // broadcast as ONE fabric-recipe transport message — the splats
+  // are cooked locally on every device, never shipped.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const publishState = (name: string | null) => {
@@ -566,6 +649,10 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       );
     };
     patternPlayer.setStateListener(publishState);
+    // Slice 15: recipes report through the same state channel — the
+    // HUD's "Playing: <name>" + Stop cover both vocabularies, and
+    // starting one performance stops the other (below).
+    recipePlayer.setStateListener(publishState);
 
     const dispatchStep = (step: PatternStep) => {
       // Slice 7: a composed/performed pattern is real activity —
@@ -605,11 +692,20 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       const prompt = (ev as CustomEvent<string>).detail;
       if (typeof prompt !== "string" || !prompt.trim()) return;
       void (async () => {
-        const pattern = await composePattern(prompt);
-        if (pattern) {
-          patternPlayer.play(pattern, dispatchStep);
-        } else {
+        // Slice 15: one entry, two vocabularies — composeWithShapes
+        // routes drawing prompts to recipes and everything else to
+        // the Slice 4 pattern path, untouched.
+        const result = await composeWithShapes(prompt);
+        if (!result) {
           publishState(null);
+        } else if (result.kind === "recipe") {
+          playRecipeRef.current(result.recipe, {
+            send: true,
+            defaultHue: getIdentitySnapshot().self?.hue,
+          });
+        } else {
+          recipePlayer.stop();
+          patternPlayer.play(result.pattern, dispatchStep);
         }
       })();
     };
@@ -621,18 +717,43 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     const onPlayPattern = (ev: Event) => {
       const p = (ev as CustomEvent<Pattern>).detail;
       if (!p || typeof p.name !== "string" || !Array.isArray(p.steps)) return;
+      recipePlayer.stop();
       patternPlayer.play(p, dispatchStep);
     };
-    const onStop = () => patternPlayer.stop();
+    // Slice 15: play an already-validated Recipe (Studio replay,
+    // menu share-live). Re-validated at the door anyway — nothing
+    // unvalidated renders, whatever handed it over. Renders locally
+    // and ships the one gated recipe message (playRecipe, send).
+    const onPlayRecipe = (ev: Event) => {
+      const raw = (ev as CustomEvent<Recipe>).detail;
+      if (!raw || typeof raw !== "object") return;
+      const recipe = validateRecipe(
+        raw,
+        raw.source === "builtin" ? "builtin" : "llm"
+      );
+      if (!recipe) return;
+      playRecipeRef.current(recipe, {
+        send: true,
+        defaultHue: getIdentitySnapshot().self?.hue,
+      });
+    };
+    const onStop = () => {
+      patternPlayer.stop();
+      recipePlayer.stop();
+    };
     window.addEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
     window.addEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
     window.addEventListener(FABRIC_PLAY_PATTERN_EVENT, onPlayPattern as EventListener);
+    window.addEventListener(FABRIC_PLAY_RECIPE_EVENT, onPlayRecipe as EventListener);
     return () => {
       window.removeEventListener(FABRIC_COMPOSE_EVENT, onCompose as EventListener);
       window.removeEventListener(FABRIC_COMPOSE_STOP_EVENT, onStop);
       window.removeEventListener(FABRIC_PLAY_PATTERN_EVENT, onPlayPattern as EventListener);
+      window.removeEventListener(FABRIC_PLAY_RECIPE_EVENT, onPlayRecipe as EventListener);
       patternPlayer.stop();
       patternPlayer.setStateListener(null);
+      recipePlayer.stop();
+      recipePlayer.setStateListener(null);
     };
   }, []);
 
