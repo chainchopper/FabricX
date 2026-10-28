@@ -14,15 +14,18 @@
  * - the scene drains `pendingNotes` once per frame: each note
  *   becomes a floor ripple in its hue and a flash on the accent
  *   lights, and tints the drifting motes;
- * - verb gestures queue as bare verb ids in `pendingGestures`; the
- *   rig drains them and stamps their start times on the render
- *   clock, so choreography stays in the same time base as the
- *   DancerDriver pose.
+ * - verb gestures queue in `pendingGestures` as { verb, rig }
+ *   entries (Stage v2): each rig drains only ITS OWN entries and
+ *   stamps their start times on the render clock, so choreography
+ *   stays in the same time base as the DancerDriver pose — and a
+ *   verb moves the body of the participant who sent it, not the
+ *   whole cast.
  */
 
 export interface StageFxState {
   pendingNotes: { hue: number; strength: number }[];
-  pendingGestures: string[];
+  /** `rig` is the participant id whose rig performs the verb. */
+  pendingGestures: { verb: string; rig: string }[];
 }
 
 export function createStageFx(): StageFxState {

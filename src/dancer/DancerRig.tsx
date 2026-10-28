@@ -1,5 +1,15 @@
 /**
- * DancerRig — the body on the Dancer Stage.
+ * DancerRig — one body on the Dancer Stage.
+ *
+ * Stage v2 ("Ghostie Dancers", Terrell, Oct 28): the stage holds a
+ * CAST — one rig per participant, and each rig IS that
+ * participant's ghostie embodied. A rig is tinted by its owner's
+ * signature hue and wears their name (the local rig: the ghost's
+ * own name + hue). Each rig has its OWN DancerDriver, fed only its
+ * owner's notes/verbs (attribution lives in DancerStage +
+ * useStageNotes); a RigStyle scales how the body takes the pose —
+ * the local ghostie's temperament lives in its motion, remotes
+ * dance neutral (their temperament is not on the wire).
  *
  * Two figures share one pose pipeline:
  *
@@ -15,6 +25,9 @@
  *     mannequin — bound by bone NAME against the same UE5 contract
  *     (stageCharacter store; docs/DANCER.md). Missing bones are
  *     skipped silently; a failed load leaves the mannequin standing.
+ *     The slot exists ONLY on the local rig (characterSlot): the
+ *     character is YOUR ghostie's body. Models never travel over
+ *     the wire — remote ghosties always wear their hue mannequins.
  *
  * The DancerDriver is the only choreographer: tick() yields
  * per-band offsets (spring return-to-rest) + the breath phase, and
@@ -25,8 +38,8 @@
  * chest, CHEER raises alternating arms with a leg bounce, TICKLE
  * is a fast hips/torso wiggle.
  *
- * Figure off (THIS LAYER: stageDancerEnabled=false) → every offset
- * is zeroed and the figure simply stands at rest.
+ * Figure off (THIS LAYER: stageDancerEnabled=false) → every rig's
+ * offsets are zeroed and the whole cast simply stands at rest.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -35,6 +48,8 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { DancerDriver, DancerPose, DancerBandId } from "./DancerDriver";
 import type { StageFxState } from "./stageFx";
+import { NEUTRAL_STYLE, type RigStyle } from "./stageRoster";
+import RigLabel from "./RigLabel";
 import {
   getStageCharacterState,
   setStageCharacterStatus,
@@ -162,7 +177,7 @@ function skinGeometry(
   return geo;
 }
 
-function buildMannequin(): Mannequin {
+function buildMannequin(tintHue: number | null): Mannequin {
   const bones = new Map<string, THREE.Bone>();
   const ordered: THREE.Bone[] = [];
   for (const def of BONE_DEFS) {
@@ -222,7 +237,17 @@ function buildMannequin(): Mannequin {
   const materials = {} as Record<DancerBandId, THREE.MeshStandardMaterial>;
   for (const band of BAND_ORDER) {
     materials[band] = new THREE.MeshStandardMaterial({
-      color: new THREE.Color("#d9e0e8"),
+      // Stage v2: the body wears its owner's signature hue — a soft
+      // tint over the v1 mannequin pale, light enough that a firing
+      // band's emissive still reads as the note's own color.
+      color:
+        tintHue === null
+          ? new THREE.Color("#d9e0e8")
+          : new THREE.Color().setHSL(
+              (((tintHue % 360) + 360) % 360) / 360,
+              0.32,
+              0.74
+            ),
       metalness: 0.25,
       roughness: 0.38,
       emissive: new THREE.Color("#000000"),
@@ -321,12 +346,19 @@ function applyPose(
   rest: Map<string, THREE.Quaternion>,
   pose: DancerPose,
   extra: GestureExtra,
-  enabled: boolean
+  enabled: boolean,
+  style: RigStyle = NEUTRAL_STYLE
 ) {
   const byId = new Map(pose.bands.map((b) => [b.id, b]));
-  const off = (id: DancerBandId) => (enabled ? byId.get(id)?.offset ?? 0 : 0);
+  // Stage v2 style: band offsets scale by the rig's motion (the
+  // local ghostie's temperament; neutral for remotes), the idle
+  // breath by its sway. Gesture extras stay literal — a HEART is a
+  // HEART at any temperament; the root bounce (useFrame) takes the
+  // style's bounce.
+  const off = (id: DancerBandId) =>
+    enabled ? (byId.get(id)?.offset ?? 0) * style.motion : 0;
   const en = (id: DancerBandId) => (enabled ? byId.get(id)?.energy ?? 0 : 0);
-  const breath = enabled ? pose.breath : 0;
+  const breath = enabled ? pose.breath * style.sway : 0;
   const ex = enabled ? extra : zeroExtra();
 
   const set = (name: string, x: number, y: number, z: number) => {
@@ -393,14 +425,36 @@ export default function DancerRig({
   driver,
   fx,
   figureEnabled,
+  rigKey,
+  position = [0, 0, 0],
+  rotationY = 0,
+  tintHue = null,
+  label = null,
+  characterSlot = false,
+  style = NEUTRAL_STYLE,
 }: {
   driver: DancerDriver;
   fx: StageFxState;
   figureEnabled: boolean;
+  /** Participant id this rig embodies — its gesture-queue key. */
+  rigKey: string;
+  position?: [number, number, number];
+  rotationY?: number;
+  /** Owner's signature hue; tints the mannequin + the name tag. */
+  tintHue?: number | null;
+  /** Floating name over the rig (local: the ghost's name). */
+  label?: string | null;
+  /** True only for the LOCAL rig: the glTF slot is your ghostie's body. */
+  characterSlot?: boolean;
+  style?: RigStyle;
 }) {
-  const mannequin = useMemo(buildMannequin, []);
+  const mannequin = useMemo(() => buildMannequin(tintHue), [tintHue]);
   const groupRef = useRef<THREE.Group>(null);
   const gesturesRef = useRef<{ verb: string; start: number }[]>([]);
+  const styleRef = useRef(style);
+  styleRef.current = style;
+  const baseYRef = useRef(position[1]);
+  baseYRef.current = position[1];
 
   const [charState, setCharState] = useState<StageCharacterState>(
     getStageCharacterState()
@@ -409,11 +463,14 @@ export default function DancerRig({
 
   const [character, setCharacter] = useState<AdoptedCharacter | null>(null);
 
-  // Load / unload the user's glTF character. Any failure — network,
-  // parse, or a model with no pelvis to drive — reports "failed"
-  // and the mannequin keeps the stage.
+  // Load / unload the user's glTF character — LOCAL RIG ONLY: the
+  // character is your ghostie's body. Remote rigs never load it
+  // (models don't travel; a remote ghostie wears its hue mannequin
+  // on every client). Any failure — network, parse, or a model
+  // with no pelvis to drive — reports "failed" and the mannequin
+  // keeps the stage.
   useEffect(() => {
-    const url = charState.url;
+    const url = characterSlot ? charState.url : null;
     if (!url) {
       setCharacter(null);
       return;
@@ -458,13 +515,23 @@ export default function DancerRig({
     return () => {
       cancelled = true;
     };
-  }, [charState.url]);
+  }, [charState.url, characterSlot]);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    // Drain queued verb gestures onto the render clock.
+    // Drain THIS rig's queued verb gestures onto the render clock
+    // (Stage v2: entries are addressed by participant id — a verb
+    // moves its sender's body, so other rigs' entries stay queued
+    // for their own rigs to drain).
     if (fx.pendingGestures.length) {
-      for (const verb of fx.pendingGestures.splice(0)) {
+      const mine: string[] = [];
+      for (let i = fx.pendingGestures.length - 1; i >= 0; i--) {
+        if (fx.pendingGestures[i].rig === rigKey) {
+          mine.unshift(fx.pendingGestures[i].verb);
+          fx.pendingGestures.splice(i, 1);
+        }
+      }
+      for (const verb of mine) {
         gesturesRef.current.push({ verb, start: t });
       }
     }
@@ -473,7 +540,7 @@ export default function DancerRig({
     const pose = driver.tick(performance.now());
     const extra = gestureExtra(gesturesRef.current, t);
     const active = character ?? mannequin;
-    applyPose(active.bones, active.rest, pose, extra, figureEnabled);
+    applyPose(active.bones, active.rest, pose, extra, figureEnabled, styleRef.current);
 
     // Band glow on the mannequin (the character slot keeps its own
     // authored materials; the stage lights + floor carry its glow).
@@ -488,22 +555,25 @@ export default function DancerRig({
       }
     }
 
-    // Root bounce: leg energy + cheer hops lift the whole figure.
+    // Root bounce: leg energy + cheer hops lift the whole figure,
+    // scaled by the rig's style bounce (a playful ghostie hops).
     if (groupRef.current) {
       const legs = pose.bands.find((b) => b.id === "legs");
       const bounce = figureEnabled
-        ? Math.abs(legs?.offset ?? 0) * 0.05 +
-          extra.legsBounce * 0.045 +
-          pose.breath * 0.006
+        ? (Math.abs(legs?.offset ?? 0) * 0.05 +
+            extra.legsBounce * 0.045 +
+            pose.breath * 0.006) *
+          styleRef.current.bounce
         : 0;
-      groupRef.current.position.y = bounce;
+      groupRef.current.position.y = baseYRef.current + bounce;
     }
   });
 
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} position={position} rotation={[0, rotationY, 0]}>
       <primitive object={mannequin.mesh} visible={!character} />
       {character ? <primitive object={character.scene} /> : null}
+      {label ? <RigLabel name={label} hue={tintHue ?? 190} /> : null}
     </group>
   );
 }

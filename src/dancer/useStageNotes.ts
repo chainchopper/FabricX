@@ -31,8 +31,16 @@
  *
  *  4. VERBS IN: remote interactions carrying a verb id fire onVerb
  *     once each (deduped on the sender's (userId, seq ?? timestamp)
- *     key, the Hotfix 1.9 convention), so a peer's HEART lifts the
- *     arms of every dancer in the room.
+ *     key, the Hotfix 1.9 convention).
+ *
+ * Stage v2 ("Ghostie Dancers"): onVerb is ATTRIBUTED — it receives
+ * the participant id whose rig performs the verb. Local verbs name
+ * this client; remote verbs name their sender, with a ghost's
+ * "ghost:<ownerId>" normalized to its owner (ownerIdForSender) —
+ * a HEART from Maya choreographs MAYA's ghostie, nobody else's.
+ * The hook also returns the room roster (userId + knownPeerIds)
+ * so DancerStage can build the cast from the same transport
+ * instance that moves it.
  *
  * The driver itself stays subscribe-only on the note bus — it
  * never learns the transport exists.
@@ -42,6 +50,7 @@ import { useFluidMultiUser } from "../hooks/useFluidMultiUser";
 import { useMIDI, type NoteName } from "../hooks/useMIDI";
 import { useVirtualNotes } from "../hooks/useVirtualNotes";
 import { FABRIC_VERB_EVENT, getVerbById, verbInteraction } from "../sensory/verbs";
+import { ownerIdForSender } from "./stageRoster";
 import {
   getSessionPublicState,
   subscribeSessionState,
@@ -51,8 +60,8 @@ import {
 export function useStageNotes(
   roomId: string,
   enabled: boolean,
-  onVerb: (verbId: string) => void
-) {
+  onVerb: (verbId: string, rigKey: string) => void
+): { userId: string; peerIds: string[] } {
   const { activeNotes, noteVelocities } = useMIDI();
   const virtual = useVirtualNotes();
   const mergedActiveNotes = useMemo(
@@ -63,11 +72,13 @@ export function useStageNotes(
     () => ({ ...noteVelocities, ...virtual.noteVelocities }),
     [noteVelocities, virtual.noteVelocities]
   );
-  const { userId, remoteInteractions, sendInteraction, sendNote } =
+  const { userId, remoteInteractions, sendInteraction, sendNote, knownPeerIds } =
     useFluidMultiUser(roomId);
 
   const onVerbRef = useRef(onVerb);
   onVerbRef.current = onVerb;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
 
   // ---- Notes out (diff + flush, the piano's contract) -----------
   const prevNotesRef = useRef<Set<string>>(new Set());
@@ -128,7 +139,8 @@ export function useStageNotes(
       // own dancer stays out of it too (mirroring is one-way).
       if (!sessionRef.current.inputEnabled) return;
       sendInteractionRef.current(verbInteraction(verb));
-      onVerbRef.current(verb.id);
+      // Attributed: the LOCAL rig performs the local verb.
+      onVerbRef.current(verb.id, userIdRef.current);
     };
     window.addEventListener(FABRIC_VERB_EVENT, onVerbEvent as EventListener);
     return () => {
@@ -136,7 +148,7 @@ export function useStageNotes(
     };
   }, []);
 
-  // ---- Verbs in: remote verb interactions -> choreo -------------
+  // ---- Verbs in: remote verb interactions -> sender's choreo ---
   const seenRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!enabled) return;
@@ -146,7 +158,15 @@ export function useStageNotes(
       seenRef.current.add(key);
       if (seenRef.current.size > 4096) seenRef.current.clear();
       if (!i.verb || i.userId === userId) continue;
-      if (getVerbById(i.verb)) onVerbRef.current(i.verb);
+      // Attributed: the SENDER's rig performs their verb. A ghost's
+      // verb ("ghost:<ownerId>") belongs to its owner's rig.
+      if (getVerbById(i.verb)) {
+        onVerbRef.current(i.verb, ownerIdForSender(i.userId));
+      }
     }
   }, [remoteInteractions, enabled, userId]);
+
+  // The cast roster for this room, from this same transport
+  // instance: who I am + the human ids heard from here.
+  return { userId, peerIds: knownPeerIds };
 }

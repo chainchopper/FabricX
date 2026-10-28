@@ -34,6 +34,17 @@ export interface NoteEvent {
    * to the room (no echo, no amplification loop).
    */
   remote?: boolean;
+  /**
+   * Stage v2 attribution: for remote events, the participant who
+   * played the note (the transport envelope's sender id). The wire
+   * note messages have always carried it ({type:"note-on", from});
+   * the transport now hands it through instead of dropping it at
+   * this seam, so per-participant consumers (the Dancer Stage's
+   * cast of ghostie rigs) can route a note to its player's body.
+   * Absent on local events and on any remote event whose sender is
+   * unknown — consumers treat those as unattributed.
+   */
+  from?: string;
 }
 
 type NoteListener = (e: NoteEvent) => void;
@@ -60,13 +71,14 @@ class NoteBus {
     this.emit({ type: "off", note, velocity: 0, t: Date.now() });
   }
 
-  /** A note heard from a peer (Hotfix 1.7) — sounds locally only. */
-  emitRemoteNoteOn(note: string, velocity = 0.8) {
-    this.emit({ type: "on", note, velocity, t: Date.now(), remote: true });
+  /** A note heard from a peer (Hotfix 1.7) — sounds locally only.
+   * `from` (Stage v2) is the playing participant's id, when known. */
+  emitRemoteNoteOn(note: string, velocity = 0.8, from?: string) {
+    this.emit({ type: "on", note, velocity, t: Date.now(), remote: true, from });
   }
 
-  emitRemoteNoteOff(note: string) {
-    this.emit({ type: "off", note, velocity: 0, t: Date.now(), remote: true });
+  emitRemoteNoteOff(note: string, from?: string) {
+    this.emit({ type: "off", note, velocity: 0, t: Date.now(), remote: true, from });
   }
 }
 

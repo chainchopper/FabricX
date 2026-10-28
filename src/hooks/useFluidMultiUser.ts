@@ -680,7 +680,10 @@ export function useFluidMultiUser(roomId: string) {
             typeof msg.velocity === "number"
               ? Math.max(0.05, Math.min(1, msg.velocity))
               : 0.8;
-          noteBus.emitRemoteNoteOn(msg.note, v);
+          // Stage v2: the sender rides through to the bus, so
+          // per-participant consumers can attribute the note to
+          // its player's body (their ghostie's rig on the stage).
+          noteBus.emitRemoteNoteOn(msg.note, v, msg.from);
           // Slice 13 (lint): the room's objects hear notes too,
           // in the player's signature hue.
           lintObserveNote({
@@ -690,7 +693,7 @@ export function useFluidMultiUser(roomId: string) {
             hue: getPeerIdentity(msg.from)?.hue ?? null,
           });
         } else {
-          noteBus.emitRemoteNoteOff(msg.note);
+          noteBus.emitRemoteNoteOff(msg.note, msg.from);
           lintObserveNote({
             note: msg.note,
             velocity: 0,
