@@ -45,6 +45,7 @@ import {
 } from "./components/fabric/FabricChromeContext";
 import FabricAnchor from "./components/fabric/FabricAnchor";
 import FabricMenu from "./components/fabric/FabricMenu";
+import FabricSessionFollower from "./components/fabric/FabricSessionFollower";
 import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
 import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
@@ -112,6 +113,10 @@ function ChromeLayer() {
   return (
     <>
       <LayerSettingsMirror />
+      {/* Slice 19: the guest half of host-led fabrics — follows
+          the host's fabric changes and toasts them. Headless;
+          renders nothing and never touches the canvas. */}
+      <FabricSessionFollower />
       <ExperienceHUD />
       <ConnectionBadge />
       <FabricAnchor />

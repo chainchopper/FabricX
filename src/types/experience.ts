@@ -93,6 +93,12 @@ export interface ExperienceLayer {
   id: string;
   name: string;
   description: string;
+  /**
+   * Slice 19: the one-line card text for the Fabrics drawer —
+   * shorter and warmer than `description` (which stays the long
+   * form). Optional: the drawer falls back to `description`.
+   */
+  blurb?: string;
   type: ExperienceType;
   version: string;
   author: string;
