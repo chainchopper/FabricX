@@ -71,6 +71,7 @@ import {
   useLocalIdentity,
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
+import { requestFirstBreath } from "../../../src/onboarding/onboardingStore";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
 import {
@@ -1315,6 +1316,40 @@ export default function FabricMenu() {
         </View>
 
         <LifePacketCard />
+
+        {/* First Breath replay (Slice 10) — the palette step from
+            the first run, reopened on purpose: the packet deals
+            your cards again and a tap re-wears a signature hue
+            through the same identity setter. Palette only — no
+            name step, no flag changes; the full flow belongs to a
+            device's actual first breath and never repeats. */}
+        <Pressable
+          pointerEvents="auto"
+          onPress={() => {
+            noteActivity();
+            requestFirstBreath("palette");
+            setMenuOpen(false);
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => ({
+            borderWidth: 1,
+            borderColor: colors.accentLine,
+            borderRadius: radius.card,
+            padding: spacing.md,
+            marginBottom: spacing.sm,
+            gap: 4,
+            backgroundColor: pressed ? colors.accentDim : "transparent",
+          })}
+        >
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+            First Breath — revisit your colors ›
+          </Text>
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+            The palette step from your first run: three cards dealt
+            from your LifePacket seed, shuffle for three more. Your
+            ghost keeps you company while you choose.
+          </Text>
+        </Pressable>
 
         {/* Identity — the ghost keeps its OWN persistent, device-bound
             identity (name + signature hue + seed, fabric_ghost_v1).
