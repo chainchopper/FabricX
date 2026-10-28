@@ -26,12 +26,21 @@
  *   uses to reach the canvas.
  * - Publishes presence / temperament / room ghost count to the ghost
  *   store for the HUD indicator.
- * - Optional LLM link: while the ghost is active, at most once every
- *   45 s, if an LLM is configured AND enabled in `fabric_ai_config_v1`,
- *   ask it for a one-word behavior bias from the allowlist
- *   [heart, cheer, tickle, drift, mirror]. Parsed defensively; any
- *   failure, timeout, or off-list answer is ignored and the local rules
- *   carry on alone. No streaming, no chat UI.
+ * - Brain routing (Ghost Brain build): the peer's deliberation hook
+ *   fires with a scenario snapshot whenever context meaningfully
+ *   changed (10s floor); this hook routes it by the user's tier
+ *   preference (fabric_ghost_brain_v1). On-device (default): the
+ *   distilled decision table in GhostBrain.ts decides locally — no
+ *   network. Spark-cloud (opt-in): the scenario goes to the AI
+ *   Services configured model through the composer's own loader
+ *   (loadLLMConfig + LLMService); the reply is validated against the
+ *   dataset decision contract, and an invalid/failed/slow reply
+ *   changes nothing. Spark picked with NO key saved: the table
+ *   decides and the outcome is published as such — never a silent
+ *   fake. Every outcome is published to the ghost store's `brain`
+ *   field for the AI Services row and the diag panel. This replaces
+ *   the old 45s one-word mood-bias poll; setMoodBias survives as the
+ *   steering seam deliberation itself uses.
  *
  * The caller (LegacyFluid) supplies the sinks: `inject` renders the
  * ghost on this client through the multi-user hook's injection seam,
@@ -45,25 +54,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FluidInteraction } from "../types/fluid";
 import { getJSON, setJSON } from "../../app/utils/storage";
 import { getLLMService } from "../services/LLMService";
+import { loadLLMConfig } from "../ai/PatternComposer";
 import { ensureLocalIdentity } from "../identity/identityStore";
 import {
   GhostPeer,
   ghostPeerIdFor,
   isGhostPeerId,
-  GHOST_MOOD_BIASES,
   type GhostIdentity,
-  type GhostMoodBias,
 } from "./GhostPeer";
+import {
+  consultSparkBrain,
+  decideOnDevice,
+  type GhostDecision,
+  type GhostScenario,
+} from "./GhostBrain";
+import { getGhostBrainTier } from "./ghostBrainPref";
 import {
   FABRIC_GHOST_SESSION_EVENT,
   FABRIC_GHOST_TOGGLE_EVENT,
   setGhostPublicState,
+  type GhostBrainStatus,
 } from "./ghostStore";
 import type { GhostSfxKind } from "./useGhostSfx";
 
 export const GHOST_PREF_KEY = "fabric_ghost_v1";
-const AI_CONFIG_KEY = "fabric_ai_config_v1";
-const LLM_POLL_MS = 45_000;
 
 export interface GhostIdentityFull extends GhostIdentity {
   /** The ghost's persistent friendly name (generated once, then kept). */
@@ -187,16 +201,6 @@ async function generateBoundIdentity(): Promise<GhostIdentityFull> {
   return generateIdentity();
 }
 
-interface AIConfigShape {
-  llm?: {
-    provider: string;
-    apiKey: string;
-    endpoint: string;
-    model: string;
-    enabled: boolean;
-  };
-}
-
 export function useGhostPeer(options: UseGhostPeerOptions) {
   const [enabled, setEnabled] = useState(true);
   const [identity, setIdentity] = useState<GhostIdentityFull | null>(null);
@@ -226,6 +230,79 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     },
     []
   );
+
+  // ---------------------------------------------------------------
+  // Brain routing. The peer fires onDeliberate with a snapshot; the
+  // tier preference picks the brain; every outcome is published to
+  // the ghost store so AI Services + diag show what actually decided.
+  // ---------------------------------------------------------------
+  const describeDecision = (d: GhostDecision): string =>
+    `decided: ${d.intent}${d.pattern_id ? ` · ${d.pattern_id}` : ""} · linger ${d.linger_s}s`;
+
+  const publishBrain = (status: GhostBrainStatus): void => {
+    setGhostPublicState({ brain: status });
+  };
+
+  const routeDeliberation = useCallback(
+    async (scenario: GhostScenario): Promise<void> => {
+      const peer = peerRef.current;
+      if (!peer || !enabledRef.current) return;
+      try {
+        const tier = await getGhostBrainTier();
+        if (tier === "spark-cloud") {
+          const config = await loadLLMConfig();
+          if (!config) {
+            // Spark picked but no key saved in AI Services: the
+            // on-device table decides, and the row says so.
+            const { decision } = decideOnDevice(scenario);
+            peerRef.current?.applyBrainDecision(decision, "table");
+            publishBrain({
+              source: "table",
+              tierLabel: "On-device table · Spark picked, no key saved",
+              lastText: describeDecision(decision),
+              lastAt: Date.now(),
+            });
+            return;
+          }
+          const service = getLLMService(config);
+          const decision = await consultSparkBrain(scenario, (messages, opts) =>
+            service.chat(messages, opts).then((r) => r.text)
+          );
+          if (decision) {
+            peerRef.current?.applyBrainDecision(decision, "spark");
+            publishBrain({
+              source: "spark",
+              tierLabel: "Spark",
+              lastText: describeDecision(decision),
+              lastAt: Date.now(),
+            });
+          } else {
+            // Failed / invalid / timed out: nothing was applied.
+            publishBrain({
+              source: "spark",
+              tierLabel: "Spark",
+              lastText: "no usable reply — reflexes only",
+              lastAt: Date.now(),
+            });
+          }
+          return;
+        }
+        const { decision } = decideOnDevice(scenario);
+        peerRef.current?.applyBrainDecision(decision, "table");
+        publishBrain({
+          source: "table",
+          tierLabel: "On-device table",
+          lastText: describeDecision(decision),
+          lastAt: Date.now(),
+        });
+      } catch {
+        // Routing must never break the ghost; reflexes carry on.
+      }
+    },
+    []
+  );
+  const routeRef = useRef(routeDeliberation);
+  routeRef.current = routeDeliberation;
 
   // Load (or create) the persistent preference + identity, then build
   // the brain exactly once.
@@ -272,6 +349,10 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
           setGhostPublicState({ otherGhostCount });
         },
         onSfx: (kind) => onSfxRef.current?.(kind),
+        ghostName: id.name,
+        onDeliberate: (scenario) => {
+          void routeRef.current(scenario);
+        },
       });
       peer.setEnabled(en && layerEnabledRef.current);
       setGhostPublicState({ layerEnabled: layerEnabledRef.current });
@@ -333,59 +414,6 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
       window.removeEventListener(FABRIC_GHOST_SESSION_EVENT, onSession as EventListener);
     };
   }, [persist]);
-
-  // Optional LLM mood-bias poll — graceful in every failure mode.
-  useEffect(() => {
-    const id = setInterval(() => {
-      void (async () => {
-        const peer = peerRef.current;
-        if (!peer || !enabledRef.current) return;
-        const presence = peer.getPresence();
-        if (presence !== "present" && presence !== "summoned") return;
-        let config: AIConfigShape | null = null;
-        try {
-          config = await getJSON<AIConfigShape | null>(AI_CONFIG_KEY, null);
-        } catch {
-          return;
-        }
-        const llm = config?.llm;
-        if (!llm || !llm.enabled || llm.provider === "none" || !llm.apiKey) {
-          return; // unconfigured/disabled: local rules only
-        }
-        try {
-          const service = getLLMService({
-            provider: llm.provider as "openai" | "anthropic" | "custom" | "none",
-            apiKey: llm.apiKey,
-            endpoint: llm.endpoint,
-            model: llm.model,
-          });
-          const res = await service.chat(
-            [
-              {
-                role: "system",
-                content:
-                  "You steer a friendly canvas ghost. Reply with exactly ONE word from this list: heart, cheer, tickle, drift, mirror. No punctuation, no other text.",
-              },
-              {
-                role: "user",
-                content: `The ghost currently feels ${peer.getTemperament()}. Pick its next behavior bias.`,
-              },
-            ],
-            { maxTokens: 4, temperature: 0.9 }
-          );
-          const word = (res.text || "")
-            .toLowerCase()
-            .replace(/[^a-z]/g, "") as GhostMoodBias;
-          if ((GHOST_MOOD_BIASES as readonly string[]).includes(word)) {
-            peer.setMoodBias(word);
-          }
-        } catch {
-          // LLM unreachable/misconfigured: local behavior is unaffected.
-        }
-      })();
-    }, LLM_POLL_MS);
-    return () => clearInterval(id);
-  }, []);
 
   const noteLocalInteraction = useCallback((i: FluidInteraction) => {
     peerRef.current?.noteInteraction(i, "local");

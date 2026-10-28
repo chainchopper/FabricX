@@ -60,6 +60,27 @@ export interface GhostPublicState {
    * visiting their session without running a brain for it.
    */
   sessionGhostLastSeenAt: number;
+  /**
+   * Ghost Brain honesty surface: the last deliberation outcome. Set by
+   * useGhostPeer's router on EVERY deliberation (table, Spark, Spark
+   * picked-but-keyless, Spark failed) so AI Services and the diag
+   * panel can show which brain actually decided — never a silent fake.
+   */
+  brain: GhostBrainStatus | null;
+}
+
+export interface GhostBrainStatus {
+  /** The brain that actually produced this outcome. */
+  source: "spark" | "table";
+  /**
+   * Live tier label, e.g. "Spark", "On-device table", or
+   * "On-device table · Spark picked, no key saved".
+   */
+  tierLabel: string;
+  /** Outcome line, e.g. "decided: mirror · linger 6.5s". */
+  lastText: string;
+  /** Epoch ms of this outcome. */
+  lastAt: number;
 }
 
 /** Window event HUD -> canvas: detail is the desired `enabled` boolean. */
@@ -77,6 +98,7 @@ const state: GhostPublicState = {
   temperament: null,
   otherGhostCount: 0,
   sessionGhostLastSeenAt: 0,
+  brain: null,
 };
 const listeners = new Set<(s: GhostPublicState) => void>();
 
