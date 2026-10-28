@@ -3,10 +3,69 @@
 The Frequency Dancer is a **fabric of its own** — not an overlay on
 the fluid. The `dancer-stage` experience owns a full
 react-three-fiber 3D stage: its own camera, real-time lights, a GPU
-shader floor, and a rigged figure that dances to every note in the
-room. The fluid canvas is **not** mounted beneath it; fluid-derived
-work appears inside the stage only as *effects* (hue ripples on the
-shader floor, note-tinted motes).
+shader floor, and a cast of rigged figures. The fluid canvas is
+**not** mounted beneath it; fluid-derived work appears inside the
+stage only as *effects* (hue ripples on the shader floor,
+note-tinted motes).
+
+## Stage v2 — the cast of ghosties
+
+*"Each participant gets one. (Their ghostie.)"* — Terrell, Oct 28.
+
+The stage's figure is not a neutral mannequin. **Every participant
+in the room gets ONE dancer, and that dancer IS their ghostie
+embodied** — their identity, dancing their music:
+
+- **The cast**: one rig per participant, capped at **6 rigs** (a
+  perf guard — each rig is a skinned mesh plus its own spring
+  driver). Participants past the cap wait **in the wings**: present
+  in the room, heard, rippling the floor — bodiless until a slot
+  frees. The local rig stands **center-front**; remotes fan on an
+  arc behind it, and the camera pulls back as the cast grows so
+  the ensemble stays in frame.
+- **Identity on the body**: each mannequin is **tinted by its
+  owner's signature hue** and wears a **floating name tag**. The
+  local rig wears the local **ghost's own name and hue** — from
+  its persisted identity record (`fabric_ghost_v1`), or the
+  Slice 9 LifePacket derivation before the ghost has ever run; it
+  is the ghostie, not the human's avatar. Remote rigs wear the
+  name + hue from their owners' **peer-announce** cards (Slice 6)
+  — the only identity presence carries. A participant whose card
+  hasn't landed yet gets their short id as a label and a stable
+  placeholder tint, replaced the moment the card arrives.
+- **Attribution — their own music moves them**: wire notes have
+  always carried their sender (`from` on the note envelope); the
+  transport now hands it through the note bus, and a rig's driver
+  is fed **only its owner's notes**. Verbs are attributed the same
+  way: a HEART from Maya choreographs **Maya's** ghostie. A ghost's
+  own sends (`ghost:<ownerId>`) belong to its owner's rig.
+  **Unattributed** bus notes — a host track, an ambient generator,
+  any anonymous local source — move the **local rig only**: your
+  ghostie answers the room's ambient music, and nobody else's body
+  is puppeteered by an anonymous source. The floor ripples, accent
+  lights, and motes stay **room-wide**: they answer every note.
+- **Temperament in the body**: the local ghostie's style scales
+  with its **live temperament and presence** from the ghost store
+  (sleepy = smaller, softer sway; playful = bigger bounce; sassy,
+  curious, affectionate each lean their own way) — applied in the
+  rig's pose layer, the driver's springs untouched. A **remote**
+  ghost's temperament is **not on the wire** (announce carries
+  name + hue only), so remote rigs dance with a neutral style:
+  their hue and their music are real, their inner weather is
+  theirs. On a session where the local ghost's brain hasn't run
+  yet, the local rig is neutral too, under its true name and hue.
+- **The character slot is YOUR ghostie's body**: a loaded glTF
+  binds to the **local rig only**. Models never travel over the
+  wire (recipes-not-payloads) — on everyone else's screen your
+  ghostie wears its hue mannequin, and on yours, theirs do.
+- **Figure toggle**: `stageDancerEnabled` now governs the **whole
+  cast** — off, every ghostie stands at rest while the floor and
+  lights keep answering the music.
+
+The cast rules live in pure, headlessly-checked functions
+(`src/dancer/stageRoster.ts`, `scripts/stage-cast-check.mjs`):
+cast building + cap, stage blocking, sender normalization,
+temperament styles.
 
 ## Canvas-kind registration
 
@@ -47,9 +106,11 @@ the fluid. Every pre-existing layer is unchanged.
 **UE5 Mannequin skeleton**: a `THREE.Skeleton` of named bones
 skinned to capsule segments in a single `SkinnedMesh`, one material
 per driver band so a firing band **glows emissive in its note's
-hue**. `DancerDriver` (unchanged from the spike — `scripts/
-dancer-check.mjs` still passes) produces per-band offsets with
-spring return-to-rest; the rig composes joint rotations over each
+hue**. In v2 there is one rig per participant, each with its **own
+`DancerDriver`** fed only its owner's notes (the driver class is
+unchanged from the spike — `scripts/dancer-check.mjs` still
+passes); the driver produces per-band offsets with spring
+return-to-rest, and the rig composes joint rotations over each
 figure's captured rest pose.
 
 ### Band → bones
@@ -74,19 +135,23 @@ Verbs ride the same band channels as additive gesture envelopes:
 | TICKLE | Fast hips/torso wiggle, decaying (~1.3 s).                     |
 
 Local verbs fire from the shared VerbBar; remote verbs arrive as
-room interactions and fire on every dancer in the room. Session
+room interactions. Either way a verb choreographs **its sender's
+rig only** (v2 attribution — see above). Session
 modes (Slice 5) gate all sends inside the transport funnel, exactly
 as on the piano layer: view-only and mirror guests transmit
 nothing. Notes out use the piano's diff contract (held-set diff →
 `sendNote`, flushed off on unmount) minus the fluid nozzle streams.
-The driver stays **subscribe-only** on the note bus.
+Drivers stay **subscribe-only** on the note bus; the bus events now
+carry the sender (`from`) for remote notes.
 
 ## The character slot (glTF contract)
 
 THIS LAYER → **Load character (glTF)** takes a `.glb` / `.gltf`
 file, read locally via an object URL (nothing is uploaded or
 bundled). If the model exposes the bones below, it replaces the
-mannequin and the same driver animates it:
+mannequin **on the local rig** and the same driver animates it —
+the character is **your ghostie's body**; remote ghosties always
+wear their hue mannequins, on every screen including yours.
 
 - Binding is **by bone NAME** — any `Object3D`/bone in the scene
   whose name matches is adopted; rest pose is captured at load.
@@ -111,7 +176,7 @@ mannequin and the same driver animates it:
 
 | Key                  | Meaning                                             |
 | -------------------- | --------------------------------------------------- |
-| `stageDancerEnabled` | Figure dances vs stands at rest (default on).       |
+| `stageDancerEnabled` | The whole cast dances vs stands at rest (default on). |
 | `stageCameraDrift`   | Camera idle sway (default on).                      |
 | `stageTheme`         | `cyan` \| `violet` \| `magenta` \| `amber` rim/floor hue. |
 | `roomId`             | The stage's room (default `"stage"`).               |

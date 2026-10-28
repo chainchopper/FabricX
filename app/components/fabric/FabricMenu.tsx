@@ -441,12 +441,15 @@ export default function FabricMenu() {
   // so the old per-layer dancerEnabled toggle is gone and the
   // stage's own rules live here instead, stored per layer id like
   // every THIS LAYER setting (specific.stage*):
-  //   stageDancerEnabled — the figure dances vs stands at rest
+  //   stageDancerEnabled — the whole cast of ghostie dancers
+  //                        dances vs stands at rest (Stage v2)
   //   stageCameraDrift   — the camera's slow cinematic sway
   //   stageTheme         — cyan | violet | magenta | amber
   // The character slot itself is device-local state, not layer
   // config: the stageCharacter store holds the loaded glTF's object
-  // URL + load status, and the rig reports back through it.
+  // URL + load status, and the local rig reports back through it.
+  // The character is the user's OWN ghostie's body — it binds to
+  // the local rig only and never leaves this device.
   const isPianoLayer = active?.id === "ar-piano";
   const isStageLayer = active?.id === "dancer-stage";
   const stageDancer =
@@ -942,21 +945,21 @@ export default function FabricMenu() {
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
               The Frequency Dancer has its own fabric now — open the
               Dancer Stage layer: a full 3D stage with its own camera,
-              lights, and character slot. Its figure, camera drift,
+              lights, and character slot. Its dancers, camera drift,
               and theme live in that layer's settings.
             </Text>
           </View>
         ) : null}
 
         {/* Dancer Stage — THIS LAYER settings (stage layer only):
-            figure on/off, camera drift on/off, hue theme, and the
+            cast on/off, camera drift on/off, hue theme, and the
             character slot. Stored per layer id (specific.stage*);
             the character file itself is device-local (see the
             stageCharacter store) and never leaves this device. */}
         {isStageLayer ? (
           <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
             <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-              Dancer figure
+              Dancers
             </Text>
             <View style={{ flexDirection: "row", gap: spacing.sm }}>
               {([true, false] as const).map((val) => {
@@ -968,7 +971,7 @@ export default function FabricMenu() {
                     onPress={() => setStageDancer(val)}
                     accessibilityRole="radio"
                     accessibilityState={{ selected }}
-                    accessibilityLabel={`Dancer figure ${val ? "on" : "off"}`}
+                    accessibilityLabel={`Dancers ${val ? "on" : "off"}`}
                     style={{
                       paddingVertical: 8,
                       paddingHorizontal: 14,
@@ -992,9 +995,11 @@ export default function FabricMenu() {
               })}
             </View>
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-              The figure dances to every note in the room — yours, the
-              key strip's, and peers'. Off: it stands at rest while
-              the floor and lights keep answering the music.
+              Every participant's ghostie is on stage, and each one
+              dances to its own player's notes and verbs — yours to
+              your playing, theirs to theirs. Off: the whole cast
+              stands at rest while the floor and lights keep
+              answering the music.
             </Text>
 
             <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.sm }}>
@@ -1085,12 +1090,12 @@ export default function FabricMenu() {
             </Text>
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
               {charUi.status === "ready"
-                ? `${charUi.name ?? "Character"} is on stage.`
+                ? `${charUi.name ?? "Character"} is your ghostie's body on stage.`
                 : charUi.status === "loading"
                   ? `Loading ${charUi.name ?? "character"}…`
                   : charUi.status === "failed"
                     ? `Couldn't load ${charUi.name ?? "that file"} — the mannequin kept the stage.`
-                    : "The procedural mannequin is on stage."}
+                    : "Your ghostie wears the procedural mannequin, tinted with its hue."}
             </Text>
             <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
               <Pressable
@@ -1144,7 +1149,10 @@ export default function FabricMenu() {
               stage and dances with the same driver — this is the
               door for Unreal exports. Missing bones are skipped; a
               file that fails to load leaves the mannequin standing.
-              The file is read locally and stays on this device.
+              The character is YOUR ghostie's body: it binds to your
+              dancer only. Other participants keep their own
+              ghosties, and models never travel over the wire — the
+              file is read locally and stays on this device.
             </Text>
           </View>
         ) : null}

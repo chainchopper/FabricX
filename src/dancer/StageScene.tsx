@@ -11,16 +11,21 @@
  *   own GPU voice — the fluid is welcome here only as an effect,
  *   and this shader + the motes are that nod), fog for depth, and
  *   drifting particle motes tinted by recent note hues.
- * - DancerRig: the body.
+ * - The cast (Stage v2): one DancerRig per participant — their
+ *   ghostie embodied — blocked across the floor by stageRoster's
+ *   layout; the camera pulls back as the cast grows so the whole
+ *   ensemble stays in frame.
  *
  * The fx object (stageFx) is drained once per frame here and in
- * the rig: notes become ripples + light flashes + mote tints.
+ * the rigs: notes become ripples + light flashes + mote tints
+ * (room-wide), gestures drain per rig (attributed).
  */
 import React, { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import DancerRig from "./DancerRig";
 import type { DancerDriver } from "./DancerDriver";
+import { NEUTRAL_STYLE, type RigStyle } from "./stageRoster";
 import { STAGE_BG, type StageFxState } from "./stageFx";
 
 const clamp = (v: number, lo: number, hi: number) =>
@@ -30,7 +35,13 @@ const clamp = (v: number, lo: number, hi: number) =>
 // Camera
 // ---------------------------------------------------------------------------
 
-function CameraRig({ drift }: { drift: boolean }) {
+function CameraRig({
+  drift,
+  castCount = 1,
+}: {
+  drift: boolean;
+  castCount?: number;
+}) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
   const target = useRef({ yaw: 0, pitch: 0.12 });
@@ -85,7 +96,10 @@ function CameraRig({ drift }: { drift: boolean }) {
     cur.current.pitch +=
       (target.current.pitch + swayPitch - cur.current.pitch) * 0.06;
     const { yaw, pitch } = cur.current;
-    const r = 4.5;
+    // Stage v2: the frame widens with the cast — a solo ghostie
+    // keeps the v1 close-up (r 4.5); each added dancer pulls the
+    // camera back half a meter so the ensemble stays in frame.
+    const r = 4.5 + Math.max(0, Math.min(5, castCount - 1)) * 0.5;
     const hr = r * Math.cos(pitch * 0.6);
     camera.position.set(
       Math.sin(yaw) * hr,
@@ -278,26 +292,55 @@ function StageEnvironment({
 
 // ---------------------------------------------------------------------------
 
+/** One cast member as the scene needs it (built by DancerStage). */
+export interface StageRigSpec {
+  /** Participant id — the rig key + gesture-queue key. */
+  key: string;
+  driver: DancerDriver;
+  position: [number, number, number];
+  rotationY: number;
+  tintHue: number;
+  label: string;
+  isLocal: boolean;
+  style: RigStyle;
+}
+
 export default function StageScene({
-  driver,
+  rigs,
   fx,
   figureEnabled,
   drift,
   themeHue,
 }: {
-  driver: DancerDriver;
+  rigs: StageRigSpec[];
   fx: StageFxState;
   figureEnabled: boolean;
   drift: boolean;
   themeHue: number;
 }) {
+  // Fog recedes with the camera so a full cast stays crisp.
+  const widen = Math.max(0, Math.min(5, rigs.length - 1)) * 0.5;
   return (
     <>
       <color attach="background" args={[STAGE_BG]} />
-      <fog attach="fog" args={[STAGE_BG, 7.5, 15]} />
-      <CameraRig drift={drift} />
+      <fog attach="fog" args={[STAGE_BG, 7.5 + widen, 15 + widen]} />
+      <CameraRig drift={drift} castCount={rigs.length} />
       <StageEnvironment fx={fx} themeHue={themeHue} />
-      <DancerRig driver={driver} fx={fx} figureEnabled={figureEnabled} />
+      {rigs.map((r) => (
+        <DancerRig
+          key={r.key}
+          rigKey={r.key}
+          driver={r.driver}
+          fx={fx}
+          figureEnabled={figureEnabled}
+          position={r.position}
+          rotationY={r.rotationY}
+          tintHue={r.tintHue}
+          label={r.label}
+          characterSlot={r.isLocal}
+          style={r.style ?? NEUTRAL_STYLE}
+        />
+      ))}
     </>
   );
 }
