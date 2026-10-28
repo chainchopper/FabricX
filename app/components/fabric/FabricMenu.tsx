@@ -72,6 +72,7 @@ import {
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
 import { useSoundfontPianoStatus } from "../../../src/audio/soundfontPiano";
+import LintSimulatorCard from "./LintSimulatorCard";
 import {
   getMotionPublicState,
   requestMotionPermission,
@@ -1366,6 +1367,13 @@ export default function FabricMenu() {
             {`+${compositions.items.length - 8} more saved in Studio`}
           </Text>
         ) : null}
+
+        {/* Lint (Slice 13): the room's objects. The simulator is a
+            real protocol client (its own socket, its own lint:
+            peer id) rendered as a menu card — hardware speaks the
+            same protocol; see docs/LINT.md. */}
+        <SectionHeader>LINT — OBJECTS</SectionHeader>
+        <LintSimulatorCard />
 
         {/* ---------------- UNIVERSAL ---------------- */}
         <SectionHeader>UNIVERSAL</SectionHeader>
