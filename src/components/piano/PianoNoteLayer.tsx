@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useMIDIFluid } from "../../hooks/useMIDIFluid";
 import ToneEngine from "../audio/ToneEngine";
+import { ensureSoundfontPiano } from "../../audio/soundfontPiano";
 
 /**
  * PianoNoteLayer — the AR Piano as a LAYER on the fluid canvas.
@@ -81,6 +82,25 @@ export default function PianoNoteLayer() {
     transpose: midiTranspose,
     hueMap: midiHueMap,
   });
+
+  // Slice 11: the sampled grand's packs load HERE — lazily, the
+  // first time this layer opens with the Soundfont voice selected,
+  // never at app start. While they load (or if they fail), the
+  // synth in useToneSynth is the voice; the menu's Piano voice row
+  // narrates the true state. Selecting Synth skips the download
+  // entirely; flipping back to Soundfont starts it then.
+  const pianoVoice = useMemo(() => {
+    const s = experienceConfig.specific as Record<string, unknown> | undefined;
+    return (s?.pianoVoice as string | undefined) === "synth"
+      ? "synth"
+      : "soundfont";
+  }, [experienceConfig]);
+
+  useEffect(() => {
+    if (isARPiano && pianoVoice === "soundfont") {
+      void ensureSoundfontPiano();
+    }
+  }, [isARPiano, pianoVoice]);
 
   return <ToneEngine />;
 }

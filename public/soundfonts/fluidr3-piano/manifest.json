@@ -1,0 +1,52 @@
+{
+  "instrument": "Acoustic Grand Piano",
+  "soundfont": "FluidR3_GM",
+  "format": "per-octave JSON packs; each note is a base64 MP3 data URI (soundfont-player distribution format)",
+  "range": {
+    "minMidi": 36,
+    "maxMidi": 84,
+    "minNote": "C2",
+    "maxNote": "C6"
+  },
+  "sampleRate": 44100,
+  "channels": 2,
+  "durationSeconds": 3.13,
+  "packs": [
+    {
+      "file": "pack-c2.json",
+      "minMidi": 36,
+      "maxMidi": 47,
+      "notes": 12,
+      "bytes": 409903,
+      "decodedSampleBytes": 307020
+    },
+    {
+      "file": "pack-c3.json",
+      "minMidi": 48,
+      "maxMidi": 59,
+      "notes": 12,
+      "bytes": 409903,
+      "decodedSampleBytes": 307020
+    },
+    {
+      "file": "pack-c4.json",
+      "minMidi": 60,
+      "maxMidi": 71,
+      "notes": 12,
+      "bytes": 409903,
+      "decodedSampleBytes": 307020
+    },
+    {
+      "file": "pack-c5.json",
+      "minMidi": 72,
+      "maxMidi": 84,
+      "notes": 13,
+      "bytes": 391762,
+      "decodedSampleBytes": 293397
+    }
+  ],
+  "totalPackBytes": 1621471,
+  "totalDecodedSampleBytes": 1214457,
+  "source": "Per-note MP3 renders of the FluidR3_GM acoustic grand piano, from gleitz/midi-js-soundfonts (FluidR3_GM/acoustic_grand_piano-mp3), vendored untranscoded.",
+  "license": "FluidR3_GM soundfont (Frank Wen) \u2014 MIT License. See NOTICE.md in this folder."
+}

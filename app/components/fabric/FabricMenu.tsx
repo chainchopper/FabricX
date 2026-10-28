@@ -71,6 +71,7 @@ import {
   useLocalIdentity,
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
+import { useSoundfontPianoStatus } from "../../../src/audio/soundfontPiano";
 import { requestFirstBreath } from "../../../src/onboarding/onboardingStore";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
@@ -228,6 +229,12 @@ export default function FabricMenu() {
   // STUDIO section below read the same list Studio shows.
   const compositions = useCompositions();
 
+  // ---- Piano voice (Slice 11) ------------------------------------
+  // Live load state of the sampled grand, for the THIS LAYER voice
+  // row's caption — the caption must say what's TRUE (loading /
+  // ready / fell back), never a hoped-for state.
+  const soundfontStatus = useSoundfontPianoStatus();
+
   const pickedModeRef = useRef(pickedMode);
   pickedModeRef.current = pickedMode;
 
@@ -378,6 +385,27 @@ export default function FabricMenu() {
       specific: {
         ...(state.experienceConfig.specific as any),
         ambientEnabled: next,
+      },
+    });
+  };
+
+  // "Piano voice" — Slice 11, shown only while the piano layer is
+  // the loaded one. Stored in the layer's own config
+  // (specific.pianoVoice) and persisted per layer id like the
+  // toggles above; useToneSynth reads the same field to route each
+  // attack. Absent means Soundfont (the sampled grand is the
+  // default voice; the synth is the fallback and the alternative).
+  const isPiano = active?.id === "ar-piano";
+  const pianoVoice: "soundfont" | "synth" =
+    (state.experienceConfig.specific as any)?.pianoVoice === "synth"
+      ? "synth"
+      : "soundfont";
+  const setPianoVoice = (next: "soundfont" | "synth") => {
+    noteActivity();
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        pianoVoice: next,
       },
     });
   };
@@ -621,6 +649,63 @@ export default function FabricMenu() {
           </View>
         ) : active ? (
           <LayerControls />
+        ) : null}
+
+        {/* Piano voice — Slice 11, piano layer only. Soundfont is
+            the sampled FluidR3 grand shipped with the app (loaded
+            lazily when the layer opens; the synth covers every note
+            until the packs are ready, and forever if they fail).
+            The caption reports the loader's real state. */}
+        {isPiano ? (
+          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              Piano voice
+            </Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm }}>
+              {(["soundfont", "synth"] as const).map((val) => {
+                const selected = pianoVoice === val;
+                return (
+                  <Pressable
+                    key={val}
+                    pointerEvents="auto"
+                    onPress={() => setPianoVoice(val)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Piano voice ${val === "soundfont" ? "Soundfont — sampled grand" : "Synth"}`}
+                    style={{
+                      paddingVertical: 8,
+                      paddingHorizontal: 14,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: selected ? colors.accent : colors.line,
+                      backgroundColor: selected ? colors.accentDim : "transparent",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? colors.accent : colors.text,
+                        fontSize: typeScale.body,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {val === "soundfont" ? "Soundfont" : "Synth"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {pianoVoice === "synth"
+                ? "The classic synth voice. The sampled grand stays unloaded."
+                : soundfontStatus === "ready"
+                  ? "Sampled grand is live — a real FluidR3 piano, shipped with the app and served from Fabric's own domain. Every device in the room hears this same voice."
+                  : soundfontStatus === "loading"
+                    ? "Loading the sampled grand… the synth plays until it's ready, then new notes switch over."
+                    : soundfontStatus === "failed"
+                      ? "The samples couldn't load on this device, so the synth is playing — that's the automatic fallback, and reopening the layer retries."
+                      : "The sampled grand loads the first time this layer opens; the synth plays until it's ready."}
+            </Text>
+          </View>
         ) : null}
 
         {/* Ghost in this layer — a per-layer feature toggle, shown for
