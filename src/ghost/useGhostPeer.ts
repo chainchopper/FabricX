@@ -350,6 +350,14 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         },
         onSfx: (kind) => onSfxRef.current?.(kind),
         ghostName: id.name,
+        onPerformance: (label) => {
+          publishBrain({
+            source: "table",
+            tierLabel: "On-device ghost",
+            lastText: label,
+            lastAt: Date.now(),
+          });
+        },
         onDeliberate: (scenario) => {
           void routeRef.current(scenario);
         },
@@ -431,11 +439,17 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteUserActivity();
   }, []);
 
+  /** Slice 17: ask this ghost to perform its heartbeat. */
+  const answerHeartbeat = useCallback((): number | null => {
+    return peerRef.current?.answerHeartbeat() ?? null;
+  }, []);
+
   return {
     enabled,
     identity,
     noteLocalInteraction,
     noteRemoteInteraction,
     noteUserActivity,
+    answerHeartbeat,
   };
 }
