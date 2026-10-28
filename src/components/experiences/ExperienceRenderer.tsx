@@ -9,7 +9,7 @@ import PianoNoteLayer from "../piano/PianoNoteLayer";
 import SamLayer from "../sam/SamLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
-const DancerStageLazy = lazy(() => import("../dancer/DancerStage"));
+const DancerStageLazy = lazy(() => import("../../dancer/DancerStage"));
 
 declare global {
   interface Window {
