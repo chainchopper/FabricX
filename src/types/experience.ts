@@ -4,6 +4,7 @@ export type ExperienceType =
   | "default-fluid"
   | "ar-piano"
   | "camera-effects"
+  | "sam-see"
   | "multi-sensory"
   | "gesture-control"
   | "custom";
