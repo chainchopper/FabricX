@@ -12,14 +12,17 @@
  * - "spark-cloud": the user opts into the Muse Spark cloud tier
  *   (Meta Model API) as the ghost's teacher brain.
  *
- * What this does NOT do today — stated plainly so nobody over-reads
- * the row in AI Services: flipping it does not swap any model. The
- * ghost's local rules always run on-device, the pattern composer
- * keeps using the AI Services configured-model path exactly as
- * before, and the ghost's optional LLM mood-bias poll is unchanged.
- * The preference is stored now so the tier routing lands on a value
- * the user already chose, in the open, instead of a default invented
- * later.
+ * What this does since the Ghost Brain build — stated plainly so
+ * nobody over-reads the row in AI Services: flipping it DOES route
+ * the ghost's deliberation layer (GhostBrain.ts). The ghost's
+ * reflexes always run on-device regardless; every ~10s of changed
+ * context the ghost deliberates, and the tier picks the brain:
+ * - "on-device": the distilled decision table decides locally. No
+ *   network, instant, offline.
+ * - "spark-cloud": the scenario is posted to the AI Services
+ *   configured model through the same loader the composer uses. If
+ *   no key is saved there, the on-device table decides instead and
+ *   the AI Services row says so — never a silent fake.
  *
  * Powered by Nirvana
  */

@@ -1,15 +1,17 @@
 /**
  * GhostBrainRow — the "Ghost brain" tier preference in AI Services
- * (Slice 9). Two choices, stored as fabric_ghost_brain_v1 via
- * src/ghost/ghostBrainPref: "On-device" (the default — Terrell's
- * tier rule) and "Muse Spark cloud" (an explicit opt-in).
+ * (Slice 9 preference; Ghost Brain build routing). Two choices,
+ * stored as fabric_ghost_brain_v1 via src/ghost/ghostBrainPref:
+ * "On-device" (the default — Terrell's tier rule) and "Muse Spark
+ * cloud" (an explicit opt-in).
  *
- * Honest scope, on purpose: this records the preference where the
- * future model tiers will read it. It does not swap any model
- * today — the ghost's rules keep running on-device, and the
- * composer's configured-model path is untouched. The copy in the
- * row says exactly that, so the setting never promises a brain it
- * hasn't got.
+ * The routing is LIVE now: the ghost deliberates every ~10s of
+ * changed context, and this preference picks its brain — the
+ * on-device distilled table, or the configured cloud model. The row
+ * also shows the LIVE outcome from the ghost store (which brain
+ * actually decided last, and what it decided), including the honest
+ * fallback: Spark picked with no key saved means the table decided,
+ * and the row says so.
  *
  * Powered by Nirvana
  */
@@ -21,6 +23,10 @@ import {
   setGhostBrainTier,
   type GhostBrainTier,
 } from "../../../src/ghost/ghostBrainPref";
+import {
+  subscribeGhostState,
+  type GhostBrainStatus,
+} from "../../../src/ghost/ghostStore";
 
 const OPTIONS: { tier: GhostBrainTier; label: string; blurb: string }[] = [
   {
@@ -37,6 +43,7 @@ const OPTIONS: { tier: GhostBrainTier; label: string; blurb: string }[] = [
 
 export default function GhostBrainRow() {
   const [tier, setTier] = useState<GhostBrainTier>("on-device");
+  const [brain, setBrain] = useState<GhostBrainStatus | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +54,13 @@ export default function GhostBrainRow() {
       cancelled = true;
     };
   }, []);
+
+  // Live deliberation outcome, published by the router on every
+  // deliberation (either tier, including the no-key fallback).
+  useEffect(
+    () => subscribeGhostState((s) => setBrain(s.brain)),
+    []
+  );
 
   const pick = (next: GhostBrainTier) => {
     setTier(next);
@@ -99,10 +113,19 @@ export default function GhostBrainRow() {
           );
         })}
       </View>
+      {brain ? (
+        <Text style={{ color: "#e5e7eb", fontSize: 12 }}>
+          Live: {brain.tierLabel} · {brain.lastText}
+        </Text>
+      ) : null}
       <Text style={{ color: "#9ca3af", fontSize: 12 }}>
-        Default is on-device. This records your preference for where
-        your ghost's brain runs — the tier routing reads it as the
-        on-device and Spark builds land; nothing switches silently.
+        Routing is live. Every ~10s of new context (pets, verbs, other
+        ghosts, a long quiet) your ghost deliberates: on-device uses a
+        decision table distilled from the ghost-factory dataset — no
+        network. Spark (opt-in) asks your configured model above with
+        the same scenario; with no key saved it falls back to the
+        table and the Live line says so. Reflexes never wait on either
+        brain.
       </Text>
     </View>
   );

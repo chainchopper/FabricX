@@ -60,10 +60,16 @@
  * ghosts per room; a hard per-ghost emit budget keeps ghost society
  * from ever flooding human interaction.
  *
- * All behavior is local, deterministic (PRNG seeded by the persisted
- * identity seed), and LLM-free. An optional LLM bias (setMoodBias,
- * driven by useGhostPeer's poll) only nudges choices among allowlisted
- * behaviors.
+ * Reflexes are local and deterministic (PRNG seeded by the persisted
+ * identity seed). On top of them sits the deliberation layer
+ * (GhostBrain.ts): every ~10s of MEANINGFULLY CHANGED context the
+ * peer hands the host a scenario snapshot in the ghost-factory
+ * dataset schema, and the host answers with applyBrainDecision —
+ * routed by the user's brain tier (on-device distilled table by
+ * default; the configured cloud model when they opt in). Reflexes
+ * never wait on it: a failed, invalid, or late deliberation changes
+ * nothing, and no decision can override the invariants in this file.
+ * setMoodBias remains as the soft steering seam deliberation uses.
  *
  * Powered by Nirvana
  */
@@ -79,6 +85,12 @@ import {
 } from "../sensory/verbs";
 import type { GhostPresence } from "./ghostStore";
 import type { GhostSfxKind } from "./useGhostSfx";
+import type {
+  GhostDecision,
+  GhostScenario,
+  GhostScenarioOther,
+} from "./GhostBrain";
+import { seedTraitsForTemperament } from "./GhostBrain";
 
 /** Peer-id convention: every ghost broadcasts as "ghost:<ownerUserId>". */
 export const GHOST_PEER_PREFIX = "ghost:";
@@ -140,6 +152,16 @@ export interface GhostPeerOptions {
    * pitched from the ghost's signature hue — ghosts never speak.
    */
   onSfx?: (kind: GhostSfxKind) => void;
+  /** Display name for the brain scenario snapshot (identity label). */
+  ghostName?: string;
+  /**
+   * Deliberation hook: fired at most once per DELIBERATION_MIN_MS and
+   * only when meaningful context changed, with a scenario snapshot in
+   * the ghost-factory dataset schema (GhostBrain.ts). The host routes
+   * it to the picked brain tier and answers with applyBrainDecision.
+   * Fire-and-forget — the reflex brain never waits on the answer.
+   */
+  onDeliberate?: (scenario: GhostScenario) => void;
 }
 
 export const MAX_GHOSTS_PER_ROOM = 4;
@@ -171,6 +193,14 @@ const GHOST_STALE_MS = 20_000;
 const ANTICS_MIN_GAP_MS = 18_000;
 const STARTLE_COOLDOWN_MS = 6_000;
 const STARTLE_RADIUS = 0.26;
+/**
+ * Deliberation floor: the brain is consulted at most once per 10s,
+ * and only when meaningful context changed since the last consult
+ * (pets, verbs, crowd changes, a loud splat, a mood shift, a long
+ * quiet arriving). Inside the ~8–15s window the design calls for;
+ * the dirty gate is what keeps an idle room from burning cloud calls.
+ */
+const DELIBERATION_MIN_MS = 10_000;
 
 /** Deterministic PRNG so ghost behavior is reproducible, never chaotic. */
 function mulberry32(seed: number): () => number {
@@ -312,6 +342,28 @@ export class GhostPeer {
   private bias: GhostMoodBias | null = null;
   private biasExpiresAt = 0;
 
+  // ---- Brain deliberation state (GhostBrain.ts) ----
+  private lastDeliberationAt = 0;
+  /** Starts true: the first window always deliberates once. */
+  private deliberationDirty = true;
+  private lastBrainDecision: {
+    decision: GhostDecision;
+    source: "spark" | "table";
+    at: number;
+  } | null = null;
+  /** nap/idle directives silence autonomous drift + antics until here. */
+  private brainQuietUntil = 0;
+  /** Scenario journal, in the dataset's event vocabulary. */
+  private eventJournal: { label: string; at: number }[] = [];
+  private verbsSeenLog: { id: string; at: number }[] = [];
+  /** Human interaction timestamps (energy trend), pruned at 90s. */
+  private humanEventTimes: number[] = [];
+  /** Strongest nearby splat + when (decays over ~20s in snapshots). */
+  private nearbySplat = { intensity: 0, at: 0 };
+  /** Last observed action per other ghost (verb id or "drift"). */
+  private ghostLastAction = new Map<string, string>();
+  private quietJournalMarkedAt = 0;
+
   private lastTs = 0;
   private timers = new Set<ReturnType<typeof setTimeout>>();
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -373,6 +425,8 @@ export class GhostPeer {
     if (this.humansPresent === present) return;
     const now = Date.now();
     this.humansPresent = present;
+    // A crowd change is meaningful context: the brain re-deliberates.
+    this.markDeliberationDirty();
     if (present && this.mode === "solo") {
       // Crowd role begins: the ghost stays (it used to fade and stay
       // away). Pull its next drift in close so the room sees it arrive
@@ -471,10 +525,15 @@ export class GhostPeer {
     this.publishPresence();
   }
 
-  /** Bias behavior with an LLM-chosen directive (allowlist enforced). */
-  setMoodBias(bias: GhostMoodBias): void {
+  /**
+   * Bias behavior with a brain-chosen directive (allowlist enforced).
+   * ttlMs defaults to BIAS_TTL_MS (the old one-word poll's horizon);
+   * deliberation passes the decision's own linger so a steer lasts
+   * exactly as long as the brain asked.
+   */
+  setMoodBias(bias: GhostMoodBias, ttlMs: number = BIAS_TTL_MS): void {
     this.bias = bias;
-    this.biasExpiresAt = Date.now() + BIAS_TTL_MS;
+    this.biasExpiresAt = Date.now() + ttlMs;
   }
 
   /** Any user activity that is not a canvas stroke (e.g. sending a verb). */
@@ -505,8 +564,38 @@ export class GhostPeer {
     }
     if (this.temperament === "sleepy") this.setTemperament("curious");
     if (i.verb) {
+      // Verbs are scenario context for the brain (seen, not acted on).
+      this.verbsSeenLog.push({ id: i.verb, at: now });
+      this.journal(`${i.verb} received`, now);
+      this.markDeliberationDirty();
       this.publishPresence();
       return;
+    }
+
+    // Scenario tracking for the brain: energy + nearby splat strength.
+    this.humanEventTimes.push(now);
+    if (this.humanEventTimes.length > 400) {
+      this.humanEventTimes = this.humanEventTimes.filter(
+        (t) => now - t < 90_000
+      );
+    }
+    if (
+      dist2(i.position.x, i.position.y, this.position.x, this.position.y) <
+      0.42 * 0.42
+    ) {
+      const decayed =
+        this.nearbySplat.at === 0
+          ? 0
+          : this.nearbySplat.intensity *
+            Math.exp(-(now - this.nearbySplat.at) / 20_000);
+      this.nearbySplat = {
+        intensity: Math.max(decayed, i.pressure ?? 0.4),
+        at: now,
+      };
+      if ((i.pressure ?? 0) >= 0.9) {
+        this.journal("loud splat nearby", now);
+        this.markDeliberationDirty();
+      }
     }
 
     this.maybeStartle(i, now);
@@ -551,6 +640,13 @@ export class GhostPeer {
     });
     if (isNew) {
       this.options.onGhostsChange?.(this.otherGhosts.size);
+      this.journal("ghost entered", now);
+      this.markDeliberationDirty();
+    }
+    if (i.verb) {
+      this.ghostLastAction.set(i.userId, i.verb);
+    } else if (!this.ghostLastAction.has(i.userId)) {
+      this.ghostLastAction.set(i.userId, "drift");
     }
 
     // Greetings only happen while my own ghost is summoned & social.
@@ -616,6 +712,12 @@ export class GhostPeer {
 
     this.petTimes = this.petTimes.filter((t) => now - t < 9_000);
     this.petTimes.push(now);
+    // A landed pet is meaningful context for the brain.
+    this.journal(
+      `pet x${this.petTimes.filter((t) => now - t < 5_000).length}`,
+      now
+    );
+    this.markDeliberationDirty();
     if (this.rng() < 0.7) this.setTemperament("affectionate");
 
     // Happy burst — small, soft, rate-limited.
@@ -955,6 +1057,8 @@ export class GhostPeer {
   // ---------------------------------------------------------- antics
 
   private maybeAntic(now: number): void {
+    // A brain nap/idle directive silences antics until its linger ends.
+    if (now < this.brainQuietUntil) return;
     if (now - this.lastAnticAt < ANTICS_MIN_GAP_MS) return;
     const p =
       this.temperament === "playful"
@@ -1023,6 +1127,8 @@ export class GhostPeer {
     if (this.temperament === t) return;
     this.temperament = t;
     this.temperamentSince = Date.now();
+    // A mood shift is meaningful context: the brain re-deliberates.
+    this.markDeliberationDirty();
     this.options.onTemperamentChange?.(t);
   }
 
@@ -1084,6 +1190,36 @@ export class GhostPeer {
     this.tickTemperament(now);
     if (this.mode === "session") this.tickSocial(now);
 
+    // A long quiet arriving is itself deliberation context (once per
+    // idle episode, journaled in the dataset's vocabulary).
+    if (
+      now - this.lastActivityAt > SLEEP_AFTER_MS &&
+      now - this.quietJournalMarkedAt > SLEEP_AFTER_MS
+    ) {
+      this.quietJournalMarkedAt = now;
+      this.journal("long quiet", now);
+      this.markDeliberationDirty();
+    }
+
+    // Ghost Brain: the deliberation window. Reflexes never wait on
+    // this — when the window opens and context changed, the host gets
+    // a snapshot and answers asynchronously via applyBrainDecision.
+    if (
+      this.options.onDeliberate &&
+      this.enabled &&
+      !this.dismissing &&
+      now - this.lastDeliberationAt >= DELIBERATION_MIN_MS &&
+      this.deliberationDirty
+    ) {
+      this.lastDeliberationAt = now;
+      this.deliberationDirty = false;
+      try {
+        this.options.onDeliberate(this.buildScenario(now));
+      } catch {
+        // A host-side routing failure must never hurt the reflexes.
+      }
+    }
+
     // Slow wander (approach/chase/social phases override the target).
     if (
       this.social.phase === "none" &&
@@ -1118,7 +1254,7 @@ export class GhostPeer {
       session || crowd
         ? true
         : idleFor > DRIFT_MIN_IDLE_MS && idleFor < SLEEP_AFTER_MS;
-    if (driftIdleOk && now >= this.nextDriftAt) {
+    if (driftIdleOk && now >= this.nextDriftAt && now >= this.brainQuietUntil) {
       const bias = this.currentBias();
       const base = crowd ? CROWD_DRIFT_BASE_MS : session ? 6_000 : 3_800;
       const span = crowd ? CROWD_DRIFT_SPAN_MS : session ? 4_000 : 3_200;
@@ -1167,6 +1303,306 @@ export class GhostPeer {
         });
       });
     }
+  }
+
+  // ---------------------------------------------------------- brain
+
+  /** Append to the scenario journal (dedupes rapid repeats). */
+  private journal(label: string, now: number): void {
+    const last = this.eventJournal[this.eventJournal.length - 1];
+    if (last && last.label === label && now - last.at < 4_000) {
+      last.at = now;
+      return;
+    }
+    this.eventJournal.push({ label, at: now });
+    if (this.eventJournal.length > 24) this.eventJournal.shift();
+  }
+
+  private markDeliberationDirty(): void {
+    this.deliberationDirty = true;
+  }
+
+  /**
+   * Build the scenario snapshot in the dataset's exact schema from
+   * live state. Honest limits: the wire protocol does not broadcast
+   * other ghosts' names or moods, so other_ghosts entries say
+   * "another ghost" / "unknown" rather than inventing them — only
+   * their count and last observed action are real.
+   */
+  buildScenario(now = Date.now()): GhostScenario {
+    const recentEvents = this.eventJournal
+      .filter((e) => now - e.at < 120_000)
+      .slice(-5)
+      .map((e) => e.label);
+    if (recentEvents.length === 0) {
+      recentEvents.push(
+        now - this.lastActivityAt > 60_000 ? "long quiet" : "quiet room"
+      );
+    }
+    const decay =
+      this.nearbySplat.at === 0
+        ? 0
+        : Math.exp(-(now - this.nearbySplat.at) / 20_000);
+    const others: GhostScenarioOther[] = [];
+    this.otherGhosts.forEach((g, id) => {
+      if (now - g.lastSeen < GHOST_STALE_MS) {
+        others.push({
+          name: "another ghost",
+          mood: "unknown",
+          last_action: this.ghostLastAction.get(id) ?? "drift",
+        });
+      }
+    });
+    return {
+      temperament: this.temperament,
+      seconds_since_human_touch: Math.round((now - this.lastActivityAt) / 100) / 10,
+      recent_events: recentEvents,
+      pets_in_last_5s: this.petTimes.filter((t) => now - t < 5_000).length,
+      nearby_splat_intensity:
+        this.nearbySplat.at === 0
+          ? 0.05
+          : Math.min(1, Math.max(0, Math.round(this.nearbySplat.intensity * decay * 100) / 100)),
+      verbs_seen: this.verbsSeenLog
+        .filter((v) => now - v.at < 45_000)
+        .slice(-5)
+        .map((v) => v.id),
+      other_ghosts: others,
+      room_energy_trend: this.roomEnergyTrend(now),
+      ghost_identity: {
+        name: this.options.ghostName ?? "Ghost",
+        hue: Math.round(this.options.identity.hue),
+        seed_traits: seedTraitsForTemperament(this.temperament),
+      },
+    };
+  }
+
+  private roomEnergyTrend(now: number): "rising" | "falling" | "steady" {
+    const recent = this.humanEventTimes.filter((t) => now - t < 15_000).length;
+    const prior = this.humanEventTimes.filter(
+      (t) => now - t >= 15_000 && now - t < 45_000
+    ).length;
+    if (recent === 0 && prior === 0) {
+      return now - this.lastActivityAt > 60_000 ? "falling" : "steady";
+    }
+    const priorRate = prior / 2; // prior window is 30s, recent is 15s
+    if (recent >= priorRate + 2) return "rising";
+    if (priorRate >= 2 && recent <= priorRate / 2) return "falling";
+    return "steady";
+  }
+
+  /** The last decision the brain handed down (either tier), if any. */
+  getLastBrainDecision(): {
+    decision: GhostDecision;
+    source: "spark" | "table";
+    at: number;
+  } | null {
+    return this.lastBrainDecision;
+  }
+
+  /**
+   * Apply one validated brain decision. Every intent acts through the
+   * EXISTING machinery — emit() budgets, the shared verb interval,
+   * the temperament machine, the social machine — so a decision can
+   * steer the ghost but never break an invariant: budgets still
+   * clamp in emit(), the petting PURR/HEART rules are untouched (a
+   * deliberated heart in session mode degrades to a soft burst —
+   * room-wide verbs stay petting-only there), and the ghost still
+   * never talks. Called by the host's router only; the reflex brain
+   * never blocks on it.
+   */
+  applyBrainDecision(decision: GhostDecision, source: "spark" | "table"): void {
+    if (this.destroyed || !this.enabled) return;
+    const now = Date.now();
+    this.lastBrainDecision = { decision, source, at: now };
+    if (decision.mood_shift && decision.mood_shift !== this.temperament) {
+      this.setTemperament(decision.mood_shift);
+    }
+    switch (decision.intent) {
+      case "heart":
+        this.brainHeart(decision.intensity);
+        break;
+      case "play":
+        this.performPlayPattern(decision.pattern_id, decision.intensity);
+        break;
+      case "mirror":
+        // Amplify the reflex mirror/response path for the linger.
+        this.setMoodBias("mirror", decision.linger_s * 1000);
+        break;
+      case "drift":
+        this.setMoodBias("drift", decision.linger_s * 1000);
+        this.schedule(200, () => {
+          if (this.canAct()) this.emitDrift();
+        });
+        break;
+      case "sniff":
+        this.performSniff();
+        break;
+      case "startle":
+        this.performStartleHop(decision.intensity);
+        break;
+      case "nap":
+        this.brainQuietUntil = Math.max(
+          this.brainQuietUntil,
+          now + decision.linger_s * 1000
+        );
+        if (decision.linger_s >= 10) this.setTemperament("sleepy");
+        break;
+      case "idle":
+        this.brainQuietUntil = Math.max(
+          this.brainQuietUntil,
+          now + decision.linger_s * 1000
+        );
+        break;
+    }
+  }
+
+  private brainHeart(intensity: number): void {
+    const now = Date.now();
+    if (
+      this.mode !== "session" &&
+      now - this.lastVerbAt > VERB_MIN_INTERVAL_MS
+    ) {
+      // Solo/crowd: the real verb path, under the shared verb clock.
+      this.lastVerbAt = now;
+      this.schedule(200, () => {
+        if (this.canAct()) this.emitVerb(HEART);
+      });
+      return;
+    }
+    // Session (or the verb clock is hot): a soft burst at the body.
+    this.schedule(200, () => {
+      if (!this.canAct()) return;
+      for (let k = 0; k < 3; k++) {
+        const angle = (k / 3) * Math.PI * 2 + this.rng() * 0.5;
+        this.emit({
+          position: { x: this.position.x, y: this.position.y },
+          force: {
+            x: Math.cos(angle) * 70 * (0.5 + intensity),
+            y: Math.sin(angle) * 70 * (0.5 + intensity),
+          },
+          pressure: 0.3 + 0.3 * intensity,
+          color: this.sigColor,
+        });
+      }
+    });
+  }
+
+  private performPlayPattern(
+    patternId: GhostDecision["pattern_id"],
+    intensity: number
+  ): void {
+    if (!this.canAct()) return;
+    this.lastAnticAt = Date.now();
+    const cx = this.position.x;
+    const cy = this.position.y;
+    const power = 0.5 + intensity;
+    if (patternId === "zoomie_loop" || patternId === "loop_chase") {
+      // Circle chase — the tail-chase geometry from maybeAntic.
+      for (let k = 0; k < 8; k++) {
+        const angle = (k / 8) * Math.PI * 2;
+        this.schedule(k * 80, () => {
+          if (!this.canAct()) return;
+          this.emit({
+            position: {
+              x: clamp01(cx + Math.cos(angle) * 0.05),
+              y: clamp01(cy + Math.sin(angle) * 0.05),
+            },
+            force: {
+              x: -Math.sin(angle) * 150 * power,
+              y: Math.cos(angle) * 150 * power,
+            },
+            pressure: 0.35 + 0.25 * intensity,
+            color: this.sigColor,
+          });
+        });
+      }
+      this.options.onSfx?.("play");
+      return;
+    }
+    // Zigzag family (zigzag_chase, solo_zigzag, chase_loop, null):
+    // a quick zigzag run trailing from the ghost's position.
+    const dir = this.rng() < 0.5 ? -1 : 1;
+    for (let k = 0; k < 8; k++) {
+      const fx = cx + dir * k * 0.028;
+      const fy = cy + (k % 2 === 0 ? -0.035 : 0.035);
+      const up = k % 2 === 0;
+      this.schedule(k * 65, () => {
+        if (!this.canAct()) return;
+        this.emit({
+          position: { x: clamp01(fx), y: clamp01(fy) },
+          force: { x: dir * 130 * power, y: (up ? -60 : 60) * power },
+          pressure: 0.3 + 0.25 * intensity,
+          color: this.sigColor,
+        });
+      });
+    }
+    this.options.onSfx?.("play");
+  }
+
+  private performSniff(): void {
+    if (this.mode === "session" && this.social.phase === "none") {
+      // Deliberate greeting: approach the nearest sensed ghost; the
+      // existing social machine runs the sniff/play from there.
+      const now = Date.now();
+      let bestId: string | null = null;
+      let bestD = Infinity;
+      this.otherGhosts.forEach((g, id) => {
+        if (now - g.lastSeen >= GHOST_STALE_MS) return;
+        const d = dist2(this.position.x, this.position.y, g.x, g.y);
+        if (d < bestD) {
+          bestD = d;
+          bestId = id;
+        }
+      });
+      if (bestId) {
+        this.social = {
+          phase: "approach",
+          targetId: bestId,
+          until: now + 5_000,
+          nextActionAt: 0,
+        };
+        return;
+      }
+    }
+    // No one to sniff: sniff the air — small probing splats.
+    this.options.onSfx?.("sniff");
+    for (let k = 0; k < 3; k++) {
+      this.schedule(k * 130, () => {
+        if (!this.canAct()) return;
+        this.emit({
+          position: {
+            x: clamp01(this.position.x + (this.rng() - 0.5) * 0.06),
+            y: clamp01(this.position.y + (this.rng() - 0.5) * 0.06),
+          },
+          force: { x: (this.rng() - 0.5) * 60, y: (this.rng() - 0.5) * 60 },
+          pressure: 0.3,
+          color: this.sigColor,
+        });
+      });
+    }
+  }
+
+  private performStartleHop(intensity: number): void {
+    // Same hop geometry as the reflex startle, brain-triggered.
+    const angle = this.rng() * Math.PI * 2;
+    const dx = Math.cos(angle) * 0.09;
+    const dy = Math.sin(angle) * 0.09;
+    const from = { ...this.position };
+    this.position.x = clamp01(this.position.x + dx);
+    this.position.y = clamp01(this.position.y + dy);
+    this.schedule(40, () => {
+      if (!this.canAct()) return;
+      this.options.onSfx?.("startle");
+      this.emit({
+        position: from,
+        force: {
+          x: dx * 900 * (0.5 + intensity),
+          y: dy * 900 * (0.5 + intensity),
+        },
+        pressure: 0.3 + 0.3 * intensity,
+        color: this.sigColor,
+      });
+    });
   }
 
   // ---------------------------------------------------------- helpers

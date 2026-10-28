@@ -45,7 +45,10 @@ import {
   isGhostPeerId,
 } from "../../ghost/GhostPeer";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
-import { setGhostPublicState } from "../../ghost/ghostStore";
+import {
+  setGhostPublicState,
+  getGhostPublicState,
+} from "../../ghost/ghostStore";
 import {
   getSignalingService,
   type SignalingConnectionState,
@@ -141,6 +144,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // settled from one screenshot (?diag=1) instead of a phone call:
   // "motion needs-permission" IS the diagnosis.
   const [diagMotion, setDiagMotion] = useState<MotionStats | null>(null);
+  // Ghost Brain: last deliberation outcome from the ghost store
+  // (tier · decision · age), polled with the rest of the panel.
+  const [diagBrain, setDiagBrain] = useState<string>("—");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -591,6 +597,13 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       setDiagPath(getActiveTransportPath());
       // Slice 12: sensor state, same screenshot (see above).
       setDiagMotion({ ...motionStatsRef.current });
+      // Ghost Brain: which brain decided last, what, and how long ago.
+      const brain = getGhostPublicState().brain;
+      setDiagBrain(
+        brain
+          ? `${brain.tierLabel} · ${brain.lastText} · ${Math.max(0, Math.round((Date.now() - brain.lastAt) / 1000))}s ago`
+          : "—"
+      );
     }, 500);
     return () => window.clearInterval(id);
   }, []);
@@ -914,7 +927,8 @@ who     ${(() => {
             return `you ${snap.self ? `${snap.self.name}·${snap.self.hue}°` : "…"}${named ? ` | peers ${named}` : ""}`;
           })()}
 ambient ${diagAmbient ? `${diagAmbient.state} · ${diagAmbient.breaths} breaths · ${diagAmbient.gestures} gestures` : "…"}
-motion  ${diagMotion ? `${diagMotion.state} · tilt ${diagMotion.tiltX.toFixed(2)},${diagMotion.tiltY.toFixed(2)} · ${diagMotion.shakes} shakes` : "…"}`}
+motion  ${diagMotion ? `${diagMotion.state} · tilt ${diagMotion.tiltX.toFixed(2)},${diagMotion.tiltY.toFixed(2)} · ${diagMotion.shakes} shakes` : "…"}
+brain   ${diagBrain}`}
         </div>
       ) : null}
       {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled
