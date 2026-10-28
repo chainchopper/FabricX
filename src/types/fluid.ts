@@ -30,6 +30,19 @@ export interface FluidInteraction {
    */
   verb?: string;
   /**
+   * Slice 12: a first-class EVENT kind for interactions that are
+   * not strokes and not verbs — currently only "shake" (see
+   * src/sensors/useDeviceMotion): one deliberate shake of the
+   * sender's phone, delivered as a single interaction whose
+   * position is the bloom center and whose force is zero (the
+   * receiver's burst geometry derives from the kind, not from a
+   * force vector). Only the EVENT crosses the wire — raw motion
+   * sensor data never leaves the sender's device. Optional and
+   * additive: older clients neither send nor require it and render
+   * a kind they don't know as a harmless zero-force splat.
+   */
+  kind?: "shake";
+  /**
    * Slice 6 ("Who's Who"): the sender's signature hue (degrees,
    * 0–359) from their persisted participant identity
    * (src/identity/identityStore). Stamped by sendInteraction on the
