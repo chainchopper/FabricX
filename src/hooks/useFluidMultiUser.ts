@@ -11,6 +11,17 @@ import {
   type SessionMode,
 } from "../session/sessionStore";
 import {
+  DEFAULT_FABRIC_RULES,
+  fabricGate,
+  fabricRulesKey,
+  setSessionFabricState,
+  subscribeHostFabric,
+  validateFabricChange,
+  type FabricRules,
+  type FabricSendKind,
+  type HostFabricState,
+} from "../session/fabricStore";
+import {
   ensureLocalIdentity,
   getPeerIdentity,
   notePeerHue,
@@ -90,7 +101,24 @@ type TransportMsg =
   // splat stream. Validated again on receipt (validateRecipe)
   // before it can reach the renderer. Additive: older clients
   // ignore the unknown type.
-  | { type: "fabric-recipe"; from: string; recipe: Recipe };
+  | { type: "fabric-recipe"; from: string; recipe: Recipe }
+  // Slice 19 ("The Fabrics Drawer"): the host's fabric authority.
+  // In a hosted session the fabric is HOST-LED: this message states
+  // the room's fabric and the guest rules in force for it. It rides
+  // the control lane from the host only — broadcast on change (with
+  // retries) and again on the session heartbeat, so a missed copy
+  // heals within seconds. Guests apply the rules in the send funnel
+  // (fabricGate, UNDER the Slice 5 modes) and follow the layer via
+  // the fabric store; the follower, not this hook, owns switching.
+  // Carries a layer id, a display name, and three booleans — never
+  // an identity seed. Additive: older clients ignore the type.
+  | {
+      type: "fabric-change";
+      from: string;
+      layerId: string;
+      byName: string;
+      rules: FabricRules;
+    };
 
 /** How long a BroadcastChannel peer counts as present after last contact. */
 const BC_PEER_TTL_MS = 6000;
@@ -203,6 +231,25 @@ export function useFluidMultiUser(roomId: string) {
   /** Last time the current remote host was heard from (liveness). */
   const remoteSeenRef = useRef(0);
 
+  // Slice 19 session fabric state. Two directions, one store
+  // (src/session/fabricStore), same split as the session itself:
+  // - hostFabric: the chrome's record of MY fabric + guest rules
+  //   when I host. Subscribed below; broadcast on change and on
+  //   the host heartbeat.
+  // - guestFabric: the session fabric my host last stated (their
+  //   fabric-change, validated). Read by the rule gate; published
+  //   to the store for the drawer and the follower.
+  const [hostFabric, setHostFabric] = useState<HostFabricState | null>(null);
+  const hostFabricRef = useRef<HostFabricState | null>(null);
+  hostFabricRef.current = hostFabric;
+  const [guestFabric, setGuestFabric] = useState<{
+    layerId: string;
+    rules: FabricRules;
+    byName: string;
+  } | null>(null);
+  const guestFabricRef = useRef(guestFabric);
+  guestFabricRef.current = guestFabric;
+
   const noteBcPeer = useCallback((id: unknown) => {
     if (typeof id !== "string" || !id || id === userId) return;
     if (isGhostId(id)) return;
@@ -285,6 +332,26 @@ export function useFluidMultiUser(roomId: string) {
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
+  // Slice 19: the per-kind send gate. The Slice 5 mode verdict
+  // (sessionRef.canSend) is computed first and the fabric rules
+  // layer UNDER it (fabricGate): a guest whose host turned off
+  // "notes" for this fabric never puts a note on the wire, while
+  // the host and open rooms are untouched by rules. Stable and
+  // ref-fed so the stroke batcher's flush-time re-check and every
+  // send callback read the current truth.
+  const canSendKind = useCallback(
+    (kind: FabricSendKind): boolean =>
+      fabricGate({
+        modeCanSend: sessionRef.current.canSend,
+        role: sessionRef.current.role,
+        rules: guestFabricRef.current?.rules ?? null,
+        kind,
+      }),
+    []
+  );
+  const canSendKindRef = useRef(canSendKind);
+  canSendKindRef.current = canSendKind;
+
   // Expire silent BroadcastChannel peers so presence stays honest, and
   // reflect the pruned set in the reactive peer list.
   useEffect(() => {
@@ -306,6 +373,8 @@ export function useFluidMultiUser(roomId: string) {
         Date.now() - remoteSeenRef.current > SESSION_HOST_TTL_MS
       ) {
         setRemoteSession(null);
+        // Slice 19: a dead host's fabric law dies with the session.
+        setGuestFabric(null);
       }
     }, 2000);
     return () => window.clearInterval(id);
@@ -437,6 +506,42 @@ export function useFluidMultiUser(roomId: string) {
   }, [userId]);
   const announceRef = useRef(announceClaim);
   announceRef.current = announceClaim;
+
+  // Slice 19: state this host's fabric to the room (no-op unless
+  // this client holds a claim here AND the chrome has recorded a
+  // fabric). Sent on change, with retries, and on the host
+  // heartbeat — guests who miss one copy converge on the next.
+  const broadcastFabric = useCallback(() => {
+    const hf = hostFabricRef.current;
+    if (!hf || !hostClaimRef.current) return;
+    postRef.current({
+      type: "fabric-change",
+      from: userId,
+      layerId: hf.layerId,
+      byName: identityRef.current?.name ?? "",
+      rules: hf.rules,
+    });
+  }, [userId]);
+  const broadcastFabricRef = useRef(broadcastFabric);
+  broadcastFabricRef.current = broadcastFabric;
+
+  // The chrome's host-fabric record (the drawer's picks and rule
+  // edits) flows in through the store; a fresh value while hosting
+  // is broadcast immediately, with two retries on a short fuse —
+  // the first send races the layer switch that prompted it, and
+  // the room rebind must never be the reason a guest misses the
+  // move. Steady state is the heartbeat's job (below).
+  useEffect(() => subscribeHostFabric(setHostFabric), []);
+  useEffect(() => {
+    if (!hostClaim || !hostFabric) return;
+    broadcastFabricRef.current();
+    const t1 = window.setTimeout(() => broadcastFabricRef.current(), 350);
+    const t2 = window.setTimeout(() => broadcastFabricRef.current(), 1100);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [hostClaim, hostFabric]);
 
   // Single entry point for accepting a remote interaction, used by every
   // transport AND by local injectors (see injectRemoteInteraction below),
@@ -675,13 +780,48 @@ export function useFluidMultiUser(roomId: string) {
       } else if (msg.type === "session-request") {
         // A peer (usually a fresh joiner) asks who runs the room.
         // Only a host answers; the answer is just an announce.
+        // Slice 19: the fabric rides along with the answer, so a
+        // joiner's follow + rules land in the same round trip.
         noteBcPeer(msg.from);
-        if (hostClaimRef.current) announceRef.current();
+        if (hostClaimRef.current) {
+          announceRef.current();
+          broadcastFabricRef.current();
+        }
       } else if (msg.type === "session-clear") {
         // The host resigned gracefully: degrade now instead of
         // waiting out the heartbeat TTL.
         if (remoteSessionRef.current?.hostId === msg.hostId) {
           setRemoteSession(null);
+          setGuestFabric(null);
+        }
+      } else if (msg.type === "fabric-change") {
+        // Slice 19: the host states the room's fabric + guest
+        // rules. Only MY host's word is law here — a fabric-change
+        // from anyone else (a guest, a stale host, a second tab of
+        // myself) is noted for presence and otherwise ignored, as
+        // is one arriving while I host this room myself. The
+        // payload is validated before it can touch the gate or
+        // the store; the chrome validates the layer id against
+        // the registry before following it anywhere.
+        noteBcPeer(msg.from);
+        if (msg.from === userId) return;
+        if (hostClaimRef.current) return;
+        const host = remoteSessionRef.current;
+        if (!host || host.hostId !== msg.from) return;
+        const valid = validateFabricChange(msg);
+        if (!valid) return;
+        const prev = guestFabricRef.current;
+        if (
+          !prev ||
+          prev.layerId !== valid.layerId ||
+          prev.byName !== valid.byName ||
+          fabricRulesKey(prev.rules) !== fabricRulesKey(valid.rules)
+        ) {
+          setGuestFabric({
+            layerId: valid.layerId,
+            rules: valid.rules,
+            byName: valid.byName,
+          });
         }
       }
     },
@@ -791,6 +931,7 @@ export function useFluidMultiUser(roomId: string) {
   useEffect(() => {
     // A new room is a new session: forget the old room's host.
     setRemoteSession(null);
+    setGuestFabric(null);
     remoteSeenRef.current = 0;
     const applyIntent = (intent: HostIntent | null) => {
       if (!intent) {
@@ -837,7 +978,14 @@ export function useFluidMultiUser(roomId: string) {
   useEffect(() => {
     if (!hostClaim) return;
     announceClaim();
-    const id = window.setInterval(announceClaim, SESSION_ANNOUNCE_MS);
+    broadcastFabricRef.current();
+    const id = window.setInterval(() => {
+      announceClaim();
+      // Slice 19: the fabric statement rides the same heartbeat —
+      // late joiners and guests who missed the change broadcasts
+      // converge within one beat, exactly like the mode does.
+      broadcastFabricRef.current();
+    }, SESSION_ANNOUNCE_MS);
     return () => window.clearInterval(id);
   }, [hostClaim, announceClaim]);
 
@@ -880,7 +1028,10 @@ export function useFluidMultiUser(roomId: string) {
     postRef.current({ type: "session-request", from: userId });
     postRef.current({ type: "peer-request", from: userId });
     announceIdentityRef.current();
-    if (hostClaimRef.current) announceRef.current();
+    if (hostClaimRef.current) {
+      announceRef.current();
+      broadcastFabricRef.current();
+    }
   }, [userId]);
   const askRoundRef = useRef(runAskRound);
   askRoundRef.current = runAskRound;
@@ -1013,18 +1164,60 @@ export function useFluidMultiUser(roomId: string) {
     });
   }, [roomId, userId, session, humanPeers, webrtc.connectionState, knownPeerIds]);
 
+  // Slice 19: publish the session fabric for the chrome (the
+  // Fabrics drawer + the guest follower) from the same chairs the
+  // session itself is read from — my own recorded fabric when I
+  // host, my host's stated fabric when I'm a guest, and "none"
+  // when the room is open or the host hasn't stated one yet.
+  useEffect(() => {
+    if (hostClaim) {
+      setSessionFabricState({
+        layerId: hostFabric?.layerId ?? null,
+        rules: hostFabric?.rules ?? DEFAULT_FABRIC_RULES,
+        hostId: userId,
+        byName: identityRef.current?.name ?? "",
+      });
+    } else if (remoteSession && guestFabric) {
+      setSessionFabricState({
+        layerId: guestFabric.layerId,
+        rules: guestFabric.rules,
+        hostId: remoteSession.hostId,
+        byName: guestFabric.byName,
+      });
+    } else if (remoteSession) {
+      setSessionFabricState({
+        layerId: null,
+        rules: DEFAULT_FABRIC_RULES,
+        hostId: remoteSession.hostId,
+        byName: "",
+      });
+    } else {
+      setSessionFabricState({
+        layerId: null,
+        rules: DEFAULT_FABRIC_RULES,
+        hostId: null,
+        byName: "",
+      });
+    }
+  }, [hostClaim, remoteSession, hostFabric, guestFabric, userId]);
+
   /**
    * Hotfix 1.7: send a discrete note on/off to the room (the send
    * half of the note pipeline — useMIDIFluid diffs its held-note set
    * and calls this on transitions). Gated by the SAME session rule
-   * as interactions (sessionRef.canSend, from computeCanSend): a
-   * mirror/view guest or a control-mode non-driver never puts notes
-   * on the wire, exactly like their splats. Receiving is ungated —
-   * see the note-on/note-off branch in handleTransportMsg.
+   * as interactions (computeCanSend via canSendKind), with Slice
+   * 19's notes rule layered under it: a mirror/view guest or a
+   * control-mode non-driver never puts notes on the wire, exactly
+   * like their splats, and neither does a guest in a notes-off
+   * fabric. Receiving is ungated — see the note-on/note-off branch
+   * in handleTransportMsg.
    */
   const sendNote = useCallback(
     (note: string, velocity: number, phase: "on" | "off") => {
-      if (!sessionRef.current.canSend) return;
+      // Slice 19: the notes rule layers under the mode gate — a
+      // guest in a notes-off fabric is silent on the wire, exactly
+      // as the mode gate already made mirror/view guests silent.
+      if (!canSendKindRef.current("notes")) return;
       // Slice 13 (lint): a note that passed the gate is a room
       // event — the bridge summarizes it for the room's objects.
       lintObserveNote({
@@ -1044,16 +1237,19 @@ export function useFluidMultiUser(roomId: string) {
 
   /**
    * Slice 15: send ONE recipe message to the room. Gated by the
-   * SAME session rule as interactions and notes
-   * (sessionRef.canSend, from computeCanSend): a mirror/view guest
-   * or a control-mode non-driver never puts a recipe on the wire —
-   * their replay renders locally only, exactly like their pattern
-   * steps do. The recipe is re-validated by every receiver, so
-   * this side sends exactly what the composer/store validated.
+   * SAME session rule as interactions and notes (computeCanSend
+   * via canSendKind), with Slice 19's draw rule layered under it:
+   * a mirror/view guest or a control-mode non-driver never puts a
+   * recipe on the wire — their replay renders locally only,
+   * exactly like their pattern steps do. The recipe is
+   * re-validated by every receiver, so this side sends exactly
+   * what the composer/store validated.
    */
   const sendRecipe = useCallback(
     (recipe: Recipe) => {
-      if (!sessionRef.current.canSend) return;
+      // Slice 19: a recipe is drawing — the draw rule gates it
+      // under the mode gate, like every other send.
+      if (!canSendKindRef.current("draw")) return;
       postRef.current({ type: "fabric-recipe", from: userId, recipe });
     },
     [userId]
@@ -1072,8 +1268,10 @@ export function useFluidMultiUser(roomId: string) {
     batcherRef.current = new StrokeBatcher((points) => {
       // Re-check the session gate at flush time, not just at queue
       // time: if the room's mode changed inside the window, the
-      // points must not leave — the gate is the contract.
-      if (!sessionRef.current.canSend) return;
+      // points must not leave — the gate is the contract. Slice 19:
+      // the re-check is the per-kind gate (draw), so a fabric rule
+      // that landed inside the window binds the batch too.
+      if (!canSendKindRef.current("draw")) return;
       // Attribution is read at emit: the hue cannot meaningfully
       // change inside a 30ms window, and an edit re-announces the
       // identity card anyway (Slice 6).
@@ -1182,10 +1380,15 @@ export function useFluidMultiUser(roomId: string) {
       // Slice 5 ENFORCEMENT POINT: session modes gate the transport
       // here — a mirror/view guest's client (or a control-mode
       // non-driver's) never puts interactions on the wire at all.
-      // The full interaction is still returned below, so local
-      // behavior (the engine renders its own input; the ghost brain
-      // hears its owner) is untouched: it simply never leaves.
-      if (sessionRef.current.canSend) {
+      // Slice 19: the fabric rules gate per KIND under the mode —
+      // verb-carrying interactions (and the shake event) answer to
+      // the verbs rule; everything else answers to draw. The full
+      // interaction is still returned below, so local behavior
+      // (the engine renders its own input; the ghost brain hears
+      // its owner) is untouched: it simply never leaves.
+      const sendKind: FabricSendKind =
+        full.verb || full.kind === "shake" ? "verbs" : "draw";
+      if (canSendKindRef.current(sendKind)) {
         if (opts?.batch && !fromUserId && !full.verb) {
           // Live stroke: coalesce (see batcher above). The point
           // leaves with its batch, ≤30ms later, on the live lane.

@@ -42,6 +42,7 @@ const builtin: ExperienceLayer[] = [
   {
     id: "default-fluid",
     name: "Fluid Fabric",
+    blurb: "The living liquid canvas — draw together, feel every touch.",
     description: "The default liquid fabric experience",
     type: "default-fluid" as ExperienceType,
     version: "1.0.0",
@@ -72,6 +73,7 @@ const builtin: ExperienceLayer[] = [
   {
     id: "ar-piano",
     name: "AR Piano",
+    blurb: "A piano layered on the fluid — notes the whole room hears and feels.",
     description: "Augmented reality piano with camera overlay and MIDI support",
     type: "ar-piano" as ExperienceType,
     version: "1.0.0",
@@ -100,6 +102,7 @@ const builtin: ExperienceLayer[] = [
   {
     id: "sam-see",
     name: "See",
+    blurb: "Point the camera and name a thing — SAM makes it touchable.",
     description:
       "SAM 3.1 camera layer — name what the camera sees, get touchable regions on the fabric",
     type: "sam-see" as ExperienceType,
@@ -138,6 +141,7 @@ const builtin: ExperienceLayer[] = [
     // motes float; the stage is alive when alone.
     id: "dancer-stage",
     name: "Dancer Stage",
+    blurb: "A lit 3D stage where a dancer moves to every note in the room.",
     description:
       "A lit 3D stage where a rigged dancer moves to every note in the room — play the key strip, send verbs, or load your own UE5 character.",
     type: "dancer-stage" as ExperienceType,
@@ -165,6 +169,7 @@ const builtin: ExperienceLayer[] = [
   {
     id: "camera-effects",
     name: "Camera Effects",
+    blurb: "Real-time camera filters, worn over the fabric.",
     description: "Real-time camera effects and filters",
     type: "camera-effects" as ExperienceType,
     version: "1.0.0",

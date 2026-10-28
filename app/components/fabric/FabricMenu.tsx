@@ -5,6 +5,12 @@
  * pulsing buttons and ~14 drawers now starts here, behind the single
  * "F" anchor:
  *
+ *   FABRICS — the drawer (Slice 19): every fabric as a card. In a
+ *   hosted session the fabric is host-led — the host picks and
+ *   edits (settings + guest rules) from the cards, guests follow
+ *   and are told, and a guest picking a different card is warned
+ *   they will leave the session.
+ *
  *   THIS LAYER — settings for the layer that is loaded, and only that
  *   layer. Stored per layer id (fabric_layer_settings_v1:<layerId>,
  *   see LayerSettingsMirror); no fixed registry of layers exists, so
@@ -39,7 +45,7 @@ import { useFabricChrome } from "./FabricChromeContext";
 import { useNewDrawers } from "../neo/NewDrawersContext";
 import { useExperience } from "../../context/ExperienceContext";
 import { usePreferences } from "../../context/PreferencesContext";
-import { getJSON } from "../../utils/storage";
+import { getJSON, setJSON } from "../../utils/storage";
 import { buildInviteUrl } from "../../utils/invite";
 import * as Clipboard from "expo-clipboard";
 import {
@@ -71,6 +77,27 @@ import {
   useLocalIdentity,
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
+import { layerSettingsKey } from "./LayerSettingsMirror";
+import { carrySessionRoom } from "./FabricSessionFollower";
+import {
+  DEFAULT_FABRIC_RULES,
+  FABRIC_HOST_RULES_KEY,
+  FABRIC_RULE_KEYS,
+  FABRIC_RULE_LABEL,
+  getSessionFabricState,
+  noteFabricDivergence,
+  sanitizeHostRulesMap,
+  setHostFabric,
+  subscribeSessionFabric,
+  type FabricRuleKey,
+  type FabricRules,
+  type HostRulesMap,
+  type SessionFabricState,
+} from "../../../src/session/fabricStore";
+import type {
+  ExperienceConfig,
+  ExperienceLayer,
+} from "../../../src/types/experience";
 import { useSoundfontPianoStatus } from "../../../src/audio/soundfontPiano";
 import LintSimulatorCard from "./LintSimulatorCard";
 import {
@@ -167,8 +194,7 @@ function ToggleRow({
   label: string;
   value: boolean;
   onPress: () => void;
-}) {
-  return (
+}) {  return (
     <Pressable
       onPress={onPress}
       accessibilityRole="switch"
@@ -202,6 +228,79 @@ function ToggleRow({
   );
 }
 
+// ---- Fabrics drawer (Slice 19) -----------------------------------
+// The drawer leads the menu: every registered fabric as a card
+// (name, one-line blurb, canvas badge, live state). Fabric choice
+// in a hosted session is HOST-LED — the host's pick is the room's
+// fabric and guests follow it; a guest who picks a different card
+// is warned they will leave the session. The host (or a solo user,
+// who is their own host) can EDIT a fabric from its card: the
+// session guest rules for it (draw / verbs / notes) plus a curated
+// set of its own per-layer settings — the very same specific.* keys
+// THIS LAYER's own toggles write, persisted through the same
+// per-layer store (fabric_layer_settings_v1:<layerId>), so the
+// editor and the layer never disagree. Curated, not generated: a
+// field appears here only if the layer really honors the key.
+
+type LayerEditField =
+  | { key: string; label: string; kind: "bool"; defaultValue: boolean }
+  | {
+      key: string;
+      label: string;
+      kind: "choice";
+      options: { value: string; label: string }[];
+      defaultValue: string;
+    };
+
+const LAYER_EDIT_FIELDS: Record<string, LayerEditField[]> = {
+  "default-fluid": [
+    { key: "ghostEnabled", label: "Ghost in this layer", kind: "bool", defaultValue: true },
+    { key: "ambientEnabled", label: "Ambient life", kind: "bool", defaultValue: true },
+    { key: "motionEnabled", label: "Motion — tilt & shake", kind: "bool", defaultValue: false },
+  ],
+  "ar-piano": [
+    {
+      key: "pianoVoice",
+      label: "Piano voice",
+      kind: "choice",
+      options: [
+        { value: "soundfont", label: "Soundfont" },
+        { value: "synth", label: "Synth" },
+      ],
+      defaultValue: "soundfont",
+    },
+    { key: "ghostEnabled", label: "Ghost in this layer", kind: "bool", defaultValue: true },
+    { key: "motionEnabled", label: "Motion — tilt & shake", kind: "bool", defaultValue: false },
+  ],
+  "dancer-stage": [
+    { key: "stageDancerEnabled", label: "Dancer figure dances", kind: "bool", defaultValue: true },
+    { key: "stageCameraDrift", label: "Camera drift", kind: "bool", defaultValue: true },
+    {
+      key: "stageTheme",
+      label: "Stage theme",
+      kind: "choice",
+      options: [
+        { value: "cyan", label: "Cyan" },
+        { value: "violet", label: "Violet" },
+        { value: "magenta", label: "Magenta" },
+        { value: "amber", label: "Amber" },
+      ],
+      defaultValue: "cyan",
+    },
+  ],
+  "sam-see": [
+    { key: "ghostEnabled", label: "Ghost in this layer", kind: "bool", defaultValue: true },
+  ],
+  "camera-effects": [],
+};
+
+/** The canvas a fabric stands on — the badge on its card. */
+function canvasBadge(exp: ExperienceLayer): string {
+  if (exp.canvas === "stage3d") return "3D STAGE";
+  if (exp.id === "camera-effects") return "CAMERA";
+  return "FLUID";
+}
+
 export default function FabricMenu() {
   const { menuOpen, setMenuOpen, setHoldVisible, voiceOpen, setVoiceOpen, noteActivity } =
     useFabricChrome();
@@ -229,6 +328,62 @@ export default function FabricMenu() {
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => subscribeSessionState(setSession), []);
+
+  // ---- Fabrics drawer (Slice 19) -----------------------------------
+  // The session fabric (published by the canvas hook into the
+  // fabric store): which fabric leads this room, whose it is, and
+  // the guest rules in force. The drawer renders card state from
+  // it; enforcement never lives here — it is in the send funnel.
+  const [fabric, setFabric] = useState<SessionFabricState>(() =>
+    getSessionFabricState()
+  );
+  useEffect(() => subscribeSessionFabric(setFabric), []);
+
+  // The host's per-fabric guest rules, persisted on this device
+  // (fabric_host_rules_v1). Loaded once; edits write through.
+  // Guests never read this map — their rules arrive by wire.
+  const [hostRules, setHostRules] = useState<HostRulesMap>({});
+  const hostRulesRef = useRef<HostRulesMap>({});
+  hostRulesRef.current = hostRules;
+  const [rulesLoaded, setRulesLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getJSON<unknown>(FABRIC_HOST_RULES_KEY, null)
+      .then((raw) => {
+        if (cancelled) return;
+        const map = sanitizeHostRulesMap(raw);
+        hostRulesRef.current = map;
+        setHostRules(map);
+        setRulesLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setRulesLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const rulesFor = (layerId: string): FabricRules =>
+    hostRulesRef.current[layerId] ?? DEFAULT_FABRIC_RULES;
+
+  // Drawer interaction state: which card's editor is open, the
+  // editor's working values for a non-active fabric (the active
+  // fabric's editor reads/writes the live config instead), and
+  // the guest leave-warning's target fabric.
+  const [editLayerId, setEditLayerId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, unknown>>({});
+  const [leaveWarn, setLeaveWarn] = useState<ExperienceLayer | null>(null);
+
+  // While I host, my recorded host fabric IS my current layer +
+  // its rules — keep the store (and therefore the room) in sync
+  // across layer changes and rule edits. setHostFabric dedupes,
+  // so this only broadcasts on a real change.
+  const activeLayerId = state.activeExperience?.id ?? null;
+  useEffect(() => {
+    if (session.role !== "host" || !activeLayerId || !rulesLoaded) return;
+    setHostFabric(activeLayerId, rulesFor(activeLayerId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.role, activeLayerId, rulesLoaded, hostRules]);
 
   // ---- Who's Who (Slice 6) ---------------------------------------
   // Participant identity: the snapshot carries my own face (once the
@@ -559,6 +714,130 @@ export default function FabricMenu() {
     moveRoom("main");
   };
 
+  // ---- Fabrics drawer handlers (Slice 19) --------------------------
+  // Card tap = "open this fabric", under the session's authority:
+  // - the fabric already loaded: nothing to do.
+  // - a guest tapping the SESSION fabric: following, never leaving.
+  // - a guest in a hosted session tapping any other fabric: the
+  //   leave warning — fabric choice is host-led per session.
+  // - the host: record the pick (the room follows by broadcast),
+  //   then switch. Solo: just switch — you are your own host.
+  const onFabricCard = (exp: ExperienceLayer) => {
+    noteActivity();
+    if (exp.id === active?.id) return;
+    if (session.role === "guest") {
+      if (fabric.layerId && exp.id === fabric.layerId) {
+        // Following, not leaving — and the session room carries,
+        // exactly as the automatic follow carries it.
+        void switchExperience(exp.id);
+        if (session.roomId) {
+          carrySessionRoom(updateConfig, session.roomId, exp.id);
+        }
+        return;
+      }
+      if (session.hostId) {
+        setLeaveWarn(exp);
+        return;
+      }
+    }
+    if (session.role === "host") {
+      // Record the pick first (the room follows by broadcast),
+      // then switch — carrying the session room so the claim,
+      // the mode, and the rules all survive the move.
+      setHostFabric(exp.id, rulesFor(exp.id));
+      const room = session.roomId;
+      void switchExperience(exp.id);
+      if (room) carrySessionRoom(updateConfig, room, exp.id);
+      return;
+    }
+    void switchExperience(exp.id);
+  };
+
+  // The leave warning, confirmed: note the divergence so the
+  // follower never yanks the guest back onto the fabric they
+  // chose to leave, then open the picked fabric solo.
+  const confirmLeaveTo = (exp: ExperienceLayer) => {
+    noteActivity();
+    if (fabric.layerId) noteFabricDivergence(fabric.layerId);
+    setLeaveWarn(null);
+    setMenuOpen(false);
+    void switchExperience(exp.id);
+  };
+
+  // Open a card's editor (host / solo only — the render gates it).
+  // The active fabric's editor works on the live config; any other
+  // fabric's editor works on its stored per-layer settings, seeded
+  // over its defaults, and writes the same mirror key the layer
+  // itself will read on activation.
+  const openEditor = (exp: ExperienceLayer) => {
+    noteActivity();
+    if (editLayerId === exp.id) {
+      setEditLayerId(null);
+      return;
+    }
+    setEditLayerId(exp.id);
+    if (exp.id === active?.id) {
+      setEditValues({ ...(state.experienceConfig.specific as any) });
+      return;
+    }
+    setEditValues({ ...(exp.configDefaults.specific as any) });
+    void getJSON<ExperienceConfig | null>(layerSettingsKey(exp.id), null)
+      .then((stored) => {
+        if (!stored) return;
+        setEditValues({
+          ...(exp.configDefaults.specific as any),
+          ...((stored.specific as any) ?? {}),
+        });
+      })
+      .catch(() => {});
+  };
+
+  const applyEditField = (exp: ExperienceLayer, field: LayerEditField, value: unknown) => {
+    noteActivity();
+    setEditValues((prev) => ({ ...prev, [field.key]: value }));
+    if (exp.id === active?.id) {
+      // Live: updateConfig applies it now, and LayerSettingsMirror
+      // persists it under this layer's key, as with any THIS LAYER
+      // toggle.
+      updateConfig({
+        specific: {
+          ...(state.experienceConfig.specific as any),
+          [field.key]: value,
+        },
+      });
+      return;
+    }
+    void (async () => {
+      const stored = await getJSON<ExperienceConfig | null>(
+        layerSettingsKey(exp.id),
+        null
+      ).catch(() => null);
+      const base: ExperienceConfig = stored ?? exp.configDefaults;
+      await setJSON(layerSettingsKey(exp.id), {
+        common: base.common,
+        specific: { ...((base.specific as any) ?? {}), [field.key]: value },
+      }).catch(() => {});
+    })();
+  };
+
+  // A guest-rule edit on a card: persist the map, and if this
+  // fabric is the one I am currently hosting, the new rules go
+  // out with the next fabric broadcast (setHostFabric + the
+  // sync effect above both fire; the store dedupes).
+  const setRule = (layerId: string, key: FabricRuleKey, value: boolean) => {
+    noteActivity();
+    const next: HostRulesMap = {
+      ...hostRulesRef.current,
+      [layerId]: { ...rulesFor(layerId), [key]: value },
+    };
+    hostRulesRef.current = next;
+    setHostRules(next);
+    void setJSON(FABRIC_HOST_RULES_KEY, next).catch(() => {});
+    if (session.role === "host" && layerId === active?.id) {
+      setHostFabric(layerId, next[layerId]);
+    }
+  };
+
   // Replay a pattern into the room so guests feel it — hosting first
   // if needed. Playback rides FABRIC_PLAY_PATTERN_EVENT into
   // LegacyFluid's pattern dispatch, which broadcasts through
@@ -714,6 +993,258 @@ export default function FabricMenu() {
         contentContainerStyle={{ paddingBottom: spacing.md }}
         showsVerticalScrollIndicator={false}
       >
+        {/* ---------------- FABRICS (Slice 19) ---------------- */}
+        <SectionHeader>FABRICS</SectionHeader>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          {session.role === "host"
+            ? "You lead this room: pick the fabric and everyone follows it. Edit a fabric's settings and guest rules from its card."
+            : session.role === "guest"
+              ? `${displayNameFor(session.hostId, session.selfId)} leads this room's fabric — you follow automatically. Picking a different fabric leaves the session; your own layer tools (THIS LAYER, below) stay yours.`
+              : "Every fabric is a canvas with its own rules. Open one — or host a room below and lead everyone to it."}
+        </Text>
+
+        {/* The guest leave-warning: a guest picked a different
+            fabric mid-session. Nothing has switched yet — leaving
+            is a decision, stated before it happens. */}
+        {leaveWarn ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.accentLine,
+              borderRadius: radius.card,
+              padding: spacing.md,
+              marginBottom: spacing.sm,
+              gap: 4,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              Leave this session?
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {`This room's fabric is set by ${displayNameFor(session.hostId, session.selfId)}. Opening ${leaveWarn.name} means leaving the session and opening it on your own.`}
+            </Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs }}>
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => confirmLeaveTo(leaveWarn)}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  flex: 1,
+                  alignItems: "center",
+                  paddingVertical: 9,
+                  borderRadius: radius.card,
+                  backgroundColor: pressed ? colors.accentDim : colors.accent,
+                })}
+              >
+                <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
+                  {`Leave & open ${leaveWarn.name}`}
+                </Text>
+              </Pressable>
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => {
+                  noteActivity();
+                  setLeaveWarn(null);
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  flex: 1,
+                  alignItems: "center",
+                  paddingVertical: 9,
+                  borderRadius: radius.card,
+                  borderWidth: 1,
+                  borderColor: colors.line,
+                  backgroundColor: pressed ? colors.accentDim : "transparent",
+                })}
+              >
+                <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                  Stay
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+          {state.availableExperiences.map((exp) => {
+            const isActive = exp.id === active?.id;
+            const isSessionFabric =
+              fabric.layerId === exp.id && session.role !== "open";
+            const cardState = isActive
+              ? isSessionFabric
+                ? "Live here · session fabric"
+                : "Live here"
+              : isSessionFabric
+                ? session.role === "guest"
+                  ? `Session fabric — set by ${displayNameFor(session.hostId, session.selfId)}`
+                  : "Session fabric"
+                : "Yours to open";
+            const canEdit = session.role !== "guest";
+            const editing = editLayerId === exp.id;
+            const fields = LAYER_EDIT_FIELDS[exp.id] ?? [];
+            return (
+              <View
+                key={exp.id}
+                style={{
+                  borderWidth: 1,
+                  borderColor: isActive || isSessionFabric ? colors.accent : colors.line,
+                  borderRadius: radius.card,
+                  padding: spacing.md,
+                  backgroundColor: isActive ? colors.accentDim : "transparent",
+                }}
+              >
+                <Pressable
+                  pointerEvents="auto"
+                  onPress={() => onFabricCard(exp)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
+                  accessibilityLabel={`Open ${exp.name}`}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                    <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                      {exp.name}
+                    </Text>
+                    <View
+                      style={{
+                        borderWidth: 1,
+                        borderColor: colors.line,
+                        borderRadius: radius.pill,
+                        paddingVertical: 2,
+                        paddingHorizontal: 8,
+                      }}
+                    >
+                      <Text style={{ color: colors.textDim, fontSize: typeScale.caption, fontWeight: "700", letterSpacing: 1 }}>
+                        {canvasBadge(exp)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}>
+                    {exp.blurb ?? exp.description}
+                  </Text>
+                  <Text
+                    style={{
+                      color: isActive || isSessionFabric ? colors.accent : colors.textDim,
+                      fontSize: typeScale.caption,
+                      fontWeight: "700",
+                      marginTop: spacing.xs,
+                    }}
+                  >
+                    {cardState}
+                  </Text>
+                </Pressable>
+
+                {/* Guests see the rules that bind them on the
+                    session fabric — law you can read, not a
+                    surprise. Editing is the host's surface. */}
+                {session.role === "guest" && isSessionFabric ? (
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: spacing.xs }}>
+                    {`Here, guests can: ${FABRIC_RULE_KEYS.filter((k) => fabric.rules[k]).map((k) => (k === "draw" ? "draw" : k === "verbs" ? "send verbs" : "play notes")).join(" · ") || "watch and listen"}. Fabric settings are set by your host.`}
+                  </Text>
+                ) : null}
+
+                {canEdit ? (
+                  <Pressable
+                    pointerEvents="auto"
+                    onPress={() => openEditor(exp)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${editing ? "Close" : "Edit"} ${exp.name} settings`}
+                    style={{ paddingVertical: 6, alignSelf: "flex-start" }}
+                  >
+                    <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                      {editing ? "Close editor" : "Edit fabric ›"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {canEdit && editing ? (
+                  <View style={{ marginTop: spacing.xs }}>
+                    {fields.length === 0 ? (
+                      <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                        No quick settings for this fabric — its controls
+                        live in THIS LAYER while it is loaded.
+                      </Text>
+                    ) : (
+                      fields.map((field) => {
+                        if (field.kind === "bool") {
+                          const raw = editValues[field.key];
+                          const value =
+                            typeof raw === "boolean" ? raw : field.defaultValue;
+                          return (
+                            <ToggleRow
+                              key={field.key}
+                              label={field.label}
+                              value={value}
+                              onPress={() => applyEditField(exp, field, !value)}
+                            />
+                          );
+                        }
+                        const raw = editValues[field.key];
+                        const value =
+                          typeof raw === "string" ? raw : field.defaultValue;
+                        return (
+                          <View key={field.key} style={{ marginBottom: spacing.sm }}>
+                            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600", marginBottom: spacing.xs }}>
+                              {field.label}
+                            </Text>
+                            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+                              {field.options.map((opt) => {
+                                const selected = value === opt.value;
+                                return (
+                                  <Pressable
+                                    key={opt.value}
+                                    pointerEvents="auto"
+                                    onPress={() => applyEditField(exp, field, opt.value)}
+                                    accessibilityRole="radio"
+                                    accessibilityState={{ selected }}
+                                    style={{
+                                      paddingVertical: 7,
+                                      paddingHorizontal: 12,
+                                      borderRadius: radius.pill,
+                                      borderWidth: 1,
+                                      borderColor: selected ? colors.accent : colors.line,
+                                      backgroundColor: selected ? colors.accentDim : "transparent",
+                                    }}
+                                  >
+                                    <Text style={{ color: selected ? colors.accent : colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                                      {opt.label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        );
+                      })
+                    )}
+
+                    {/* Session guest rules for this fabric. For
+                        the host they go live with the next fabric
+                        broadcast; solo, they are saved for when
+                        you host. Rules only ever restrict guests —
+                        the session mode still applies first. */}
+                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.xs, marginBottom: spacing.xs }}>
+                      Guest rules {session.role === "host" ? "— live for this room" : "— apply when you host"}
+                    </Text>
+                    {FABRIC_RULE_KEYS.map((key) => (
+                      <ToggleRow
+                        key={key}
+                        label={FABRIC_RULE_LABEL[key]}
+                        value={rulesFor(exp.id)[key]}
+                        onPress={() => setRule(exp.id, key, !rulesFor(exp.id)[key])}
+                      />
+                    ))}
+                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                      Rules only ever restrict guests. The session mode
+                      (SHARE, below) applies first and cannot be widened
+                      from here.
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+
         {/* ---------------- THIS LAYER ---------------- */}
         <SectionHeader>{`THIS LAYER${active ? ` · ${active.name.toUpperCase()}` : ""}`}</SectionHeader>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
@@ -721,41 +1252,15 @@ export default function FabricMenu() {
           own id — they never leak into other layers.
         </Text>
 
-        {/* Layer switcher: the loaded layer is chosen here, on the canvas. */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.sm }}>
-          {state.availableExperiences.map((exp) => {
-            const selected = exp.id === active?.id;
-            return (
-              <Pressable
-                key={exp.id}
-                onPress={() => {
-                  noteActivity();
-                  void switchExperience(exp.id);
-                }}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                style={{
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: radius.pill,
-                  borderWidth: 1,
-                  borderColor: selected ? colors.accent : colors.line,
-                  backgroundColor: selected ? colors.accentDim : "transparent",
-                }}
-              >
-                <Text
-                  style={{
-                    color: selected ? colors.accent : colors.text,
-                    fontSize: typeScale.body,
-                    fontWeight: "700",
-                  }}
-                >
-                  {exp.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {/* Slice 19: the layer switcher used to be a chip row here.
+            It moved UP into the Fabrics drawer (cards, above) —
+            one switching surface, and the only one that knows the
+            session's authority rules (host-led picks, the guest
+            leave-warning). THIS LAYER is settings only now. */}
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          Switch fabrics from the drawer above — each fabric is a card
+          with its own settings and rules.
+        </Text>
 
         {/* The active layer's real settings. Fluid wires its existing
             control set; every other layer uses the generic per-layer
