@@ -5,6 +5,8 @@ import {
   FABRIC_COMPOSE_STATE_EVENT,
   FABRIC_COMPOSE_STOP_EVENT,
 } from "../../ai/PatternComposer";
+import { FABRIC_COMPOSE_SOURCE_EVENT } from "../../ai/RecipeComposer";
+import { useComposeVoice } from "./useComposeVoice";
 
 /**
  * ComposeBar — Slice 4's one HUD affordance: describe a feeling, and
@@ -21,6 +23,13 @@ import {
  * ("draw a heart", "a ring that bursts") composes a Recipe instead —
  * the canvas routes it, this bar doesn't need to know.
  *
+ * Slice 17 makes the bar voice-first: the mic is the primary
+ * affordance and a spoken final transcript enters the exact same
+ * submit path as typed text. Typing remains the alternative. The
+ * canvas also reports the answer's source, so a built-in
+ * interpretation is captioned as a built-in — never dressed up as
+ * open-ended model intelligence.
+ *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
  *
@@ -33,6 +42,9 @@ export default function ComposeBar() {
   const [prompt, setPrompt] = useState("");
   const [composing, setComposing] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
+  const [source, setSource] = useState<"llm" | "builtin" | "ghost" | null>(
+    null
+  );
   const composingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -41,16 +53,27 @@ export default function ComposeBar() {
       setPlaying(name ?? null);
       setComposing(false);
     };
+    const onSource = (ev: Event) => {
+      const detail = (ev as CustomEvent<string>).detail;
+      setSource(
+        detail === "llm" || detail === "builtin" || detail === "ghost"
+          ? detail
+          : null
+      );
+    };
     window.addEventListener(FABRIC_COMPOSE_STATE_EVENT, onState as EventListener);
+    window.addEventListener(FABRIC_COMPOSE_SOURCE_EVENT, onSource as EventListener);
     return () => {
       window.removeEventListener(FABRIC_COMPOSE_STATE_EVENT, onState as EventListener);
+      window.removeEventListener(FABRIC_COMPOSE_SOURCE_EVENT, onSource as EventListener);
       if (composingTimer.current) clearTimeout(composingTimer.current);
     };
   }, []);
 
-  const submit = () => {
-    const text = prompt.trim();
+  const submitText = (raw: string) => {
+    const text = raw.trim();
     if (!text || composing) return;
+    setSource(null);
     setComposing(true);
     window.dispatchEvent(new CustomEvent(FABRIC_COMPOSE_EVENT, { detail: text }));
     setPrompt("");
@@ -60,21 +83,47 @@ export default function ComposeBar() {
     composingTimer.current = setTimeout(() => setComposing(false), 20_000);
   };
 
+  const submit = () => submitText(prompt);
+  const voice = useComposeVoice(submitText);
+
   const stop = () => {
     window.dispatchEvent(new CustomEvent(FABRIC_COMPOSE_STOP_EVENT));
   };
 
   return (
-    <View pointerEvents="auto" style={{ marginTop: 8, maxWidth: 260 }}>
-      <View style={{ flexDirection: "row", gap: 6 }}>
+    <View pointerEvents="auto" style={{ marginTop: 8, maxWidth: 300 }}>
+      <View style={{ flexDirection: "row", gap: 6, alignItems: "stretch" }}>
+        <Pressable
+          pointerEvents="auto"
+          onPress={voice.toggle}
+          accessibilityRole="button"
+          accessibilityLabel={voice.listening ? "Stop listening" : "Ask by voice"}
+          style={({ pressed }) => ({
+            width: 38,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: voice.listening
+              ? "rgba(248,113,113,0.8)"
+              : "rgba(34,211,238,0.65)",
+            backgroundColor: voice.listening
+              ? "rgba(248,113,113,0.3)"
+              : pressed
+                ? "rgba(34,211,238,0.35)"
+                : "rgba(34,211,238,0.18)",
+            alignItems: "center",
+            justifyContent: "center",
+          })}
+        >
+          <Text style={{ fontSize: 17 }}>{voice.listening ? "●" : "🎤"}</Text>
+        </Pressable>
         <TextInput
           pointerEvents="auto"
           value={prompt}
           onChangeText={setPrompt}
           onSubmitEditing={submit}
-          placeholder="Describe a feeling — or 'draw a heart'…"
+          placeholder="Ask for anything — 'show me your heartbeat'…"
           placeholderTextColor="#64748b"
-          accessibilityLabel="Describe a feeling to compose as a pattern"
+          accessibilityLabel="Ask for a performance, by typing if you prefer"
           style={{
             flex: 1,
             color: "#e5e7eb",
@@ -113,6 +162,29 @@ export default function ComposeBar() {
           </Text>
         </Pressable>
       </View>
+      {voice.listening || voice.interim || voice.message ? (
+        <Text
+          style={{
+            color: voice.message ? "#fca5a5" : "#93c5fd",
+            fontSize: 11,
+            marginTop: 6,
+          }}
+        >
+          {voice.message ??
+            (voice.interim
+              ? `Hearing: ${voice.interim}`
+              : "Listening… speak your request")}
+        </Text>
+      ) : null}
+      {source ? (
+        <Text style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
+          {source === "builtin"
+            ? "Built-in interpretation — add a key in AI Services for open-ended ones."
+            : source === "ghost"
+              ? "Answered by your ghost, from its live state."
+              : "Interpreted by your configured model."}
+        </Text>
+      ) : null}
       {playing ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }}>
           <Text style={{ color: "#93c5fd", fontSize: 11 }}>

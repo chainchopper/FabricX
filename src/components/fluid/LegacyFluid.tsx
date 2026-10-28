@@ -19,6 +19,7 @@ import {
   type PatternStep,
 } from "../../ai/PatternComposer";
 import {
+  FABRIC_COMPOSE_SOURCE_EVENT,
   FABRIC_PLAY_RECIPE_EVENT,
   composeWithShapes,
 } from "../../ai/RecipeComposer";
@@ -42,6 +43,7 @@ import type { FluidInteraction } from "../../types/fluid";
 import { useGhostPeer } from "../../ghost/useGhostPeer";
 import {
   ghostPeerIdFor,
+  isGhostHeartbeatRequest,
   isGhostPeerId,
 } from "../../ghost/GhostPeer";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
@@ -705,18 +707,58 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       const prompt = (ev as CustomEvent<string>).detail;
       if (typeof prompt !== "string" || !prompt.trim()) return;
       void (async () => {
-        // Slice 15: one entry, two vocabularies — composeWithShapes
-        // routes drawing prompts to recipes and everything else to
-        // the Slice 4 pattern path, untouched.
+        // Slice 17: a heartbeat request addressed to the ghost is
+        // answered BY the ghost, not by the generic interpreter. It
+        // performs through GhostPeer's own emit machinery (budgets,
+        // presence gates and session broadcast rules unchanged) at
+        // a tempo derived from its live temperament + arousal. The
+        // brain line records the answer via the peer's performance
+        // callback. If the ghost is off or cannot act, the generic
+        // interpreter still gets the request.
+        if (
+          isGhostHeartbeatRequest(
+            prompt,
+            ghostRef.current.identity?.name ?? null
+          )
+        ) {
+          const bpm = ghostRef.current.answerHeartbeat();
+          if (bpm !== null) {
+            window.dispatchEvent(
+              new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+                detail: "ghost",
+              })
+            );
+            publishState(
+              `${ghostRef.current.identity?.name ?? "Ghost"}'s heartbeat · ${bpm} BPM`
+            );
+            return;
+          }
+        }
+
+        // Slice 15/17: one entry, two performance vocabularies —
+        // composeWithShapes asks a configured model to invent the
+        // answer, degrades to generative built-in performances, and
+        // otherwise routes drawing prompts to recipes and the rest
+        // to the Slice 4 pattern path.
         const result = await composeWithShapes(prompt);
         if (!result) {
           publishState(null);
         } else if (result.kind === "recipe") {
+          window.dispatchEvent(
+            new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+              detail: result.recipe.source,
+            })
+          );
           playRecipeRef.current(result.recipe, {
             send: true,
             defaultHue: getIdentitySnapshot().self?.hue,
           });
         } else {
+          window.dispatchEvent(
+            new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+              detail: result.pattern.source,
+            })
+          );
           recipePlayer.stop();
           patternPlayer.play(result.pattern, dispatchStep);
         }

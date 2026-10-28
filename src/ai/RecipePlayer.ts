@@ -26,6 +26,8 @@
  */
 
 import {
+  mulberry32,
+  pulsePhraseBeats,
   sampleStepPath,
   type Recipe,
   type RecipeStep,
@@ -98,6 +100,9 @@ export class RecipePlayer {
       this.scheduleStep(step, recipe.seed, idx, stepStart, dispatch, opts);
       stepStart += step.durationMs;
     });
+    if (recipe.pulse) {
+      this.schedulePulse(recipe, dispatch, opts);
+    }
     this.timers.push(
       setTimeout(() => this.finish(), recipe.durationMs + 250)
     );
@@ -109,6 +114,86 @@ export class RecipePlayer {
     if (this.playingName !== null) {
       this.playingName = null;
       this.listener?.(null);
+    }
+  }
+
+  /**
+   * Schedule the v2 pulse overlay. Pulse strikes land around the
+   * first step's center, leaving the step geometry itself intact:
+   * a heart can be drawn once and then keep beating; a spiral can
+   * keep swelling after its trace completes. Each strike is just a
+   * recipe splat, so local rendering and activity semantics are the
+   * same as every other recipe emission — pulses never travel as a
+   * splat stream; receivers cook them from the validated pulse spec.
+   */
+  private schedulePulse(
+    recipe: Recipe,
+    dispatch: RecipeDispatch,
+    opts?: { defaultHue?: number }
+  ): void {
+    const pulse = recipe.pulse;
+    if (!pulse) return;
+    const anchor = recipe.steps[0];
+    const hue = anchor.hue ?? opts?.defaultHue ?? 205;
+    const beatMs = 60_000 / pulse.bpm;
+    const phraseMs = pulsePhraseBeats(pulse) * beatMs;
+    const rand = mulberry32((recipe.seed ^ 0x9015e) >>> 0);
+
+    const curveFactor = (cycle: number): number => {
+      const progress = pulse.cycles <= 1 ? 1 : cycle / (pulse.cycles - 1);
+      switch (pulse.intensityCurve) {
+        case "swell":
+          return 0.55 + 0.45 * Math.sin(Math.PI * progress);
+        case "fade":
+          return 1 - 0.55 * progress;
+        case "sine":
+          return 0.72 + 0.28 * Math.sin(progress * Math.PI * 2);
+        case "lub-dub":
+        case "steady":
+        default:
+          return 1;
+      }
+    };
+
+    for (let cycle = 0; cycle < pulse.cycles; cycle++) {
+      let cursorBeats = 0;
+      pulse.grouping.forEach((count, groupIndex) => {
+        for (let strike = 0; strike < count; strike++) {
+          const atMs = cycle * phraseMs + cursorBeats * beatMs;
+          const clusterFactor =
+            pulse.intensityCurve === "lub-dub"
+              ? strike === 0
+                ? 1
+                : 0.76
+              : strike === 0
+                ? 1
+                : 0.82;
+          const strength =
+            pulse.intensity * curveFactor(cycle) * clusterFactor;
+          const angle = rand() * Math.PI * 2;
+          const ring = 0.012 + rand() * 0.018;
+          const x = Math.min(0.98, Math.max(0.02, anchor.cx + Math.cos(angle) * ring));
+          const y = Math.min(0.98, Math.max(0.02, anchor.cy + Math.sin(angle) * ring));
+          this.timers.push(
+            setTimeout(() => {
+              try {
+                dispatch({
+                  x,
+                  y,
+                  forceX: Math.cos(angle) * (90 + 150 * strength),
+                  forceY: Math.sin(angle) * (90 + 150 * strength),
+                  hue,
+                  radiusScale: 0.5 + 0.55 * strength,
+                });
+              } catch {
+                // A failed pulse strike is dropped; the performance goes on.
+              }
+            }, Math.max(0, atMs))
+          );
+          cursorBeats += 0.38;
+        }
+        if (groupIndex < pulse.grouping.length - 1) cursorBeats += 1;
+      });
     }
   }
 

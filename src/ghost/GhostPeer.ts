@@ -103,6 +103,23 @@ export function isGhostPeerId(userId?: string | null): boolean {
   return typeof userId === "string" && userId.startsWith(GHOST_PEER_PREFIX);
 }
 
+/**
+ * Slice 17 routing: is this free-form request asking THIS ghost for
+ * its heartbeat? A heartbeat phrase alone is a generic performance
+ * request; it belongs to the ghost when it is addressed to it — by
+ * name, by the word "ghost", or possessively ("your heartbeat",
+ * including Terrell's acceptance case, "lemme see your heart beat").
+ */
+export function isGhostHeartbeatRequest(
+  prompt: string,
+  ghostName?: string | null
+): boolean {
+  const text = (prompt || "").toLowerCase();
+  if (!/\b(heartbeat|heart\s+beat)\b/.test(text)) return false;
+  if (ghostName && text.includes(ghostName.toLowerCase())) return true;
+  return /\bghost\b/.test(text) || /\byour\b/.test(text);
+}
+
 export type GhostMode = "solo" | "session";
 
 export type GhostTemperament =
@@ -154,6 +171,13 @@ export interface GhostPeerOptions {
   onSfx?: (kind: GhostSfxKind) => void;
   /** Display name for the brain scenario snapshot (identity label). */
   ghostName?: string;
+  /**
+   * A named performance the ghost gave on request (Slice 17). The
+   * host publishes the label to the brain line, e.g.
+   * "answered: heartbeat @ 92bpm" — an answer is an observable act,
+   * not a silent side effect.
+   */
+  onPerformance?: (label: string) => void;
   /**
    * Deliberation hook: fired at most once per DELIBERATION_MIN_MS and
    * only when meaningful context changed, with a scenario snapshot in
@@ -541,6 +565,95 @@ export class GhostPeer {
     this.lastActivityAt = Date.now();
     if (this.temperament === "sleepy") this.setTemperament("curious");
     this.publishPresence();
+  }
+
+  /**
+   * The ghost's live heartbeat tempo. The base rate belongs to its
+   * temperament; arousal raises it — recent pets count most, then
+   * verbs and strong nearby splats. A petted playful ghost therefore
+   * literally beats faster than the same ghost left alone.
+   */
+  heartbeatBpm(now = Date.now()): number {
+    const base: Record<GhostTemperament, number> = {
+      sleepy: 48,
+      curious: 68,
+      sassy: 78,
+      affectionate: 84,
+      playful: 92,
+    };
+    const recentPets = this.petTimes.filter((t) => now - t < 5_000).length;
+    const recentVerbs = this.verbsSeenLog.filter(
+      (v) => now - v.at < 15_000
+    ).length;
+    const splatBoost =
+      this.nearbySplat.at > 0 && now - this.nearbySplat.at < 10_000
+        ? this.nearbySplat.intensity * 10
+        : 0;
+    return Math.round(
+      Math.min(
+        132,
+        Math.max(
+          42,
+          base[this.temperament] +
+            Math.min(24, recentPets * 8) +
+            Math.min(12, recentVerbs * 4) +
+            splatBoost
+        )
+      )
+    );
+  }
+
+  /**
+   * Answer a direct heartbeat request with a generated pulse at the
+   * ghost's body, in its signature color. This is not the HEART verb
+   * macro: two unequal strikes (lub, then a softer dub), a rest, and
+   * six cycles at the ghost's CURRENT tempo. Every strike goes
+   * through schedule() + emit(), so presence gates, the 16/10s hard
+   * budget, the crowd sub-budget, and session broadcast rules all
+   * remain exactly as hard as they are for reflex behavior.
+   * Returns the BPM used, or null when the ghost cannot answer.
+   */
+  answerHeartbeat(): number | null {
+    if (this.destroyed || !this.enabled || this.dismissing) return null;
+    // Being asked is itself company: wake and timestamp the contact.
+    this.noteUserActivity();
+    if (!this.canAct()) return null;
+    const now = Date.now();
+    const bpm = this.heartbeatBpm(now);
+    const beatMs = 60_000 / bpm;
+    const cycles = 6;
+    const phraseBeats = 0.38 + 0.38 + 1; // lub + dub + a full rest beat
+    this.journal("answered heartbeat request", now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(`answered: heartbeat @ ${bpm}bpm`);
+    this.options.onSfx?.("heart");
+
+    for (let cycle = 0; cycle < cycles; cycle++) {
+      const cycleStart = cycle * phraseBeats * beatMs;
+      const strikes: Array<{ offset: number; strength: number }> = [
+        { offset: cycleStart, strength: 1 },
+        { offset: cycleStart + 0.38 * beatMs, strength: 0.74 },
+      ];
+      strikes.forEach(({ offset, strength }, strikeIndex) => {
+        this.schedule(offset, () => {
+          if (!this.canAct()) return;
+          const wobble = (this.rng() - 0.5) * 0.018;
+          this.emit({
+            position: {
+              x: clamp01(this.position.x + wobble),
+              y: clamp01(this.position.y + (strikeIndex === 0 ? 0 : 0.012)),
+            },
+            force: {
+              x: (this.rng() - 0.5) * 50,
+              y: -55 * strength,
+            },
+            pressure: 0.34 + 0.34 * strength,
+            color: this.sigColor,
+          });
+        });
+      });
+    }
+    return bpm;
   }
 
   /**
