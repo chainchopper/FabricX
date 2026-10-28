@@ -206,7 +206,7 @@ export function validatePattern(
 }
 
 /** Extract and JSON-parse a pattern object from raw model text. */
-function parsePatternJson(text: string): unknown | null {
+export function parsePatternJson(text: string): unknown | null {
   if (!text) return null;
   const trimmed = text
     .trim()
@@ -324,7 +324,7 @@ interface AIConfigShape {
   };
 }
 
-async function loadLLMConfig(): Promise<LLMConfig | null> {
+export async function loadLLMConfig(): Promise<LLMConfig | null> {
   let config: AIConfigShape | null = null;
   try {
     config = await getJSON<AIConfigShape | null>(AI_CONFIG_KEY, null);

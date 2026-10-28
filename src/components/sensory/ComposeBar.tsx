@@ -16,7 +16,10 @@ import {
  * cancels through FABRIC_COMPOSE_STOP_EVENT.
  *
  * With no AI key configured the canvas falls back to built-in patterns
- * (rain / heartbeat / ocean), so this works offline too.
+ * (rain / heartbeat / ocean), so this works offline too. Slice 15 adds
+ * the second vocabulary behind the same input: a drawing prompt
+ * ("draw a heart", "a ring that bursts") composes a Recipe instead —
+ * the canvas routes it, this bar doesn't need to know.
  *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
@@ -69,7 +72,7 @@ export default function ComposeBar() {
           value={prompt}
           onChangeText={setPrompt}
           onSubmitEditing={submit}
-          placeholder="Describe a feeling…"
+          placeholder="Describe a feeling — or 'draw a heart'…"
           placeholderTextColor="#64748b"
           accessibilityLabel="Describe a feeling to compose as a pattern"
           style={{

@@ -26,6 +26,8 @@ import {
   lintObserveNote,
 } from "../lint/lintBridge";
 import { StrokeBatcher, type StrokePoint } from "../services/strokeBatch";
+import { validateRecipe, type Recipe } from "../ai/RecipeCore";
+import { recipeBus } from "../ai/RecipePlayer";
 
 type TransportMsg =
   | { type: "fluid-interaction"; data: FluidInteraction }
@@ -80,7 +82,15 @@ type TransportMsg =
   // two tiny messages total (on, then off), not a stream: MIDI-
   // sized, as the medium deserves. Older clients ignore the types.
   | { type: "note-on"; from: string; note: string; velocity: number }
-  | { type: "note-off"; from: string; note: string };
+  | { type: "note-off"; from: string; note: string }
+  // Slice 15 ("Agent Shapes"): a whole Recipe in ONE message — the
+  // validated shape program (steps + seed), never the splats it
+  // renders. Every device cooks its own copy from its ingredient
+  // library, so a drawn heart costs one small JSON instead of a
+  // splat stream. Validated again on receipt (validateRecipe)
+  // before it can reach the renderer. Additive: older clients
+  // ignore the unknown type.
+  | { type: "fabric-recipe"; from: string; recipe: Recipe };
 
 /** How long a BroadcastChannel peer counts as present after last contact. */
 const BC_PEER_TTL_MS = 6000;
@@ -583,6 +593,23 @@ export function useFluidMultiUser(roomId: string) {
             hue: getPeerIdentity(msg.from)?.hue ?? null,
           });
         }
+      } else if (msg.type === "fabric-recipe") {
+        // Slice 15: a peer's recipe. The payload is a PROGRAM, not
+        // data to render raw — it goes through validateRecipe here,
+        // and only a fully valid recipe is handed to the renderer
+        // via the recipe bus. Receiving is NOT gated by session
+        // mode; only sending is (see sendRecipe) — a view-only
+        // guest still sees the host's shapes, exactly as they see
+        // the host's splats and hear the host's notes.
+        if (typeof msg.from !== "string" || msg.from === userId) return;
+        const raw = msg.recipe as Recipe | undefined;
+        const recipe = validateRecipe(
+          raw,
+          raw?.source === "builtin" ? "builtin" : "llm"
+        );
+        if (!recipe) return;
+        noteBcPeer(msg.from);
+        recipeBus.emitRemote(recipe, msg.from);
       } else if (msg.type === "fabric-ping") {
         noteBcPeer(msg.from);
         const pong: TransportMsg = { type: "fabric-pong", seq: msg.seq, t: msg.t, from: userId };
@@ -1015,6 +1042,23 @@ export function useFluidMultiUser(roomId: string) {
     [userId]
   );
 
+  /**
+   * Slice 15: send ONE recipe message to the room. Gated by the
+   * SAME session rule as interactions and notes
+   * (sessionRef.canSend, from computeCanSend): a mirror/view guest
+   * or a control-mode non-driver never puts a recipe on the wire —
+   * their replay renders locally only, exactly like their pattern
+   * steps do. The recipe is re-validated by every receiver, so
+   * this side sends exactly what the composer/store validated.
+   */
+  const sendRecipe = useCallback(
+    (recipe: Recipe) => {
+      if (!sessionRef.current.canSend) return;
+      postRef.current({ type: "fabric-recipe", from: userId, recipe });
+    },
+    [userId]
+  );
+
   // Hotfix 1.9: per-sender sequence + the stroke batcher. The
   // batcher holds ONLY local-human, verb-less stroke points (the
   // engine's per-frame input, via the { batch: true } opt-in) for a
@@ -1214,6 +1258,8 @@ export function useFluidMultiUser(roomId: string) {
     sendInteraction,
     /** Hotfix 1.7: discrete note send (session-gated like sendInteraction). */
     sendNote,
+    /** Slice 15: one-message recipe send (session-gated like sendNote). */
+    sendRecipe,
     injectRemoteInteraction,
     humanPeers,
     /** Human userIds heard from in this room (Slice 5, pass-control). */

@@ -39,9 +39,19 @@ export class PatternPlayer {
    * shared room without re-composing it.
    */
   private lastPlayed: Pattern | null = null;
+  private lastPlayedAtMs = 0;
 
   get lastPattern(): Pattern | null {
     return this.lastPlayed;
+  }
+
+  /**
+   * When the last pattern was handed to play() (Slice 15: Studio's
+   * save keeps whichever played most recently — a pattern or a
+   * recipe — so the two players expose the same clock).
+   */
+  get lastPlayedAt(): number {
+    return this.lastPlayedAtMs;
   }
 
   get currentName(): string | null {
@@ -56,6 +66,7 @@ export class PatternPlayer {
   play(pattern: Pattern, dispatch: PatternDispatch): void {
     this.stop();
     this.lastPlayed = pattern;
+    this.lastPlayedAtMs = Date.now();
     this.playingName = pattern.name;
     this.listener?.(pattern.name);
     for (const step of pattern.steps) {

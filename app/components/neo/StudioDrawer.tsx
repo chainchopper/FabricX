@@ -8,13 +8,18 @@ import { FABRIC_SHARE_LIVE_EVENT } from "../../../src/session/sessionStore";
 import {
   FABRIC_PLAY_PATTERN_EVENT,
 } from "../../../src/ai/PatternComposer";
+import {
+  FABRIC_PLAY_RECIPE_EVENT,
+} from "../../../src/ai/RecipeComposer";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
+import { recipePlayer } from "../../../src/ai/RecipePlayer";
 import { useCompositions } from "../../../src/ai/useCompositions";
 import {
   MAX_COMPOSITIONS,
   deleteComposition,
   renameComposition,
   saveComposition,
+  saveRecipeComposition,
   type SavedComposition,
 } from "../../../src/ai/compositionsStore";
 
@@ -85,18 +90,26 @@ export default function StudioDrawer() {
     { id: "pulse", name: "Haptic Pulse", category: "haptic", enabled: false },
   ];
 
-  // Play a saved composition through the EXISTING playback path:
-  // FABRIC_PLAY_PATTERN_EVENT -> LegacyFluid's dispatchStep ->
-  // sendInteraction, so Slice 5 session-mode enforcement applies —
-  // a view-mode guest's playback renders locally and transmits
-  // nothing, exactly like live input.
+  // Play a saved composition through the EXISTING playback paths:
+  // patterns ride FABRIC_PLAY_PATTERN_EVENT -> LegacyFluid's
+  // dispatchStep -> sendInteraction; recipes (Slice 15) ride
+  // FABRIC_PLAY_RECIPE_EVENT -> the recipe player + the one gated
+  // fabric-recipe message. Either way Slice 5 session-mode
+  // enforcement applies — a view-mode guest's playback renders
+  // locally and transmits nothing, exactly like live input.
   const playComposition = (comp: SavedComposition) => {
     haptics.impactMedium();
     audio.success();
     if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, { detail: comp.pattern })
-      );
+      if (comp.kind === "recipe") {
+        window.dispatchEvent(
+          new CustomEvent(FABRIC_PLAY_RECIPE_EVENT, { detail: comp.recipe })
+        );
+      } else {
+        window.dispatchEvent(
+          new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, { detail: comp.pattern })
+        );
+      }
     }
     closeAll();
   };
@@ -114,20 +127,38 @@ export default function StudioDrawer() {
     closeAll();
   };
 
-  // "Save" in Current Composition: keep the session's last composed
-  // pattern under the name typed above. Honest when there is nothing
-  // to save yet — it says so instead of pretending.
+  // "Save" in Current Composition: keep the session's last played
+  // artifact — a pattern OR a recipe (Slice 15), whichever played
+  // most recently — under the name typed above. Honest when there
+  // is nothing to save yet — it says so instead of pretending.
   const saveCurrentPattern = () => {
     const p = patternPlayer.lastPattern;
-    if (!p) {
+    const r = recipePlayer.lastRecipe;
+    const recipeIsLast =
+      r !== null && recipePlayer.lastPlayedAt >= patternPlayer.lastPlayedAt;
+    if (!p && !r) {
       setSaveNote(
         "Nothing to save yet — describe a feeling in the composer on the canvas first, then save it here."
       );
       return;
     }
     const typed = compositionName.trim();
+    const name = typed && typed !== "Untitled" ? typed : undefined;
+    if (recipeIsLast && r) {
+      void saveRecipeComposition({ name, prompt: "", recipe: r }).then(
+        (rec) => {
+          if (rec) {
+            haptics.impactMedium();
+            audio.success();
+            setSaveNote(`Saved “${rec.name}” — it's in your list below.`);
+          }
+        }
+      );
+      return;
+    }
+    if (!p) return;
     void saveComposition({
-      name: typed && typed !== "Untitled" ? typed : undefined,
+      name,
       prompt: "",
       pattern: p,
     }).then((rec) => {
@@ -405,7 +436,9 @@ export default function StudioDrawer() {
                       <>
                         <Text style={{ color: "white", fontWeight: "600" }}>{comp.name}</Text>
                         <Text style={{ color: "#9ca3af", fontSize: 11 }}>
-                          {`${comp.pattern.steps.length} steps • ${(comp.pattern.durationMs / 1000).toFixed(1)}s • ${new Date(comp.createdAt).toLocaleDateString()}`}
+                          {comp.kind === "recipe"
+                            ? `✦ Recipe • ${comp.recipe.steps.map((s) => s.shape).join(" + ")} • ${(comp.recipe.durationMs / 1000).toFixed(1)}s • ${new Date(comp.createdAt).toLocaleDateString()}`
+                            : `${comp.pattern.steps.length} steps • ${(comp.pattern.durationMs / 1000).toFixed(1)}s • ${new Date(comp.createdAt).toLocaleDateString()}`}
                         </Text>
                         {comp.prompt ? (
                           <Text style={{ color: "#6b7280", fontSize: 11 }} numberOfLines={2}>

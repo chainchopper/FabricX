@@ -82,6 +82,8 @@ import {
 import { requestFirstBreath } from "../../../src/onboarding/onboardingStore";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
+import { FABRIC_PLAY_RECIPE_EVENT } from "../../../src/ai/RecipeComposer";
+import type { Recipe } from "../../../src/ai/RecipeCore";
 import {
   getCompositionById,
   type SavedComposition,
@@ -314,8 +316,17 @@ export default function FabricMenu() {
       }
       const comp = getCompositionById(detail?.id);
       if (comp) {
+        // Slice 15: a saved recipe plays through its own event —
+        // the canvas renders it and ships the one compact recipe
+        // message, exactly like a pattern replay ships its steps.
         window.dispatchEvent(
-          new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, { detail: comp.pattern })
+          comp.kind === "recipe"
+            ? new CustomEvent(FABRIC_PLAY_RECIPE_EVENT, {
+                detail: comp.recipe,
+              })
+            : new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, {
+                detail: comp.pattern,
+              })
         );
         setShareNotice(
           `“${name}” is playing live in this room — send the invite link under SHARE and guests feel it as they land.`
@@ -528,10 +539,31 @@ export default function FabricMenu() {
     );
   };
 
+  // Slice 15: a recipe shares live the same way a pattern does —
+  // hosting first if needed, then the play event; the canvas ships
+  // the one compact recipe message under the session gate.
+  const shareRecipeLive = (r: Recipe) => {
+    noteActivity();
+    if (getSessionPublicState().role !== "host") {
+      startHosting(pickedMode);
+    }
+    window.dispatchEvent(
+      new CustomEvent(FABRIC_PLAY_RECIPE_EVENT, { detail: r })
+    );
+    setShareNotice(
+      `Playing “${r.name}” into the room now — everyone here sees it draw itself. Send the invite link under SHARE so others can join live.`
+    );
+  };
+
   // Slice 8: a saved composition shares live exactly the same way —
   // the store is the data source, the playback path is unchanged.
+  // Slice 15: recipe entries take the recipe path above.
   const shareCompositionLive = (comp: SavedComposition) => {
-    sharePatternLive(comp.pattern);
+    if (comp.kind === "recipe") {
+      shareRecipeLive(comp.recipe);
+    } else {
+      sharePatternLive(comp.pattern);
+    }
   };
 
   const renderModeRows = (
