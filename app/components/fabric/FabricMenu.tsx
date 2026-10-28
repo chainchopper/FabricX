@@ -72,6 +72,12 @@ import {
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
 import { useSoundfontPianoStatus } from "../../../src/audio/soundfontPiano";
+import {
+  getMotionPublicState,
+  requestMotionPermission,
+  subscribeMotionState,
+  type MotionPublicState,
+} from "../../../src/sensors/motionState";
 import { requestFirstBreath } from "../../../src/onboarding/onboardingStore";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
@@ -410,23 +416,27 @@ export default function FabricMenu() {
     });
   };
 
-  // "Dancer in this layer" — the Frequency Dancer (spike v0) is a
-  // feature OF the piano layer: a figure above the keys whose body
-  // is played by the note bus (high notes → head, low notes → feet;
-  // velocity = amplitude; every move springs back to rest). Same
-  // per-layer storage as the ghost/ambient toggles above
-  // (specific.dancerEnabled, absent means on — it's the layer's
-  // showpiece). Only meaningful on ar-piano, so the toggle renders
-  // only there; ExperienceHUD reads the same field to mount it.
-  const isPianoLayer = active?.id === "ar-piano";
-  const dancerInLayer =
-    (state.experienceConfig.specific as any)?.dancerEnabled !== false;
-  const setDancerInLayer = (next: boolean) => {
+  // "Motion" — Slice 12 ("The Body's Sensors"). The layer's gyro/
+  // tilt + shake input, stored per layer id like the toggles above
+  // but with the opposite default: absent means OFF. Sensors are
+  // personal — a layer's owner opts their body in deliberately.
+  // The permission state is published by the canvas's sensor hook
+  // (motionState): on iOS the browser will only grant motion access
+  // from inside a real tap, so when a request is needed, THIS
+  // section renders the "Enable tilt" affordance and its onPress
+  // makes the call — never a cold prompt on layer load.
+  const [motionUi, setMotionUi] = useState<MotionPublicState>(() =>
+    getMotionPublicState()
+  );
+  useEffect(() => subscribeMotionState(setMotionUi), []);
+  const motionInLayer =
+    (state.experienceConfig.specific as any)?.motionEnabled === true;
+  const setMotionInLayer = (next: boolean) => {
     noteActivity();
     updateConfig({
       specific: {
         ...(state.experienceConfig.specific as any),
-        dancerEnabled: next,
+        motionEnabled: next,
       },
     });
   };
@@ -828,55 +838,83 @@ export default function FabricMenu() {
           </Text>
         </View>
 
-        {/* Dancer in this layer — piano layer only (see the state
-            block above): the Frequency Dancer figure above the keys,
-            played by the note bus. On is the layer's default. */}
-        {isPianoLayer ? (
-          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
-            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-              Dancer
-            </Text>
-            <View style={{ flexDirection: "row", gap: spacing.sm }}>
-              {([true, false] as const).map((val) => {
-                const selected = dancerInLayer === val;
-                return (
-                  <Pressable
-                    key={String(val)}
-                    pointerEvents="auto"
-                    onPress={() => setDancerInLayer(val)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={`Dancer ${val ? "on" : "off"}`}
+        {/* Motion in this layer — Slice 12. Per-layer like the
+            toggles above, default OFF. On: tilting this phone leans
+            this device's pool, and a sharp shake blooms on every
+            screen in the room. The tilt itself is private — raw
+            motion readings never leave this phone; only the shake
+            travels, as a single event. iOS needs a one-time tap to
+            grant motion access; that ask lives here, in the tap,
+            never as a cold prompt. */}
+        <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+            Motion
+          </Text>
+          <View style={{ flexDirection: "row", gap: spacing.sm }}>
+            {([true, false] as const).map((val) => {
+              const selected = motionInLayer === val;
+              return (
+                <Pressable
+                  key={String(val)}
+                  pointerEvents="auto"
+                  onPress={() => setMotionInLayer(val)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`Motion ${val ? "on" : "off"}`}
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: selected ? colors.accent : colors.line,
+                    backgroundColor: selected ? colors.accentDim : "transparent",
+                  }}
+                >
+                  <Text
                     style={{
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      borderRadius: radius.pill,
-                      borderWidth: 1,
-                      borderColor: selected ? colors.accent : colors.line,
-                      backgroundColor: selected ? colors.accentDim : "transparent",
+                      color: selected ? colors.accent : colors.text,
+                      fontSize: typeScale.body,
+                      fontWeight: "700",
                     }}
                   >
-                    <Text
-                      style={{
-                        color: selected ? colors.accent : colors.text,
-                        fontSize: typeScale.body,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {val ? "On" : "Off"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-              A figure above the keys dances to the notes — high notes
-              move its head, low notes its feet, and every move springs
-              back to rest. It dances to the whole room's playing, not
-              just yours. Off removes it from this layer only.
-            </Text>
+                    {val ? "On" : "Off"}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-        ) : null}
+          {motionInLayer && motionUi.permission === "needs-request" ? (
+            <Pressable
+              pointerEvents="auto"
+              onPress={() => {
+                noteActivity();
+                void requestMotionPermission();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Enable tilt"
+              style={{
+                alignSelf: "flex-start",
+                paddingVertical: 8,
+                paddingHorizontal: 14,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.accent,
+                backgroundColor: colors.accentDim,
+              }}
+            >
+              <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                Enable tilt
+              </Text>
+            </Pressable>
+          ) : null}
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+            {motionInLayer && motionUi.permission === "denied"
+              ? "Motion access was denied — this phone's browser is keeping its sensors private, and Fabric respects that. The layer still works by touch."
+              : motionInLayer && motionUi.permission === "unavailable"
+                ? "This device doesn't expose motion sensors to the browser, so this layer stays touch-driven here."
+                : "Tilting leans the pool on this device only. A sharp shake sends one bloom to the room in your color. Your motion readings themselves never leave this phone."}
+          </Text>
+        </View>
 
         {/* ---------------- SHARE ---------------- */}
         <SectionHeader>SHARE — SESSION</SectionHeader>

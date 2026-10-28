@@ -50,6 +50,10 @@ import {
   hueDyeColor,
 } from "../../identity/identityStore";
 import { useAmbientLife, type AmbientLifeStats } from "./useAmbientLife";
+import {
+  useDeviceMotion,
+  type MotionStats,
+} from "../../sensors/useDeviceMotion";
 import { noteBus } from "../../../shared/utils/noteBus";
 import { getAudioContextState } from "../../audio/sharedAudio";
 
@@ -120,6 +124,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // in two words: P2P could not open, the signaling relay is
   // carrying the room, and sync is alive anyway.
   const [diagPath, setDiagPath] = useState<TransportPath>("—");
+  // Slice 12: device-motion state for the same panel — permission,
+  // live tilt vector, shake count. A field report about tilt can be
+  // settled from one screenshot (?diag=1) instead of a phone call:
+  // "motion needs-permission" IS the diagnosis.
+  const [diagMotion, setDiagMotion] = useState<MotionStats | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<LegacyFluidEngine | null>(null);
@@ -244,6 +253,75 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // resets the idle clock, so the canvas never starts breathing
   // over the top of a performance.
   useEffect(() => noteBus.on(() => markActivity()), [markActivity]);
+
+  // ---- Motion (Slice 12, "The Body's Sensors") ---------------------
+  // The phone's gyro/tilt — the Oct 26 inventory's last unwired
+  // sense — as a PER-LAYER feature ("Motion", THIS LAYER settings),
+  // persisted in the same specific config as the ghost/ambient
+  // toggles. UNLIKE those two, absent means OFF: sensors are the
+  // body, and a layer starts still until its owner asks the body in.
+  const motionLayerEnabled =
+    ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
+      ?.motionEnabled as boolean | undefined) === true;
+
+  // The shake burst, shared by the local shake and the remote
+  // render path so a shake looks identical on every screen: a
+  // radial bloom — a ring of pushes exhaling from the center in
+  // the shaker's hue, brighter and harder than an ambient bloom
+  // (this one was DONE by someone, on purpose).
+  const renderShakeBurst = useCallback(
+    (x: number, y: number, color: { r: number; g: number; b: number }) => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      const ring = 8;
+      for (let k = 0; k < ring; k++) {
+        const ang = (k / ring) * Math.PI * 2;
+        const mag = 150 + (k % 2) * 40;
+        engine.splatAt(
+          x + Math.cos(ang) * 0.05,
+          y + Math.sin(ang) * 0.05,
+          Math.cos(ang) * mag,
+          Math.sin(ang) * mag,
+          color
+        );
+      }
+      engine.splatAt(x, y, 0, -60, color);
+    },
+    []
+  );
+
+  // A confirmed local shake (thresholded + debounced inside the
+  // sensor hook): render the burst here, and send ONE event
+  // through the ordinary funnel — session gating, hue stamp, and
+  // sequencing all apply exactly as they do to a verb. The funnel
+  // also ticks this phone's haptics (pressure > 0.7), so the
+  // shaker feels their own shake land. Raw motion data is NOT
+  // part of the payload; the event is all that travels.
+  const fireShake = useCallback(() => {
+    const hue = getIdentitySnapshot().self?.hue ?? 205;
+    const color = hueDyeColor(hue, 0.95);
+    renderShakeBurst(0.5, 0.5, color);
+    sendRef.current({
+      kind: "shake",
+      position: { x: 0.5, y: 0.5 },
+      force: { x: 0, y: 0 },
+      pressure: 0.85,
+      color,
+    });
+    ghostRef.current.noteUserActivity();
+  }, [renderShakeBurst]);
+
+  // Tilt steering + shake detection. Local only: the hook applies
+  // tilt to THIS device's engine and reports shakes via fireShake;
+  // its raw samples never leave the device (see the hook's laws).
+  // Tilt marks activity through the same clock touch uses, so
+  // ambient life yields to a leaning pool like it yields to a hand.
+  const motionStatsRef = useDeviceMotion({
+    engineRef,
+    enabled: motionLayerEnabled,
+    onActivity: markActivity,
+    onShake: fireShake,
+  });
   const ghostPeerIdRef = useRef("");
   ghostPeerIdRef.current = ghostPeerIdFor(userId);
   const broadcastGhost = useCallback(
@@ -434,6 +512,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       setDiagAudio(getAudioContextState());
       // Hotfix 2.0: p2p / relay / p2p+relay / —, same screenshot.
       setDiagPath(getActiveTransportPath());
+      // Slice 12: sensor state, same screenshot (see above).
+      setDiagMotion({ ...motionStatsRef.current });
     }, 500);
     return () => window.clearInterval(id);
   }, []);
@@ -611,6 +691,26 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           }
         }
       }
+      // Slice 12: a peer's shake arrives as ONE event (kind:
+      // "shake") — render it as what it was: a radial bloom in the
+      // shaker's hue at the event's center, plus a short vibration
+      // so the room FEELS the shake, not just sees it. Only the
+      // event ever crossed the wire; the sender's raw motion data
+      // stayed on their phone. Ghost ids never originate it (the
+      // sensor hook is a local human input), and an unknown future
+      // kind falls through to the plain splat below, unharmed.
+      if (i.kind === "shake" && !isGhost) {
+        renderShakeBurst(
+          i.position.x,
+          i.position.y,
+          splatColor ?? hueDyeColor(205, 0.95)
+        );
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(60);
+        }
+        ghostRef.current.noteRemoteInteraction(i);
+        return;
+      }
       engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, splatColor, i.radiusScale ?? 1);
       if (isGhost) {
         setGhostPublicState({ sessionGhostLastSeenAt: Date.now() });
@@ -692,7 +792,8 @@ who     ${(() => {
               .join(", ");
             return `you ${snap.self ? `${snap.self.name}·${snap.self.hue}°` : "…"}${named ? ` | peers ${named}` : ""}`;
           })()}
-ambient ${diagAmbient ? `${diagAmbient.state} · ${diagAmbient.breaths} breaths · ${diagAmbient.gestures} gestures` : "…"}`}
+ambient ${diagAmbient ? `${diagAmbient.state} · ${diagAmbient.breaths} breaths · ${diagAmbient.gestures} gestures` : "…"}
+motion  ${diagMotion ? `${diagMotion.state} · tilt ${diagMotion.tiltX.toFixed(2)},${diagMotion.tiltY.toFixed(2)} · ${diagMotion.shakes} shakes` : "…"}`}
         </div>
       ) : null}
       {/* Hotfix 1.3: visible, dismissible engine-failure notice, styled
