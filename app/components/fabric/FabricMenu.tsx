@@ -14,11 +14,15 @@
  *
  *   PEOPLE — the session's humans (Slices 5 + 6): room, mode and
  *   invite, the Who's Who roster, driver passing, and the guest
- *   rules that bind a guest on the session fabric.
+ *   rules that bind a guest on the session fabric. Since Slice 21
+ *   a roster row is a door: it opens that person's profile card
+ *   (their tag, ghostie, fabric, and badges) as a sub-view here.
  *
- *   YOU — the user's own face and ghost: the identity card and
- *   LifePacket summary, the Your Ghostie door (Slice 20), the
- *   First Breath palette replay, and the standing privacy note.
+ *   YOU — the user's own face and ghost: your profile card first
+ *   (Slice 21 — what the room sees, built from the broadcast
+ *   announce itself), then the identity card and LifePacket
+ *   summary, the Your Ghostie door (Slice 20), the First Breath
+ *   palette replay, and the standing privacy note.
  *
  *   THIS LAYER — settings for the layer that is loaded, and only
  *   that layer. Stored per layer id (fabric_layer_settings_v1:
@@ -73,6 +77,7 @@ import { getJSON, setJSON } from "../../utils/storage";
 import { buildInviteUrl } from "../../utils/invite";
 import * as Clipboard from "expo-clipboard";
 import {
+  FABRIC_PET_GHOST_EVENT,
   getGhostPublicState,
   subscribeGhostState,
   type GhostPublicState,
@@ -102,6 +107,17 @@ import {
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
 import GhostieHome from "./GhostieHome";
+import ProfileCard from "./ProfileCard";
+import {
+  buildAnnounceExtras,
+  buildProfileCardData,
+  type ProfileCardData,
+} from "../../../src/identity/profile";
+import {
+  useLocalProfileExtras,
+  usePeerProfiles,
+} from "../../../src/identity/profileStore";
+import { FABRIC_VERB_EVENT } from "../../../src/sensory/verbs";
 import { layerSettingsKey } from "./LayerSettingsMirror";
 import { carrySessionRoom } from "./FabricSessionFollower";
 import {
@@ -528,6 +544,22 @@ export default function FabricMenu() {
     if (!menuOpen) setGhostHomeOpen(false);
   }, [menuOpen]);
 
+  // Profile cards (Slice 21): tapping a person in PEOPLE opens
+  // their card as a sub-view in this same sheet (same pattern as
+  // the Ghostie Home) — who they are, their ghostie and its tag,
+  // the fabric they're on, their badges, and the two touches a
+  // card may send (a heart, a pet), both through the standing
+  // gates. Closing the menu lands back on the list next open.
+  const [profilePeerId, setProfilePeerId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!menuOpen) setProfilePeerId(null);
+  }, [menuOpen]);
+
+  // The profile extras (Slice 21): this device's announce inputs
+  // (tag seed, badges, trail) and every peer's learned extras.
+  const localExtras = useLocalProfileExtras();
+  const peerProfiles = usePeerProfiles();
+
   // While I host, my recorded host fabric IS my current layer +
   // its rules — keep the store (and therefore the room) in sync
   // across layer changes and rule edits. setHostFabric dedupes,
@@ -548,6 +580,96 @@ export default function FabricMenu() {
   const identity = useIdentitySnapshot();
   const localIdentity = useLocalIdentity();
   const [nameDraft, setNameDraft] = useState<string | null>(null);
+
+  // ---- Profile cards (Slice 21) ----------------------------------
+  // The fabric line on a card is THIS client's session knowledge,
+  // never a wire claim: in a hosted session everyone present is
+  // on the room's fabric; in an open room a peer's own fabric is
+  // theirs (stated honestly), while your own card can name the
+  // fabric you are actually standing on.
+  const fabricNameFor = (layerId: string | null): string | null =>
+    layerId
+      ? (state.availableExperiences.find((e) => e.id === layerId)?.name ??
+        null)
+      : null;
+  const fabricLineFor = (pid: string): string => {
+    if (session.role !== "open" && fabric.layerId) {
+      const name = fabricNameFor(fabric.layerId);
+      return name
+        ? `On ${name} — this room's fabric`
+        : "On this room's fabric";
+    }
+    if (pid === session.selfId) {
+      return state.activeExperience
+        ? `On ${state.activeExperience.name} — the fabric you're standing on`
+        : "On your own fabric";
+    }
+    return "On their own fabric";
+  };
+  const roleLineFor = (pid: string): string | null => {
+    if (pid === session.selfId) {
+      return session.role === "host"
+        ? "You · host of this room"
+        : session.driverId === pid
+          ? "You · driving"
+          : "You";
+    }
+    if (pid === session.hostId) return "Host of this room";
+    if (pid === session.driverId) return "Driving";
+    return session.hostId ? "Guest" : "Here";
+  };
+
+  // Your own card, built from the EXACT announce payload this
+  // device broadcasts: the transport builds its peer-announce
+  // from buildAnnounceExtras over these same sources (identity,
+  // ghost public state, local profile extras), and this card is
+  // parsed back out of that payload — so the face in YOU is the
+  // face the room receives, field for field.
+  const ownAnnounce = identity.self
+    ? {
+        type: "peer-announce" as const,
+        from: session.selfId,
+        name: identity.self.name,
+        hue: identity.self.hue,
+        ...buildAnnounceExtras({
+          ghostSeed: localExtras.ghostSeed,
+          identitySeed: identity.self.seed,
+          ghostName: ghost.ghostName,
+          temperament: ghost.temperament,
+          badges: localExtras.badges,
+          trail: localExtras.trail,
+        }),
+      }
+    : null;
+  const ownCardData: ProfileCardData | null = ownAnnounce
+    ? buildProfileCardData({
+        peerId: session.selfId,
+        isSelf: true,
+        name: ownAnnounce.name,
+        hue: ownAnnounce.hue,
+        extras: ownAnnounce,
+        fabricLine: fabricLineFor(session.selfId),
+        roleLine: roleLineFor(session.selfId),
+      })
+    : null;
+
+  // The open peer's card, from the stores' current truth (so it
+  // stays live while open — a temperament drift or a badge
+  // landing re-renders it, like everything else in this menu).
+  const openPeerCardData: ProfileCardData | null =
+    profilePeerId && profilePeerId !== session.selfId
+      ? buildProfileCardData({
+          peerId: profilePeerId,
+          isSelf: false,
+          name: identity.peers[profilePeerId]?.name ?? "",
+          hue: identity.peers[profilePeerId]?.hue ?? null,
+          extras: peerProfiles[profilePeerId] ?? null,
+          fabricLine: fabricLineFor(profilePeerId),
+          roleLine: roleLineFor(profilePeerId),
+        })
+      : profilePeerId
+        ? ownCardData
+        : null;
 
   // ---- Studio compositions (Slice 8) ------------------------------
   // The real saved-compositions store: the share-live rows in the
@@ -1165,6 +1287,101 @@ export default function FabricMenu() {
               setGhostHomeOpen(false);
             }}
           />
+        ) : profilePeerId ? (
+          <View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginTop: spacing.sm,
+                marginBottom: spacing.sm,
+              }}
+            >
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => {
+                  noteActivity();
+                  setProfilePeerId(null);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Back to menu"
+                style={({ pressed }) => ({
+                  paddingVertical: 8,
+                  paddingHorizontal: 10,
+                  borderRadius: radius.card,
+                  borderWidth: 1,
+                  borderColor: colors.line,
+                  backgroundColor: pressed ? colors.accentDim : "transparent",
+                  marginRight: spacing.sm,
+                })}
+              >
+                <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+                  ← Menu
+                </Text>
+              </Pressable>
+              <Text style={{ color: colors.text, fontSize: typeScale.title, fontWeight: "700" }}>
+                {profilePeerId === session.selfId
+                  ? "Your card"
+                  : "Profile card"}
+              </Text>
+            </View>
+            {openPeerCardData ? (
+              <ProfileCard
+                data={openPeerCardData}
+                ghostPresenceLine={
+                  profilePeerId === session.selfId
+                    ? ghost.ghostName
+                      ? `${ghost.temperament ? `${ghost.temperament} · ` : ""}${ghost.presence}${ghost.otherGhostCount > 0 ? ` · ${ghost.otherGhostCount} other ghostie${ghost.otherGhostCount === 1 ? "" : "s"} in the room` : ""}`
+                      : null
+                    : null
+                }
+                actions={
+                  profilePeerId === session.selfId || !session.inputEnabled
+                    ? // Own card needs no buttons; an audience
+                      // member's buttons would be dead ones, so
+                      // they don't render — the note below the
+                      // card says why instead.
+                      null
+                    : {
+                          onSendHeart: () => {
+                            noteActivity();
+                            if (typeof window !== "undefined") {
+                              window.dispatchEvent(
+                                new CustomEvent(FABRIC_VERB_EVENT, {
+                                  detail: "heart",
+                                })
+                              );
+                            }
+                          },
+                          onPetGhost: openPeerCardData.ghost
+                            ? () => {
+                                noteActivity();
+                                if (typeof window !== "undefined") {
+                                  window.dispatchEvent(
+                                    new CustomEvent(FABRIC_PET_GHOST_EVENT, {
+                                      detail: profilePeerId,
+                                    })
+                                  );
+                                }
+                              }
+                            : null,
+                          note: "Hearts and pets travel like touches — this room's mode, the fabric's rules, and their own settings decide what lands. A pet lands on the fluid canvas, where their ghostie roams.",
+                        }
+                }
+              />
+            ) : (
+              <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+                Their card hasn't landed yet.
+              </Text>
+            )}
+            {profilePeerId !== session.selfId && !session.inputEnabled ? (
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                No actions on this card while you're audience in this
+                room — your hearts and pets stay home, like every
+                touch, until the room's mode lets you send.
+              </Text>
+            ) : null}
+          </View>
         ) : (
           <>
         {/* ---------------- FABRICS (Slice 19) ---------------- */}
@@ -1445,10 +1662,37 @@ export default function FabricMenu() {
                       : session.hostId
                         ? "guest"
                         : "here";
+                // Slice 21: a roster row is a door — tap a person
+                // (or their ghostie's line) and their profile card
+                // opens. The ghostie sub-line rides the announce
+                // extras; a peer whose extras haven't landed shows
+                // the name row alone, exactly as before.
+                const peerGhost = isSelf
+                  ? ghost.ghostName
+                    ? {
+                        name: ghost.ghostName,
+                        temperament: ghost.temperament,
+                      }
+                    : null
+                  : (peerProfiles[pid]?.ghost ?? null);
                 return (
-                  <View
+                  <Pressable
                     key={pid}
-                    style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                    pointerEvents="auto"
+                    onPress={() => {
+                      noteActivity();
+                      setProfilePeerId(pid);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${isSelf ? "your" : `${displayNameFor(pid, session.selfId)}'s`} profile card`}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: spacing.sm,
+                      paddingVertical: 3,
+                      borderRadius: radius.card,
+                      backgroundColor: pressed ? colors.accentDim : "transparent",
+                    })}
                   >
                     <View
                       style={{
@@ -1459,21 +1703,32 @@ export default function FabricMenu() {
                           typeof hue === "number" ? hueCss(hue) : colors.textDim,
                       }}
                     />
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: typeScale.body,
-                        fontWeight: isSelf ? "700" : "400",
-                      }}
-                    >
-                      {isSelf
-                        ? (identity.self?.name ?? "you")
-                        : displayNameFor(pid, session.selfId)}
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: colors.text,
+                          fontSize: typeScale.body,
+                          fontWeight: isSelf ? "700" : "400",
+                        }}
+                      >
+                        {isSelf
+                          ? (identity.self?.name ?? "you")
+                          : displayNameFor(pid, session.selfId)}
+                      </Text>
+                      {peerGhost ? (
+                        <Text style={{ color: colors.ghost, fontSize: typeScale.caption }}>
+                          👻 {peerGhost.name}
+                          {peerGhost.temperament
+                            ? ` · ${peerGhost.temperament}`
+                            : ""}{" "}
+                          — tap for their card
+                        </Text>
+                      ) : null}
+                    </View>
                     <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
                       {tag}
                     </Text>
-                  </View>
+                  </Pressable>
                 );
               }
             )}
@@ -1760,6 +2015,35 @@ export default function FabricMenu() {
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
           Yours, on this device — the same on every layer.
         </Text>
+
+        {/* Your profile card (Slice 21) — what the room sees when
+            it looks at you: built from the exact announce payload
+            this device broadcasts, so the face here IS the face
+            out there. The editing surface stays the card below;
+            this one is the mirror. */}
+        {ownCardData ? (
+          <>
+            <Text
+              style={{
+                color: colors.accent,
+                fontSize: typeScale.caption,
+                fontWeight: "700",
+                letterSpacing: 1,
+                marginBottom: spacing.xs,
+              }}
+            >
+              THIS IS WHAT THE ROOM SEES
+            </Text>
+            <ProfileCard
+              data={ownCardData}
+              ghostPresenceLine={
+                ghost.ghostName
+                  ? `${ghost.temperament ? `${ghost.temperament} · ` : ""}${ghost.presence}${ghost.otherGhostCount > 0 ? ` · ${ghost.otherGhostCount} other ghostie${ghost.otherGhostCount === 1 ? "" : "s"} in the room` : ""}`
+                  : null
+              }
+            />
+          </>
+        ) : null}
 
         {/* You (Slice 6) — the human LifePacket v0: the name and
             signature hue the room sees and hears. Your color tints

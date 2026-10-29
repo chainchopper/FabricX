@@ -89,6 +89,19 @@ export const FABRIC_GHOST_TOGGLE_EVENT = "fabric:ghost-toggle";
 /** Window event HUD -> canvas: detail is "summon" | "dismiss". */
 export const FABRIC_GHOST_SESSION_EVENT = "fabric:ghost-session";
 
+/**
+ * Window event chrome -> canvas (Slice 21): detail is the ghostie's
+ * primary's userId — a request to pet THAT ghostie from a profile
+ * card. The canvas (LegacyFluid) answers through the ordinary pet
+ * path: gentle strokes at the ghost's last-sensed position, sent
+ * through the send funnel like any hand stroke, so the mode gate,
+ * the fabric rules, and the owner's own accept-pets setting all
+ * decide what lands. No listener (the fluid isn't the live
+ * canvas) or no sensed position means nothing happens — a pet is
+ * a touch, and a touch needs somewhere real to land.
+ */
+export const FABRIC_PET_GHOST_EVENT = "fabric:pet-ghost";
+
 const state: GhostPublicState = {
   enabled: true,
   layerEnabled: true,
