@@ -70,10 +70,9 @@ import {
 import {
   FDNA_COLS,
   FDNA_ROWS,
-  countLiveCells,
+  createFdnaLineage,
   deriveFdnaTag,
-  seedFdnaGrid,
-  stepFdnaGrid,
+  type FdnaLineage,
 } from "../../../src/identity/fdna";
 import {
   essenceBehaviorFor,
@@ -231,7 +230,7 @@ export default function Essence() {
   const hostRef = useRef<View | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const gridRef = useRef<Uint8Array | null>(null);
-  const genRef = useRef(0);
+  const lineageRef = useRef<FdnaLineage | null>(null);
   const glowRef = useRef<Float32Array>(
     new Float32Array(FDNA_COLS * FDNA_ROWS)
   );
@@ -301,14 +300,20 @@ export default function Essence() {
     };
   }, []);
 
-  // Seed / re-seed the sim (the Home's own pattern: a burned-out
-  // lineage re-seeds from the root seed + generation).
+  // Seed the sim: the module's lineage owns the life (the Home
+  // runs the same one) — it renews a burned-out lineage from the
+  // identity's next derivation, so the emblem never settles into
+  // a repeating loop. (This surface used to reseed only on total
+  // extinction, which most lineages never reach — they freeze or
+  // blink first.) gridRef mirrors the lineage's current grid for
+  // the draw loop.
   useEffect(() => {
     if (typeof seed !== "number") return;
-    gridRef.current = seedFdnaGrid(seed);
-    genRef.current = 0;
+    const lineage = createFdnaLineage(seed);
+    lineageRef.current = lineage;
+    gridRef.current = lineage.grid;
     const glow = glowRef.current;
-    const grid = gridRef.current;
+    const grid = lineage.grid;
     for (let i = 0; i < glow.length; i++) glow[i] = grid[i] ? 1 : 0;
     drawRef.current();
   }, [seed]);
@@ -324,15 +329,9 @@ export default function Essence() {
     if (covered) return;
     const id = window.setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
-      const cur = gridRef.current;
-      if (!cur) return;
-      let next = stepFdnaGrid(cur);
-      genRef.current += 1;
-      if (countLiveCells(next) === 0) {
-        next = seedFdnaGrid(
-          (seed ^ Math.imul(genRef.current, 0x9e3779b9)) | 0
-        );
-      }
+      const lineage = lineageRef.current;
+      if (!lineage) return;
+      const next = lineage.step().grid;
       gridRef.current = next;
       const glow = glowRef.current;
       for (let i = 0; i < glow.length; i++) {

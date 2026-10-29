@@ -72,10 +72,9 @@ import { useIdentitySnapshot } from "../../../src/identity/useIdentity";
 import { hueCss } from "../../../src/identity/identityStore";
 import {
   FDNA_COLS,
-  countLiveCells,
+  createFdnaLineage,
   deriveFdnaTag,
-  seedFdnaGrid,
-  stepFdnaGrid,
+  type FdnaLineage,
 } from "../../../src/identity/fdna";
 import {
   FABRIC_GHOST_SESSION_EVENT,
@@ -254,36 +253,31 @@ export default function GhostieHome({
   const ghostName = ghost.ghostName ?? "your ghostie";
 
   /* ---------------- fDNA: the living grid ---------------- */
-  // The card's exact life, at Home scale: generation counts steps;
-  // a burned-out lineage re-seeds from the root + generation.
+  // The card's exact life, at Home scale, performed by the
+  // module's lineage (src/identity/fdna): generation counts steps
+  // across derivations, and when a lineage burns out — extinct OR
+  // settled into a repeating loop — the module renews it from the
+  // identity's next derivation, so the grid never freezes into a
+  // GIF. (Renewal used to live here and fired only on extinction;
+  // most lineages never go extinct — they freeze or blink first.)
   const seed = self?.seed;
-  const gridRef = useRef<Uint8Array | null>(null);
-  const genRef = useRef(0);
+  const lineageRef = useRef<FdnaLineage | null>(null);
   const [grid, setGrid] = useState<Uint8Array | null>(null);
   const [generation, setGeneration] = useState(0);
   const [gridWidth, setGridWidth] = useState(0);
 
   useEffect(() => {
     if (seed == null) return;
-    gridRef.current = seedFdnaGrid(seed);
-    genRef.current = 0;
+    const lineage = createFdnaLineage(seed);
+    lineageRef.current = lineage;
     setGeneration(0);
-    setGrid(gridRef.current);
+    setGrid(lineage.grid);
     const id = setInterval(() => {
       // A hidden tab's DNA holds still — no churn nobody can see.
       if (typeof document !== "undefined" && document.hidden) return;
-      const cur = gridRef.current;
-      if (!cur) return;
-      let next = stepFdnaGrid(cur);
-      genRef.current += 1;
-      if (countLiveCells(next) === 0) {
-        next = seedFdnaGrid(
-          (seed ^ Math.imul(genRef.current, 0x9e3779b9)) | 0
-        );
-      }
-      gridRef.current = next;
-      setGeneration(genRef.current);
-      setGrid(next);
+      const r = lineage.step();
+      setGeneration(r.generation);
+      setGrid(r.grid);
     }, GRID_STEP_MS);
     return () => clearInterval(id);
   }, [seed]);
