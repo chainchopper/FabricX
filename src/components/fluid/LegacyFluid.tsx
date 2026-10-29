@@ -59,7 +59,15 @@ import {
   setGhostPublicState,
   getGhostPublicState,
   FABRIC_PET_GHOST_EVENT,
+  FABRIC_WARM_WELCOME_EVENT,
 } from "../../ghost/ghostStore";
+import {
+  getRewardsSnapshot,
+  recordAgentAnswer,
+  recordHeartSent,
+  recordPetGiven,
+} from "../../rewards/rewardsStore";
+import { getPeerProfileExtras } from "../../identity/profileStore";
 import {
   getSignalingService,
   type SignalingConnectionState,
@@ -452,6 +460,106 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     Map<string, { count: number; start: number; lastCue: number }>
   >(new Map());
 
+  /**
+   * Slice 24: the Signature Heart motif (double-ring) — drawn
+   * around a heart's landing point when its SENDER has the
+   * motif equipped. Two concentric rings of small splats in the
+   * heart's own color: a signature, not a bigger heart.
+   */
+  const renderSignatureHeartRing = (
+    engine: LegacyFluidEngine,
+    x: number,
+    y: number,
+    color: { r: number; g: number; b: number }
+  ) => {
+    for (const ringR of [0.034, 0.054]) {
+      const n = 8;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        engine.splatAt(
+          x + Math.cos(a) * ringR,
+          y + Math.sin(a) * ringR,
+          Math.cos(a) * 24,
+          Math.sin(a) * 24,
+          color,
+          0.5
+        );
+      }
+    }
+  };
+
+  /**
+   * Slice 24: an equipped trail renders on a ghost's movement —
+   * for the local ghost from this device's rewards record, for a
+   * visiting ghost from its owner's announce (Slice 21's trail
+   * field). Pure rendering: extra fading splats behind the
+   * ghost's own, in the ghost's own color. The ghost's budget
+   * paid for its movement; the trail is how that movement LOOKS
+   * here, and costs the ghost nothing — expression, not volume.
+   */
+  const renderGhostTrail = (
+    engine: LegacyFluidEngine,
+    ghostUserId: string,
+    i: FluidInteraction,
+    prev: { x: number; y: number } | undefined
+  ) => {
+    const owner = ghostUserId.startsWith("ghost:")
+      ? ghostUserId.slice("ghost:".length)
+      : ghostUserId;
+    const style =
+      owner === userId
+        ? getRewardsSnapshot().equipped.trail
+        : (getPeerProfileExtras(owner)?.trail ?? null);
+    if (!style || !i.color) return;
+    const { x, y } = i.position;
+    const color = i.color;
+    if (style === "ribbon") {
+      if (!prev) return;
+      for (let k = 1; k <= 3; k++) {
+        const t = k / 4;
+        engine.splatAt(
+          prev.x + (x - prev.x) * t,
+          prev.y + (y - prev.y) * t,
+          0,
+          0,
+          color,
+          0.8 - k * 0.18
+        );
+      }
+    } else if (style === "sparkle") {
+      for (let k = 0; k < 4; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 0.012 + Math.random() * 0.02;
+        engine.splatAt(x + Math.cos(a) * r, y + Math.sin(a) * r, 0, -12, color, 0.4);
+      }
+    } else if (style === "petals") {
+      for (let k = 0; k < 3; k++) {
+        engine.splatAt(
+          x + (Math.random() - 0.5) * 0.03,
+          y + 0.014 + k * 0.012,
+          6 * (Math.random() - 0.5),
+          10,
+          color,
+          0.9 - k * 0.2
+        );
+      }
+    } else if (style === "comet") {
+      if (!prev) return;
+      const dx = x - prev.x;
+      const dy = y - prev.y;
+      for (let k = 1; k <= 4; k++) {
+        engine.splatAt(x - dx * k * 0.55, y - dy * k * 0.55, 0, 0, color, 0.85 - k * 0.16);
+      }
+    }
+  };
+
+  /** Slice 24: the Second Voice applies to MY ghost on MY device. */
+  const sfxVoiceFor = (ghostUserId: string): "standard" | "second" =>
+    ghostUserId === ghostPeerIdFor(userId) &&
+    getRewardsSnapshot().equipped.voice
+      ? "second"
+      : "standard";
+
   const playVerbEffects = (verb: SensoryVerb, withSplat: boolean) => {
     if (withSplat) {
       const engine = engineRef.current;
@@ -459,6 +567,14 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         // A small two-way burst in the verb's color at canvas center.
         engine.splatAt(0.5, 0.5, 140, 70, verb.color);
         engine.splatAt(0.5, 0.5, -140, -50, verb.color);
+        // Slice 24: my own hearts wear my Signature Heart motif
+        // when I've earned and equipped it.
+        if (
+          verb.id === "heart" &&
+          getRewardsSnapshot().equipped.heartMotif === "double-ring"
+        ) {
+          renderSignatureHeartRing(engine, 0.5, 0.5, verb.color);
+        }
       }
     }
     if (typeof navigator !== "undefined" && navigator.vibrate) {
@@ -550,6 +666,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
    */
   const handleGhostRenderFx = (i: FluidInteraction) => {
     const hue = ghostHueRef.current.get(i.userId) ?? 28;
+    // Slice 24: the acting ghost's voice on this device — the
+    // Second Voice power-up applies to my own ghost, here only.
+    const voice = sfxVoiceFor(i.userId);
     if (!i.verb) {
       if (i.color) {
         ghostHueRef.current.set(i.userId, hueFromColor(i.color));
@@ -562,14 +681,20 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           const dx = pos.x - i.position.x;
           const dy = pos.y - i.position.y;
           if (dx * dx + dy * dy < 0.07 * 0.07) {
-            sfxRef.current.play("sniff", hue, { distance: 0.3 });
+            sfxRef.current.play("sniff", hue, { distance: 0.3, voice });
           }
         });
       }
+      const prevGhostPos = ghostPosRef.current.get(i.userId);
       ghostPosRef.current.set(i.userId, {
         x: i.position.x,
         y: i.position.y,
       });
+      // Slice 24: the ghost's equipped trail, rendered behind its
+      // movement (see renderGhostTrail — rendering only).
+      if (engineRef.current) {
+        renderGhostTrail(engineRef.current, i.userId, i, prevGhostPos);
+      }
       // Play/chase onset: a burst of splats after quiet reads as play.
       const now = Date.now();
       const burst = ghostBurstRef.current.get(i.userId) ?? {
@@ -584,7 +709,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       burst.count += 1;
       if (burst.count === 4 && now - burst.lastCue > 4_000) {
         burst.lastCue = now;
-        sfxRef.current.play("play", hue, { distance: 0.3 });
+        sfxRef.current.play("play", hue, { distance: 0.3, voice });
       }
       ghostBurstRef.current.set(i.userId, burst);
       return;
@@ -598,13 +723,13 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       navigator.vibrate(verb.vibration);
     }
     if (verb.id === "purr") {
-      sfxRef.current.startPurr(hue);
+      sfxRef.current.startPurr(hue, voice);
     } else if (verb.id === "heart") {
-      sfxRef.current.play("heart", hue);
+      sfxRef.current.play("heart", hue, { voice });
     } else if (verb.id === "cheer") {
-      sfxRef.current.play("play", hue);
+      sfxRef.current.play("play", hue, { voice });
     } else if (verb.id === "tickle") {
-      sfxRef.current.play("mirror", hue);
+      sfxRef.current.play("mirror", hue, { voice });
     }
   };
 
@@ -645,6 +770,18 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       const full = sendRef.current(interaction, undefined, { batch: true });
       // Slice 7: a real local touch — the ambient driver stands down.
       markActivity();
+      // Slice 24 (Pet Whisperer): a stroke landing on a sensed
+      // OTHER ghostie is a pet given, counted by ghostie. The
+      // owner's own GhostPeer decides separately whether it
+      // LANDS as one (its courtesy gates) — this counter is the
+      // petter's truth: my hand, their ghostie. The sniff
+      // heuristic's radius is the touch radius.
+      ghostPosRef.current.forEach((pos, gid) => {
+        if (gid === ghostPeerIdFor(userId)) return;
+        const dx = pos.x - full.position.x;
+        const dy = pos.y - full.position.y;
+        if (dx * dx + dy * dy < 0.07 * 0.07) recordPetGiven(gid);
+      });
       // Feed the local user's touch to the ghost brain (it mirrors,
       // answers rhythms, notices petting, startles, sleeps/wakes).
       ghostRef.current.noteLocalInteraction(full);
@@ -706,6 +843,21 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       sendRef.current(verbInteraction(verb));
       playVerbEffects(verb, true);
       ghostRef.current.noteUserActivity();
+      // Slice 24 (Heartfelt): a heart that actually LEAVES this
+      // device (the session mode gate lets it send) toward the
+      // humans present counts toward the badge — one per
+      // recipient per minute, deduped in the rewards reducer, so
+      // leaning on the button earns nothing extra. Composed
+      // pattern hearts (dispatchStep) are performances, not
+      // hand-sent hearts, and never arrive here.
+      if (verb.id === "heart" && sessionRef.current.canSend) {
+        const s = getSessionPublicState();
+        const recipients = [
+          ...s.guestIds,
+          ...(s.hostId && s.hostId !== userId ? [s.hostId] : []),
+        ].filter((id) => id !== userId);
+        recordHeartSent(recipients, userId);
+      }
     };
     window.addEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
     return () => window.removeEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
@@ -758,10 +910,32 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         );
         ghostRef.current.noteLocalInteraction(full);
       }
+      // Slice 24 (Pet Whisperer): the pet was given — count the
+      // ghostie (distinctness is the badge; the reducer keeps
+      // the set).
+      recordPetGiven(ghostPeerIdFor(ownerId));
       ghostRef.current.noteUserActivity();
     };
     window.addEventListener(FABRIC_PET_GHOST_EVENT, onPetGhost as EventListener);
     return () => window.removeEventListener(FABRIC_PET_GHOST_EVENT, onPetGhost as EventListener);
+  }, []);
+
+  // Slice 24: Warm Welcome. The rewards feed dispatches
+  // FABRIC_WARM_WELCOME_EVENT when a guest joins this client's
+  // hosted session and the power-up is earned; the answer is the
+  // ghost's own warmWelcome — a greeting that spends from its
+  // ordinary emit budget and simply doesn't happen when the
+  // budget (or the ghost) can't pay. The verb is the primary's
+  // chosen greeting, carried in the event detail.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onWarmWelcome = (ev: Event) => {
+      const verb = (ev as CustomEvent<string>).detail;
+      if (verb !== "heart" && verb !== "cheer" && verb !== "tickle") return;
+      ghostRef.current.warmWelcome(verb);
+    };
+    window.addEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
+    return () => window.removeEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
   }, []);
 
   // ---- Pattern composer (Slice 4) --------------------------------------
@@ -856,6 +1030,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         ) {
           const bpm = ghostRef.current.answerHeartbeat();
           if (bpm !== null) {
+            // Slice 24 (Pattern Mind): an answer was performed.
+            recordAgentAnswer();
             window.dispatchEvent(
               new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
                 detail: "ghost",
@@ -885,6 +1061,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         if (verbAsk) {
           const performed = ghostRef.current.answerVerb(verbAsk);
           if (performed) {
+            // Slice 24 (Pattern Mind): an answer was performed.
+            recordAgentAnswer();
             window.dispatchEvent(
               new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
                 detail: "ghost",
@@ -920,6 +1098,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           );
           publishState(null);
         } else if (result.kind === "recipe") {
+          // Slice 24 (Pattern Mind): an answer was performed.
+          recordAgentAnswer();
           window.dispatchEvent(
             new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
               detail: result.recipe.source,
@@ -930,6 +1110,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
             defaultHue: getIdentitySnapshot().self?.hue,
           });
         } else {
+          // Slice 24 (Pattern Mind): an answer was performed.
+          recordAgentAnswer();
           window.dispatchEvent(
             new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
               detail: result.pattern.source,
@@ -1064,6 +1246,15 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         return;
       }
       engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, splatColor, i.radiusScale ?? 1);
+      // Slice 24: a remote human's heart wears THEIR Signature
+      // Heart motif when their announce says they've equipped it
+      // — the ring is drawn here, on the receiving canvas, keyed
+      // on the sender the verb event already carries.
+      if (!isGhost && i.verb === "heart" && splatColor) {
+        if (getPeerProfileExtras(i.userId)?.motif === "double-ring") {
+          renderSignatureHeartRing(engine, i.position.x, i.position.y, splatColor);
+        }
+      }
       if (isGhost) {
         setGhostPublicState({ sessionGhostLastSeenAt: Date.now() });
         // Other ghosts feed the brain's social perception; the brain

@@ -39,6 +39,7 @@
  */
 
 import { getJSON, setJSON } from "../../app/utils/storage";
+import { recordCompositionSaved } from "../rewards/rewardsStore";
 import {
   validatePattern,
   type Pattern,
@@ -240,6 +241,8 @@ export async function saveComposition(input: {
   items = [record, ...items].slice(0, MAX_COMPOSITIONS);
   persist();
   emit();
+  // Slice 24 (Composer): a save that landed is a badge fact.
+  recordCompositionSaved();
   return record;
 }
 
@@ -273,6 +276,8 @@ export async function saveRecipeComposition(input: {
   items = [record, ...items].slice(0, MAX_COMPOSITIONS);
   persist();
   emit();
+  // Slice 24 (Composer): a recipe saved is a composition saved.
+  recordCompositionSaved();
   return record;
 }
 

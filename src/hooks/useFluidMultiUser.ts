@@ -117,6 +117,8 @@ type TransportMsg =
       ghost?: { name: string; temperament?: string };
       badges?: string[];
       trail?: string;
+      /** Slice 24: the sender's equipped Signature Heart motif. */
+      motif?: string;
     }
   | { type: "peer-request"; from?: string }
   // Hotfix 1.7: discrete musical notes. Fluid interactions carry
@@ -497,6 +499,10 @@ export function useFluidMultiUser(roomId: string) {
       ghostHue: ghost.ghostHue,
       badges: local.badges,
       trail: local.trail,
+      // Slice 24: the equipped Signature Heart motif — earned
+      // badges now actually arrive here, because the local extras
+      // republish from the live rewards store (profileStore).
+      heartMotif: local.motif,
       // Slice 22: the ghostie's card facts — the primary's
       // published permissions + (only when public) personality
       // from the local extras, and the vitals readings this

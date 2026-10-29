@@ -55,7 +55,7 @@ import {
 import { GhostiePortrait } from "./IdCards";
 
 /** Drawn badge marks — plain Views, no emoji (UI doctrine). */
-function BadgeGlyphMark({
+export function BadgeGlyphMark({
   glyph,
   color,
 }: {

@@ -123,6 +123,19 @@ export const FABRIC_GHOST_SESSION_EVENT = "fabric:ghost-session";
  */
 export const FABRIC_PET_GHOST_EVENT = "fabric:pet-ghost";
 
+/**
+ * Window event chrome -> canvas (Slice 24): a guest just joined
+ * THIS client's hosted session and the host has earned the Warm
+ * Welcome power-up. Detail is the greeting verb id the primary
+ * chose ("heart" | "cheer" | "tickle"). The canvas answers by
+ * asking its ghost to greet via GhostPeer.warmWelcome — which
+ * spends from the ghost's ordinary emit budget and refuses when
+ * the budget (or the ghost's presence) can't pay. No listener
+ * (the fluid isn't the live canvas) means no greeting: the
+ * ghost isn't on that canvas to give one.
+ */
+export const FABRIC_WARM_WELCOME_EVENT = "fabric:warm-welcome";
+
 const state: GhostPublicState = {
   enabled: true,
   layerEnabled: true,

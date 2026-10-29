@@ -614,6 +614,14 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     []
   );
 
+  /** Slice 24: the Warm Welcome greeting (budget-spending). */
+  const warmWelcome = useCallback(
+    (verbId: GhostVerbAskId): boolean => {
+      return peerRef.current?.warmWelcome(verbId) ?? false;
+    },
+    []
+  );
+
   /**
    * Slice 21: where another ghost was last sensed on this canvas
    * (the profile card's pet aim). Null when unseen or stale.
@@ -633,6 +641,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteUserActivity,
     answerHeartbeat,
     answerVerb,
+    warmWelcome,
     otherGhostPosition,
   };
 }

@@ -84,6 +84,12 @@ export interface PeerProfileExtras {
   badges?: string[];
   /** Equipped ghostie trail style id (rewards design), if any. */
   trail?: string;
+  /**
+   * Equipped Signature Heart motif id (Slice 24, "double-ring").
+   * The verb event already carries its sender; this field is how
+   * a receiving client knows that sender's hearts wear the motif.
+   */
+  motif?: string;
   /** The ghostie's ID-card facts (Slice 22) — see GhostCardExtras. */
   ghostCard?: GhostCardExtras;
 }
@@ -216,6 +222,9 @@ export function sanitizePeerExtras(raw: unknown): PeerProfileExtras {
   if (typeof src.trail === "string" && BADGE_ID_PATTERN.test(src.trail)) {
     out.trail = src.trail;
   }
+  if (typeof src.motif === "string" && BADGE_ID_PATTERN.test(src.motif)) {
+    out.motif = src.motif;
+  }
   const ghostCard = sanitizeGhostCard(src.ghostCard);
   if (ghostCard) out.ghostCard = ghostCard;
   return out;
@@ -227,6 +236,7 @@ export function hasPeerExtras(extras: PeerProfileExtras): boolean {
       extras.ghost ||
       extras.badges?.length ||
       extras.trail ||
+      extras.motif ||
       extras.ghostCard
   );
 }
@@ -243,6 +253,8 @@ export interface AnnounceExtrasInputs {
   ghostHue?: number | null;
   badges: readonly string[];
   trail: string | null;
+  /** Equipped Signature Heart motif id (Slice 24), if any. */
+  heartMotif?: string | null;
   /**
    * The ghostie's card facts (Slice 22): the primary's published
    * permissions, their Personality text (included ONLY when they
@@ -287,6 +299,9 @@ export function buildAnnounceExtras(
   if (badges.length > 0) extras.badges = badges;
   if (input.trail && BADGE_ID_PATTERN.test(input.trail)) {
     extras.trail = input.trail;
+  }
+  if (input.heartMotif && BADGE_ID_PATTERN.test(input.heartMotif)) {
+    extras.motif = input.heartMotif;
   }
   if (input.ghostCard) {
     const { permissions, personality, vitals } = input.ghostCard;

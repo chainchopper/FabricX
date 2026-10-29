@@ -82,6 +82,10 @@ import {
 } from "../ghost/ghostStore";
 import { deriveGhostIdentity, GHOST_PREF_KEY } from "../ghost/useGhostPeer";
 import { getJSON } from "../../app/utils/storage";
+import {
+  recordStagePresence,
+  useRewards,
+} from "../rewards/rewardsStore";
 
 interface GhostFace {
   name: string;
@@ -238,6 +242,26 @@ export default function DancerStage({
     return off;
   }, [userId, getDriver]);
 
+  // Slice 24 (Stage Presence): a cast of three or more is a
+  // crowd, and dancing in one is the badge's fact. Reported on
+  // the cast-size edge only — the reducer counts presences, and
+  // a cast that merely re-renders is not a new one.
+  const crowdReportedRef = useRef(false);
+  useEffect(() => {
+    if (cast.length >= 3) {
+      if (!crowdReportedRef.current) {
+        crowdReportedRef.current = true;
+        recordStagePresence(cast.length);
+      }
+    } else {
+      crowdReportedRef.current = false;
+    }
+  }, [cast.length]);
+
+  // Slice 24 (Stage Aura): the local rig wears the aura when its
+  // primary earned Stage Presence and equipped it.
+  const rewards = useRewards();
+
   const rigs = useMemo<StageRigSpec[]>(() => {
     const layout = new Map(layoutCast(cast).map((l) => [l.id, l]));
     return cast.map((p) => {
@@ -251,9 +275,10 @@ export default function DancerStage({
         label: p.name,
         isLocal: p.isLocal,
         style: p.isLocal ? localStyle : NEUTRAL_STYLE,
+        aura: p.isLocal && rewards.equipped.aura,
       };
     });
-  }, [cast, getDriver, localStyle]);
+  }, [cast, getDriver, localStyle, rewards.equipped.aura]);
 
   // Sampled piano voice, same lazy pack load as the piano layer.
   useEffect(() => {

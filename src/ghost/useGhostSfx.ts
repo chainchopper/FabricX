@@ -55,6 +55,45 @@ export interface GhostSfxPlayOptions {
    * (0 = right here). Distant ghosts stay silent (except hearts).
    */
   distance?: number;
+  /**
+   * Timbre variant (Slice 24, the Second Voice power-up): the
+   * SAME cue map heard through a different voice — a fourth up,
+   * sine and triangle swapped. Same state-bound rules, same
+   * limiter, same gain ceiling: a power-up changes how the ghost
+   * sounds, never how often or how loud. Callers pass it only
+   * for the LOCAL ghost when its primary has it equipped; remote
+   * ghosts keep their standard voice on this client (their
+   * equip state is theirs — the trail rides the announce, the
+   * voice is a home-device pleasure for now).
+   */
+  voice?: GhostVoiceVariant;
+}
+
+export type GhostVoiceVariant = "standard" | "second";
+
+/**
+ * A cue map in a given voice. Pure, so the check can prove the
+ * second voice is a TIMBRE change only: same cue count, same
+ * delays, gains untouched — ratios shifted a musical fourth
+ * (×4/3) and the two soft waveforms traded places.
+ */
+export function cueSpecsFor(
+  kind: GhostSfxKind,
+  voice: GhostVoiceVariant
+): ToneSpec[] {
+  const base = CUES[kind];
+  if (voice === "standard") return base;
+  return base.map((spec) => ({
+    ...spec,
+    ratio: spec.ratio * (4 / 3),
+    ratioEnd: spec.ratioEnd ? spec.ratioEnd * (4 / 3) : undefined,
+    type:
+      spec.type === "triangle"
+        ? "sine"
+        : spec.type === "sine"
+          ? "triangle"
+          : spec.type,
+  }));
 }
 
 const MASTER_GAIN = 0.024; // below useAudioCues' levels — ghosts whisper
@@ -143,6 +182,12 @@ interface PurrVoice {
   lfo: OscillatorNode;
   stopAt: number;
   hue: number;
+  voice: GhostVoiceVariant;
+}
+
+/** The purr's pitch factor for a voice (Second Voice sits a fourth up). */
+function purrBaseFactor(voice: GhostVoiceVariant): number {
+  return voice === "second" ? 0.5 * (4 / 3) : 0.5;
 }
 
 export function useGhostSfx() {
@@ -205,7 +250,7 @@ export function useGhostSfx() {
 
       const base = ghostBaseFreq(hue);
       const start = ctx.currentTime;
-      CUES[kind].forEach((spec) => {
+      cueSpecsFor(kind, opts?.voice ?? "standard").forEach((spec) => {
         const t0 = start + (spec.delayMs ?? 0) / 1000;
         const dur = spec.durMs / 1000;
         const osc = ctx.createOscillator();
@@ -299,7 +344,7 @@ export function useGhostSfx() {
    * most recent ghost wins.
    */
   const startPurr = useCallback(
-    (hue: number) => {
+    (hue: number, voice: GhostVoiceVariant = "standard") => {
       if (!audioEnabled) return;
       const ctx = ensureCtx();
       if (!ctx) return;
@@ -308,10 +353,14 @@ export function useGhostSfx() {
       if (purrRef.current) {
         // Refresh: sustain, and retune if a different ghost took over.
         purrRef.current.stopAt = now + 2_800;
-        if (Math.abs(purrRef.current.hue - hue) > 1) {
+        if (
+          Math.abs(purrRef.current.hue - hue) > 1 ||
+          purrRef.current.voice !== voice
+        ) {
           purrRef.current.hue = hue;
+          purrRef.current.voice = voice;
           purrRef.current.osc.frequency.setTargetAtTime(
-            ghostBaseFreq(hue) * 0.5,
+            ghostBaseFreq(hue) * purrBaseFactor(voice),
             ctx.currentTime,
             0.1
           );
@@ -319,7 +368,7 @@ export function useGhostSfx() {
         return;
       }
 
-      const base = ghostBaseFreq(hue) * 0.5; // purrs sit an octave down
+      const base = ghostBaseFreq(hue) * purrBaseFactor(voice); // purrs sit an octave down
       const osc = ctx.createOscillator();
       osc.type = "sine";
       osc.frequency.setValueAtTime(base, ctx.currentTime);
@@ -341,7 +390,7 @@ export function useGhostSfx() {
       gain.connect(ctx.destination);
       osc.start();
       lfo.start();
-      purrRef.current = { osc, gain, lfo, stopAt: now + 2_800, hue };
+      purrRef.current = { osc, gain, lfo, stopAt: now + 2_800, hue, voice };
 
       purrSweeperRef.current = setInterval(() => {
         if (purrRef.current && performance.now() > purrRef.current.stopAt) {
