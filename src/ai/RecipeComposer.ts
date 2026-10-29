@@ -60,13 +60,15 @@ export const FABRIC_PLAY_RECIPE_EVENT = "fabric:play-recipe";
 
 /**
  * Canvas -> ComposeBar: where the current answer came from
- * (detail: "llm" | "builtin" | "ghost", plus Cleanup 2's failure
- * captions "beyond-builtin" | "beyond-model" when a request could
- * not be shaped). Slice 17 honesty surface: the bar captions
+ * (detail: "llm" | "builtin" | "ghost" for shaped answers, or
+ * { source: "puzzled", ghostName } when no path could shape the
+ * ask — Hotfix 2.4). Slice 17 honesty surface: the bar captions
  * built-in interpretations as built-ins instead of letting a
- * template masquerade as open-ended model intelligence — and a
- * failure is captioned against the path that was walked, never
- * blamed on a missing key.
+ * template masquerade as open-ended model intelligence. A failure
+ * is never captioned as an error or blamed on a missing key: the
+ * canvas answers it with the ghost's puzzlement (or the fabric's
+ * own ripple) and this event reports that moment, so the bar can
+ * caption the life that happened.
  */
 export const FABRIC_COMPOSE_SOURCE_EVENT = "fabric:compose-source";
 
@@ -242,7 +244,7 @@ export async function composeWithShapes(
   return (await composeWithShapesDetailed(userPrompt)).result;
 }
 
-/** Which path a compose attempt walked — drives the honest caption. */
+/** Which path a compose attempt walked (reported for the record). */
 export type ComposePath = "model" | "builtin";
 
 export interface ComposeOutcome {
@@ -250,16 +252,16 @@ export interface ComposeOutcome {
   /**
    * "model" when a cloud model was resolved (and tried first);
    * "builtin" when the in-browser interpreter was the only path.
-   * When result is null the canvas captions the failure against
-   * THIS path — "beyond the built-in interpreter" vs "beyond the
-   * cloud model" — and never blames a missing key (Cleanup 2).
+   * When result is null, Hotfix 2.4's living fallback answers
+   * instead of any failure caption — the ghost's puzzlement or the
+   * fabric's ripple — so the path is telemetry now, not wording.
    */
   path: ComposePath;
 }
 
 /**
  * composeWithShapes with its path reported. Same behavior; the
- * canvas uses the path only to caption a null result honestly.
+ * canvas reads the result (and, for the record, the path walked).
  */
 export async function composeWithShapesDetailed(
   userPrompt: string

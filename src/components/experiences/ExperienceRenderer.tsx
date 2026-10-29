@@ -6,7 +6,7 @@ import WebFluidBackground from "../../../app/components/WebFluidBackground";
 import Ambience from "../audio/Ambience";
 import AutoComposer from "../audio/AutoComposer";
 import PianoNoteLayer from "../piano/PianoNoteLayer";
-import SamLayer from "../sam/SamLayer";
+import SamLayer, { SamCameraBackground } from "../sam/SamLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 const DancerStageLazy = lazy(() => import("../../dancer/DancerStage"));
@@ -33,8 +33,11 @@ export default function ExperienceRenderer() {
   // Slice 14: the SAM "See" layer follows the piano precedent — a
   // layer ON the fluid, never a replacement for it. It therefore
   // also stays out of the 3D camera branch below: the fluid remains
-  // mounted as its base and SamLayer renders the camera + region
-  // objects above it.
+  // mounted as its base. Hotfix 2.4 (Terrell's world model): the
+  // camera is the background UNDER that fluid and the fluid draws
+  // over it — SamCameraBackground renders beneath the canvas while
+  // SamLayer's outlines/chip/tools render above it (see the slot
+  // below).
   const isSamLayer = activeExperience?.id === "sam-see";
   // Realignment (Oct 28): an experience may declare a non-fluid
   // canvas kind (ExperienceLayer.canvas). "stage3d" experiences own
@@ -127,13 +130,27 @@ export default function ExperienceRenderer() {
           Camera Effects still takes the 3D branch above, untouched. */}
       {isPianoLayer ? <PianoNoteLayer /> : null}
 
-      {/* SAM layer (Slice 14): same tree position discipline as the
-          piano layer — mounted above the SAME WebFluidBackground, so
-          entering or leaving "See" never remounts the canvas. The
-          component owns its camera stream, the Segment action, and
-          the region objects; the fluid beneath receives region
-          touches through the normal pattern/interaction funnel. */}
-      {isSamLayer ? <SamLayer /> : null}
+      {/* SAM layer (Slice 14; compositing inverted by Hotfix 2.4):
+          same tree-position discipline as the piano layer — this
+          slot never moves, so entering or leaving "See" never
+          remounts the canvas. Inside the slot, the layer splits
+          around the fluid: SamCameraBackground (zIndex -1) renders
+          the cover-fit camera UNDER the WebFluidBackground canvas,
+          which runs in its transparent-backdrop mode while See is
+          active so touches, smoke, splats and the ghostie draw OVER
+          the picture; SamLayer (zIndex 30) renders the region
+          outlines, the status chip and the Segment tools above
+          everything. The fragment keeps this as ONE child slot —
+          every sibling's tree position is exactly as it was. The
+          camera component owns the stream; the overlay owns the
+          Segment action and the region objects; the fluid receives
+          region touches through the normal pattern funnel. */}
+      {isSamLayer ? (
+        <>
+          <SamCameraBackground />
+          <SamLayer />
+        </>
+      ) : null}
 
       <Animated.View
         pointerEvents="none"

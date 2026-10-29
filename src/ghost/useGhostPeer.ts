@@ -615,6 +615,16 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   );
 
   /**
+   * Hotfix 2.4: the living fallback — when no interpreter can shape
+   * an ask, the ghost reacts in-world with puzzlement (a curious
+   * drift + a question-ripple, budget-counted). True when it
+   * performed; false when the ghost is off or cannot act.
+   */
+  const expressPuzzlement = useCallback((): boolean => {
+    return peerRef.current?.expressPuzzlement() ?? false;
+  }, []);
+
+  /**
    * Slice 21: where another ghost was last sensed on this canvas
    * (the profile card's pet aim). Null when unseen or stale.
    */
@@ -633,6 +643,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteUserActivity,
     answerHeartbeat,
     answerVerb,
+    expressPuzzlement,
     otherGhostPosition,
   };
 }
