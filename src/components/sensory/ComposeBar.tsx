@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, Text, TextInput, View } from "react-native";
+import { Animated, Platform, Pressable, Text, TextInput, View } from "react-native";
 import {
   FABRIC_COMPOSE_EVENT,
   FABRIC_COMPOSE_STATE_EVENT,
@@ -44,6 +44,15 @@ import { useComposeVoice } from "./useComposeVoice";
  * this bar captions what actually happened in the world: "{Name}
  * tilts its head at that one." Successful interpretations keep
  * their honest credits below.
+ *
+ * Hotfix 2.5: the mic finally asks. Voice capture no longer
+ * depends on SpeechRecognition existing (Firefox never shipped
+ * it, so the button there could never even prompt) — the hook
+ * falls back to getUserMedia + MediaRecorder capture with
+ * transcription through the resolved endpoint, the mic button
+ * pulses while live, and a transcription in flight captions
+ * itself ("Heard you — turning it into words…"). A browser
+ * refusal is answered in-world, ghost puzzlement included.
  *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
@@ -118,6 +127,34 @@ export default function ComposeBar() {
   const submit = () => submitText(prompt);
   const voice = useComposeVoice(submitText);
 
+  // Hotfix 2.5: while the mic is live the button breathes — a
+  // voice state you can SEE, not a caption you have to read.
+  // (Universal capture means this now happens in Firefox too:
+  // getUserMedia asks, the button pulses, the bar listens.)
+  const micPulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!voice.listening) {
+      micPulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(micPulse, {
+          toValue: 0.45,
+          duration: 560,
+          useNativeDriver: true,
+        }),
+        Animated.timing(micPulse, {
+          toValue: 1,
+          duration: 560,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [voice.listening, micPulse]);
+
   const stop = () => {
     window.dispatchEvent(new CustomEvent(FABRIC_COMPOSE_STOP_EVENT));
   };
@@ -146,7 +183,9 @@ export default function ComposeBar() {
             justifyContent: "center",
           })}
         >
-          <Text style={{ fontSize: 17 }}>{voice.listening ? "●" : "🎤"}</Text>
+          <Animated.View style={{ opacity: micPulse }}>
+            <Text style={{ fontSize: 17 }}>{voice.listening ? "●" : "🎤"}</Text>
+          </Animated.View>
         </Pressable>
         <TextInput
           pointerEvents="auto"
@@ -194,7 +233,7 @@ export default function ComposeBar() {
           </Text>
         </Pressable>
       </View>
-      {voice.listening || voice.interim || voice.message ? (
+      {voice.listening || voice.busy || voice.interim || voice.message ? (
         <Text
           style={{
             color: voice.message ? "#fca5a5" : "#93c5fd",
@@ -205,7 +244,9 @@ export default function ComposeBar() {
           {voice.message ??
             (voice.interim
               ? `Hearing: ${voice.interim}`
-              : "Listening… speak your request")}
+              : voice.busy
+                ? "Heard you — turning it into words…"
+                : "Listening… speak your request")}
         </Text>
       ) : null}
       {source ? (
