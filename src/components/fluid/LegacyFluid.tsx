@@ -43,13 +43,18 @@ import type { FluidInteraction } from "../../types/fluid";
 import { useGhostPeer } from "../../ghost/useGhostPeer";
 import {
   ghostPeerIdFor,
+  ghostVerbAsk,
   isGhostHeartbeatRequest,
   isGhostPeerId,
 } from "../../ghost/GhostPeer";
+import type { GhostFabricContext } from "../../ghost/GhostBrain";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
 import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
 import { useGhostSharedSettings } from "../../ghost/ghostSharedPref";
-import { getHostArrivedFabric } from "../../session/fabricStore";
+import {
+  getHostArrivedFabric,
+  getSessionFabricState,
+} from "../../session/fabricStore";
 import {
   setGhostPublicState,
   getGhostPublicState,
@@ -171,6 +176,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     remoteInteractions,
     sendInteraction,
     sendRecipe,
+    sendRecipeAs,
     injectRemoteInteraction,
     humanPeers,
   } = useFluidMultiUser(roomId);
@@ -183,6 +189,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   sendRef.current = sendInteraction;
   const sendRecipeRef = useRef(sendRecipe);
   sendRecipeRef.current = sendRecipe;
+  const sendGhostRecipeRef = useRef(sendRecipeAs);
+  sendGhostRecipeRef.current = sendRecipeAs;
   const cuesRef = useRef(audioCues);
   cuesRef.current = audioCues;
   const sfxRef = useRef(ghostSfx);
@@ -372,12 +380,56 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     []
   );
   const ghostSelfHueRef = useRef(200);
+  // Fabric awareness (Slice 23): the ghost's scenario snapshot and
+  // its peer-side draw gate read where it is from THIS component's
+  // own truths — the active experience (id + canvas kind), the
+  // session store's role, and the fabric store's session rules.
+  // The rules are resolved for THIS participant exactly as the
+  // send funnel resolves them (fabricGate): a guest is bound by
+  // the host's rules; a host is never bound by their own guest
+  // rules; an open room has no rules at all.
+  const experienceRef = useRef(state.activeExperience);
+  experienceRef.current = state.activeExperience;
+  const getGhostFabricContext = useCallback((): GhostFabricContext | null => {
+    const exp = experienceRef.current;
+    const s = sessionRef.current;
+    const rules =
+      s.role === "guest"
+        ? getSessionFabricState().rules
+        : { draw: true, verbs: true, notes: true };
+    return {
+      layer_id: exp?.id ?? "default-fluid",
+      canvas:
+        exp?.canvas === "stage3d"
+          ? "stage3d"
+          : exp?.type === "sam-see"
+            ? "camera"
+            : "fluid",
+      role: s.role,
+      in_session: s.role !== "open",
+      rules,
+    };
+  }, []);
+  // The DRAW tool's sink (Slice 23): the ghost hands over a built,
+  // validated recipe; this canvas renders it (as itself — the
+  // shared recipe player, so a ghost drawing takes the stage the
+  // same way a composed one does) and ships it on the recipe
+  // transport under the ghost's own peer id, through the same
+  // draw gate every recipe send obeys. The real sink is assigned
+  // below, once playRecipe exists; the wrapper is stable for the
+  // ghost hook's option refs.
+  const ghostDrawSinkRef = useRef<(recipe: Recipe) => void>(() => {});
+  const onGhostDrawRecipe = useCallback((recipe: Recipe) => {
+    ghostDrawSinkRef.current(recipe);
+  }, []);
   const ghost = useGhostPeer({
     ownerId: userId,
     inject: injectRemoteInteraction,
     broadcast: broadcastGhost,
     humanPeers,
     layerEnabled: ghostLayerEnabled,
+    getFabricContext: getGhostFabricContext,
+    onDrawRecipe: onGhostDrawRecipe,
     onSfx: (kind) => {
       // Own ghost: sounds are pitched from its signature hue.
       sfxRef.current.play(kind, ghostSelfHueRef.current);
@@ -462,6 +514,16 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   );
   const playRecipeRef = useRef(playRecipe);
   playRecipeRef.current = playRecipe;
+  // Slice 23: the ghost's draw sink, now that playRecipe exists —
+  // render the ghost's recipe here (send: false; the transport
+  // send below is the ghost's own, under its peer id).
+  ghostDrawSinkRef.current = (recipe: Recipe) => {
+    playRecipeRef.current(recipe, {
+      send: false,
+      defaultHue: ghostSelfHueRef.current,
+    });
+    sendGhostRecipeRef.current(recipe, ghostPeerIdRef.current);
+  };
 
   // Inbound recipes: the hook validated them and handed them over
   // on the recipe bus. The sender's signature hue (when a step
@@ -801,6 +863,35 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
             );
             publishState(
               `${ghostRef.current.identity?.name ?? "Ghost"}'s heartbeat · ${bpm} BPM`
+            );
+            return;
+          }
+        }
+
+        // Slice 23 ("say-it"): a verb named TO the ghost — "tickle,
+        // Boop" — is performed BY the ghost as its own act (the
+        // verb-perform tool), through GhostPeer's verb machinery:
+        // the shared verb clock, the session degrade, the emit
+        // budgets. Not the generic interpreter, and not a macro —
+        // the ghost decides how its verbs go out, like everything
+        // else it does. If the ghost is off or cannot act, the
+        // generic interpreter still gets the request, as with the
+        // heartbeat route above. Heartbeat asks never reach here:
+        // ghostVerbAsk excludes them by construction.
+        const verbAsk = ghostVerbAsk(
+          prompt,
+          ghostRef.current.identity?.name ?? null
+        );
+        if (verbAsk) {
+          const performed = ghostRef.current.answerVerb(verbAsk);
+          if (performed) {
+            window.dispatchEvent(
+              new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+                detail: "ghost",
+              })
+            );
+            publishState(
+              `${ghostRef.current.identity?.name ?? "Ghost"} · ${performed} on request`
             );
             return;
           }
