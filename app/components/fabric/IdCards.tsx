@@ -831,7 +831,7 @@ const LAYER_TOOLS: Record<string, string[]> = {
     "Key strip",
     "Ghosties on stage",
   ],
-  "sam-see": ["Camera", "SAM 3.1 segmentation", "Tap-to-fire patterns", "Hands — gesture input", "Ghostie"],
+  "sam-see": ["Camera", "SAM 3.1 segmentation", "Tap-to-fire patterns", "See acts — touch / circle what it sees", "On-device eyes (GroundingDINO)", "Hands — gesture input", "Ghostie"],
   "camera-effects": ["Camera", "Live effects", "Ghostie"],
 };
 
@@ -958,6 +958,12 @@ export function LayerCardOverlay({
               A frame is sent only when you tap Segment — one frame,
               dropped right after. Regions keep only their box
               coordinates.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+              See can act on what it finds — “touch the apple”,
+              “draw a circle around the chair”. With the on-device
+              eyes (GroundingDINO), frames are analyzed on this
+              device only: never sent, never stored.
             </Text>
             <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
               Hands: your camera is read on this device only;

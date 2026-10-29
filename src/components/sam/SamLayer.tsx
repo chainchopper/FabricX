@@ -10,18 +10,27 @@ import {
 } from "../../ai/PatternComposer";
 import {
   SAM_REGION_CAP,
-  segmentFrame,
   type SamConfig,
   type SamRegion,
 } from "../../sam/samSegment";
 import {
-  captureSamCameraFrame,
   getSamCameraSnapshot,
   publishSamCamera,
   registerSamVideo,
   subscribeSamCamera,
   type SamCameraSnapshot,
 } from "../../sam/samCameraStore";
+import {
+  FABRIC_SEE_HIGHLIGHT_EVENT,
+  type SeeHighlightDetail,
+} from "../../sam/seeActs";
+import { segmentPhrase } from "../../sam/segmentation";
+import {
+  getGroundingSnapshot,
+  noteGroundingWanted,
+  subscribeDeviceGrounding,
+  type GroundingSnapshot,
+} from "../../sam/deviceGrounding";
 import { colors, radius, spacing } from "../../theme/tokens";
 
 /**
@@ -84,6 +93,17 @@ import { colors, radius, spacing } from "../../theme/tokens";
  * Masks: v0 ships BOXES. The spike's mask runs are recorded per
  * region (hasMask) but their encoding is undocumented; see
  * attemptDecodeMask in src/sam/samSegment.ts for the honest attempt.
+ *
+ * Slice 30: this layer also ACTS now. Act asks in the compose
+ * stream ("touch the apple", "draw a circle around the chair",
+ * "ghostie, touch the apple") resolve through the tier seam
+ * (src/sam/segmentation.ts — cloud SAM 3.1 when configured, the
+ * on-device GroundingDINO eyes when ready) inside LegacyFluid,
+ * which performs them; the found regions arrive here on
+ * FABRIC_SEE_HIGHLIGHT_EVENT and are outlined like Segment
+ * results (a soft pulse, for a highlight ask). The manual flow
+ * below runs on the same seam, so Segment works with whichever
+ * eyes this device has — its frame discipline is unchanged.
  *
  * Powered by Nirvana
  */
@@ -257,6 +277,18 @@ export default function SamLayer() {
   const [status, setStatus] = useState<string | null>(null);
   const [chipDismissed, setChipDismissed] = useState(false);
 
+  // Slice 30, Tier B: this device's own eyes (GroundingDINO).
+  // The tools render when EITHER tier can serve — a resolved
+  // cloud model (Tier A) or ready on-device eyes (Tier B).
+  const [grounding, setGrounding] = useState<GroundingSnapshot>(() =>
+    getGroundingSnapshot()
+  );
+  useEffect(() => subscribeDeviceGrounding(setGrounding), []);
+  const eyesReady = grounding.state === "ready";
+  const [pulse, setPulse] = useState(false);
+  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Displayed-frame geometry: the video is COVER-fit, so SAM's
   // normalized boxes map onto the displayed frame rect, which may
   // extend past the canvas edges (negative offsets — the cropped
@@ -299,40 +331,111 @@ export default function SamLayer() {
     };
   }, []);
 
-  // -- Segment: the ONLY path that sends a frame ---------------------
+  // -- See acts (Slice 30): the found regions of an act ask --------
+  // LegacyFluid dispatches FABRIC_SEE_HIGHLIGHT_EVENT for every
+  // act it performs (the outline explains where the act landed)
+  // and as the whole performance for a highlight ask (a pulse,
+  // then the outline lets go). Regions arrive in image space and
+  // render through the same frameRect as Segment results.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onHighlight = (ev: Event) => {
+      const d = (ev as CustomEvent<SeeHighlightDetail>).detail;
+      if (!d || !Array.isArray(d.regions) || d.regions.length === 0) return;
+      setRegions(
+        d.regions.map((r, i) => ({
+          id: `act-${Date.now()}-${i}`,
+          expression: d.phrase,
+          index: i,
+          label: r.label || `${d.phrase} #${i + 1}`,
+          x: r.x,
+          y: r.y,
+          w: r.w,
+          h: r.h,
+          area: r.w * r.h,
+          hasMask: false,
+        }))
+      );
+      if (clearTimer.current) clearTimeout(clearTimer.current);
+      if (d.pulse) {
+        setPulse(true);
+        if (pulseTimer.current) clearTimeout(pulseTimer.current);
+        pulseTimer.current = setTimeout(() => setPulse(false), 1400);
+        if (d.lingerMs > 0) {
+          clearTimer.current = setTimeout(() => {
+            setRegions((cur) =>
+              cur.every((r) => r.id.startsWith("act-")) ? [] : cur
+            );
+          }, d.lingerMs);
+        }
+      }
+    };
+    window.addEventListener(
+      FABRIC_SEE_HIGHLIGHT_EVENT,
+      onHighlight as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        FABRIC_SEE_HIGHLIGHT_EVENT,
+        onHighlight as EventListener
+      );
+    };
+  }, []);
+
+  // -- Segment: the manual flow, on the Slice 30 tier seam ----------
+  // The frame discipline is exactly as shipped: ONE frame, only
+  // on this explicit tap, dropped right after; regions keep only
+  // box coordinates. What changed is the seam underneath: cloud
+  // SAM 3.1 when a model resolves (boxes + masks), else this
+  // device's own eyes when they are ready (boxes only — and then
+  // the frame is read HERE and never sent anywhere at all).
   const onSegment = useCallback(async () => {
     if (segmenting) return;
-    if (!config) {
-      // Unreachable from the UI (the tools only render with a model
-      // resolved; the chip carries the resting state) — kept honest
-      // if a caller ever lands here anyway.
+    if (!config && !eyesReady) {
+      // Unreachable from the UI (the tools only render when a
+      // tier can serve; the chip carries the resting state) —
+      // kept honest if a caller ever lands here anyway.
+      noteGroundingWanted();
       setStatus("Segmentation is resting on this device.");
-      return;
-    }
-    const frame = captureSamCameraFrame();
-    if (!frame) {
-      setStatus("Camera isn't ready yet — give it a moment and tap Segment again.");
       return;
     }
     setSegmenting(true);
     setStatus(`Looking for “${expression.trim()}”…`);
-    try {
-      const found = await segmentFrame(config, expression, frame);
-      setRegions(found);
+    const outcome = await segmentPhrase(expression, { cloud: config });
+    if (outcome.status === "error") {
+      setStatus(outcome.message);
+    } else if (outcome.status === "unavailable") {
+      noteGroundingWanted();
+      setStatus("Segmentation is resting on this device.");
+    } else {
+      setRegions(
+        outcome.regions.map((r, i) => ({
+          id: `seg-${Date.now()}-${i}`,
+          expression,
+          index: i,
+          label: r.label,
+          x: r.box.x,
+          y: r.box.y,
+          w: r.box.w,
+          h: r.box.h,
+          area: r.box.w * r.box.h,
+          hasMask: r.hasMask,
+        }))
+      );
       setStatus(
-        found.length === 0
+        outcome.regions.length === 0
           ? `No “${expression.trim()}” found in this frame. Try another phrase.`
-          : `Found ${found.length} region${found.length === 1 ? "" : "s"} — tap one to touch it.` +
-              (found.length >= SAM_REGION_CAP
+          : `Found ${outcome.regions.length} region${outcome.regions.length === 1 ? "" : "s"} — tap one to touch it.` +
+              (outcome.tier === "device-grounding"
+                ? " Found by this device's own eyes."
+                : "") +
+              (outcome.regions.length >= SAM_REGION_CAP
                 ? ` (Top ${SAM_REGION_CAP} by size shown.)`
                 : "")
       );
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Segmentation failed.");
-    } finally {
-      setSegmenting(false);
     }
-  }, [config, expression, segmenting]);
+    setSegmenting(false);
+  }, [config, eyesReady, expression, segmenting]);
 
   // -- Fire a region: an object on the layer, touched ----------------
   const fireRegion = useCallback(
@@ -418,10 +521,12 @@ export default function SamLayer() {
             top: frameRect.top + r.y * frameRect.h,
             width: r.w * frameRect.w,
             height: r.h * frameRect.h,
-            borderWidth: 2,
+            borderWidth: pulse ? 3 : 2,
             borderColor: outline,
             borderRadius: 8,
-            backgroundColor: "rgba(34,211,238,0.08)",
+            backgroundColor: pulse
+              ? "rgba(34,211,238,0.18)"
+              : "rgba(34,211,238,0.08)",
           }}
         >
           <Text
@@ -509,13 +614,15 @@ export default function SamLayer() {
           </Text>
         ) : null}
 
-        {/* Segment tools — only with a model resolved. At rest there
-            is nothing to segment with, so the layer offers no dead
-            controls: the chip above carries the state, and the ID
-            card / THIS LAYER carry the one factual line about how
-            segmentation resolves. The Segment action and the
-            frame-privacy behavior are exactly as shipped. */}
-        {config ? (
+        {/* Segment tools — only when a tier can serve (Slice 30:
+            a resolved cloud model OR this device's ready eyes).
+            At rest there is nothing to segment with, so the layer
+            offers no dead controls: the chip above carries the
+            state, and the ID card / THIS LAYER carry the one
+            factual line about how segmentation resolves. The
+            Segment action and the frame-privacy behavior are
+            exactly as shipped. */}
+        {config || eyesReady ? (
           <View
             pointerEvents="auto"
             style={{
