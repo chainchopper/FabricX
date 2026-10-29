@@ -3,7 +3,8 @@
  *
  * Everything the legacy left-edge rail used to scatter across ~14
  * pulsing buttons and ~14 drawers now starts here, behind the single
- * "F" anchor:
+ * "F" anchor. Seven sections, in this order, and every control in
+ * the menu lives in exactly one of them:
  *
  *   FABRICS — the drawer (Slice 19): every fabric as a card. In a
  *   hosted session the fabric is host-led — the host picks and
@@ -11,20 +12,43 @@
  *   and are told, and a guest picking a different card is warned
  *   they will leave the session.
  *
- *   THIS LAYER — settings for the layer that is loaded, and only that
- *   layer. Stored per layer id (fabric_layer_settings_v1:<layerId>,
- *   see LayerSettingsMirror); no fixed registry of layers exists, so
- *   community / plugin / stock layers all work the same way.
+ *   PEOPLE — the session's humans (Slices 5 + 6): room, mode and
+ *   invite, the Who's Who roster, driver passing, and the guest
+ *   rules that bind a guest on the session fabric.
  *
- *   UNIVERSAL — settings that belong to the user and the device, not
- *   to any layer: account, agent model tier (the AI Services panel),
- *   haptics / audio defaults, identity (the device-bound ghost), and
- *   privacy. The two scopes are visually separated and never mixed.
+ *   YOU — the user's own face and ghost: the identity card and
+ *   LifePacket summary, the Your Ghostie door (Slice 20), the
+ *   First Breath palette replay, and the standing privacy note.
  *
- * The heavy legacy panels (Profile, Locker, Studio, Call, …) are not
- * rewritten here: they open as panels FROM this menu via the existing
- * NewDrawers controller, so nothing that worked becomes unreachable —
- * the rail is gone, the doors remain, there is just one hallway now.
+ *   THIS LAYER — settings for the layer that is loaded, and only
+ *   that layer. Stored per layer id (fabric_layer_settings_v1:
+ *   <layerId>, see LayerSettingsMirror); no fixed registry of
+ *   layers exists, so community / plugin / stock layers all work
+ *   the same way. Nothing universal renders here.
+ *
+ *   STUDIO — creation (Slice 8 + 13): composer doors, share-live
+ *   playback of patterns and saved compositions, and the Lint
+ *   simulator — the room's objects.
+ *
+ *   AI SERVICES — the agent model card: provider summary and the
+ *   door to the AI Services panel (keys, endpoints, Meta preset).
+ *   The ghost's own brain lives in Your Ghostie, under YOU.
+ *
+ *   SETTINGS & HELP — app-wide leftovers that fit nowhere above:
+ *   the universal device toggles (haptics, audio cues, voice
+ *   panel), diagnostics, and the legacy panel doors (OPEN's
+ *   list, kept whole). Nothing per-layer may live here.
+ *
+ * The two scopes — universal and per-layer — are never conflated:
+ * universal things live in YOU / AI SERVICES / SETTINGS & HELP,
+ * per-layer things live in THIS LAYER, and a fabric's own quick
+ * settings live on its card in FABRICS (the same stored keys).
+ *
+ * The heavy legacy panels (Profile, Locker, Studio, Call, …) are
+ * not rewritten here: they open as panels FROM this menu via the
+ * existing NewDrawers controller, so nothing that worked becomes
+ * unreachable — the rail is gone, the doors remain, there is just
+ * one hallway now, with signs.
  *
  * Powered by Nirvana
  */
@@ -160,7 +184,7 @@ const PANEL_ROWS: { name: DrawerName; label: string; icon: IconName }[] = [
   { name: "shop", label: "Shop", icon: "bag" },
   { name: "call", label: "Call", icon: "call" },
   { name: "wallet", label: "Wallet", icon: "wallet" },
-  { name: "friends", label: "People", icon: "people" },
+  { name: "friends", label: "Friends", icon: "people" },
   { name: "vision-ai", label: "Vision AI", icon: "eye" },
   { name: "ai-chat", label: "AI Chat", icon: "message" },
 ];
@@ -227,6 +251,125 @@ function ToggleRow({
         {value ? "On" : "Off"}
       </Text>
     </Pressable>
+  );
+}
+
+// ---- One card grammar (Cleanup 1) --------------------------------
+// Every bordered card in this menu shares one geometry: 1px border,
+// card radius, md padding, sm bottom margin. Cards keep only what
+// carries meaning — their border color (line = neutral, accentLine
+// = live/session, ghostLine = the ghost's) and any pressed fill.
+// The fabric cards and the Ghostie door already had this shape;
+// the rest of the menu converged onto it in the doctrine pass.
+const cardStyle = {
+  borderWidth: 1,
+  borderRadius: radius.card,
+  padding: spacing.md,
+  marginBottom: spacing.sm,
+} as const;
+
+/** A plain door row: icon, label, chevron. Used by the STUDIO
+ *  door list and the Panels list in SETTINGS & HELP — one row
+ *  grammar for every panel this menu opens. */
+function DoorRow({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.md,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: radius.card,
+        backgroundColor: pressed ? colors.accentDim : "transparent",
+      })}
+    >
+      <Icon name={icon} size={20} color={colors.text} />
+      <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+        {label}
+      </Text>
+      <Icon name="chevronRight" size={16} color={colors.textDim} />
+    </Pressable>
+  );
+}
+
+/** A sub-header inside a section — smaller than a SectionHeader,
+ *  for a named group within a section (Lint inside STUDIO, Panels
+ *  inside SETTINGS & HELP). */
+function SubHeader({ children }: { children: string }) {
+  return (
+    <Text
+      style={{
+        color: colors.text,
+        fontSize: typeScale.body,
+        fontWeight: "700",
+        marginTop: spacing.lg,
+        marginBottom: spacing.sm,
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+/** The On/Off pill pair every boolean layer setting uses (ghost,
+ *  ambient life, dancers, camera drift, motion in THIS LAYER) —
+ *  one component instead of five hand-copied blocks. The setter
+ *  it calls still owns noteActivity + persistence, exactly as
+ *  the copied blocks did. */
+function BoolPillRow({
+  value,
+  onPick,
+  labelPrefix,
+}: {
+  value: boolean;
+  onPick: (next: boolean) => void;
+  labelPrefix: string;
+}) {
+  return (
+    <View style={{ flexDirection: "row", gap: spacing.sm }}>
+      {([true, false] as const).map((val) => {
+        const selected = value === val;
+        return (
+          <Pressable
+            key={String(val)}
+            pointerEvents="auto"
+            onPress={() => onPick(val)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            accessibilityLabel={`${labelPrefix} ${val ? "on" : "off"}`}
+            style={{
+              paddingVertical: 8,
+              paddingHorizontal: 14,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: selected ? colors.accent : colors.line,
+              backgroundColor: selected ? colors.accentDim : "transparent",
+            }}
+          >
+            <Text
+              style={{
+                color: selected ? colors.accent : colors.text,
+                fontSize: typeScale.body,
+                fontWeight: "700",
+              }}
+            >
+              {val ? "On" : "Off"}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -473,7 +616,7 @@ export default function FabricMenu() {
 
   // Studio's "Share live" (FABRIC_SHARE_LIVE_EVENT): make sure a
   // hosted session exists, close the drawer, and open this menu on
-  // the SHARE section with the link ready. Since Slice 8 the event
+  // the PEOPLE section with the link ready. Since Slice 8 the event
   // carries the saved composition's id; its real pattern is looked
   // up in the compositions store and played into the room through
   // the same playback path as everything else.
@@ -502,11 +645,11 @@ export default function FabricMenu() {
               })
         );
         setShareNotice(
-          `“${name}” is playing live in this room — send the invite link under SHARE and guests feel it as they land.`
+          `“${name}” is playing live in this room — send the invite link under PEOPLE and guests feel it as they land.`
         );
       } else {
         setShareNotice(
-          `“${name}” is live — send the invite link under SHARE and guests land in this room.`
+          `“${name}” is live — send the invite link under PEOPLE and guests land in this room.`
         );
       }
       setMenuOpen(true);
@@ -544,7 +687,7 @@ export default function FabricMenu() {
   // the layer is activated again. Absent means on. LegacyFluid reads
   // the same field to gate the local ghost brain, and the ghost pill
   // leaves the canvas cluster while a layer has it off. Distinct from
-  // the per-user ghost preference (fabric_ghost_v1, UNIVERSAL): the
+  // the per-user ghost preference (fabric_ghost_v1, YOU): the
   // ghost runs only when both are on.
   const ghostInLayer =
     (state.experienceConfig.specific as any)?.ghostEnabled !== false;
@@ -874,7 +1017,7 @@ export default function FabricMenu() {
       new CustomEvent(FABRIC_PLAY_PATTERN_EVENT, { detail: p })
     );
     setShareNotice(
-      `Playing “${p.name}” into the room now — everyone here feels it. Send the invite link under SHARE so others can join live.`
+      `Playing “${p.name}” into the room now — everyone here feels it. Send the invite link under PEOPLE so others can join live.`
     );
   };
 
@@ -890,7 +1033,7 @@ export default function FabricMenu() {
       new CustomEvent(FABRIC_PLAY_RECIPE_EVENT, { detail: r })
     );
     setShareNotice(
-      `Playing “${r.name}” into the room now — everyone here sees it draw itself. Send the invite link under SHARE so others can join live.`
+      `Playing “${r.name}” into the room now — everyone here sees it draw itself. Send the invite link under PEOPLE so others can join live.`
     );
   };
 
@@ -1040,11 +1183,7 @@ export default function FabricMenu() {
         {leaveWarn ? (
           <View
             style={{
-              borderWidth: 1,
-              borderColor: colors.accentLine,
-              borderRadius: radius.card,
-              padding: spacing.md,
-              marginBottom: spacing.sm,
+              ...cardStyle, borderColor: colors.accentLine,
               gap: 4,
             }}
           >
@@ -1164,15 +1303,6 @@ export default function FabricMenu() {
                   </Text>
                 </Pressable>
 
-                {/* Guests see the rules that bind them on the
-                    session fabric — law you can read, not a
-                    surprise. Editing is the host's surface. */}
-                {session.role === "guest" && isSessionFabric ? (
-                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: spacing.xs }}>
-                    {`Here, guests can: ${FABRIC_RULE_KEYS.filter((k) => fabric.rules[k]).map((k) => (k === "draw" ? "draw" : k === "verbs" ? "send verbs" : "play notes")).join(" · ") || "watch and listen"}. Fabric settings are set by your host.`}
-                  </Text>
-                ) : null}
-
                 {canEdit ? (
                   <Pressable
                     pointerEvents="auto"
@@ -1266,7 +1396,7 @@ export default function FabricMenu() {
                     ))}
                     <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
                       Rules only ever restrict guests. The session mode
-                      (SHARE, below) applies first and cannot be widened
+                      (PEOPLE, below) applies first and cannot be widened
                       from here.
                     </Text>
                   </View>
@@ -1274,6 +1404,532 @@ export default function FabricMenu() {
               </View>
             );
           })}
+        </View>
+
+        {/* ---------------- PEOPLE ---------------- */}
+        <SectionHeader>PEOPLE</SectionHeader>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          Room {roomId} ·{" "}
+          {session.online === "online"
+            ? "Online"
+            : session.online === "connecting"
+              ? "Connecting…"
+              : "Local"}{" "}
+          · {session.peers} {session.peers === 1 ? "peer" : "peers"} here
+          {session.hostId ? ` · ${SESSION_MODE_LABEL[session.mode]} session` : " · open room"}
+        </Text>
+
+        {/* Who's Who roster (Slice 6): everyone in the room by name
+            and signature color — you first, then each known guest.
+            Roles ride the session state; faces ride the identity
+            store. A peer whose card hasn't landed yet keeps their
+            short id and a grey dot — a person is never a blank row. */}
+        {session.guestIds.length > 0 ? (
+          <View style={{ marginBottom: spacing.sm, gap: 4 }}>
+            {[session.selfId, ...session.guestIds.filter((g) => g !== session.selfId)].map(
+              (pid) => {
+                const isSelf = pid === session.selfId;
+                const hue = isSelf
+                  ? identity.self?.hue
+                  : identity.peers[pid]?.hue;
+                const tag = isSelf
+                  ? session.role === "host"
+                    ? "you · host"
+                    : session.driverId === pid
+                      ? "you · driving"
+                      : "you"
+                  : pid === session.hostId
+                    ? "host"
+                    : pid === session.driverId
+                      ? "driving"
+                      : session.hostId
+                        ? "guest"
+                        : "here";
+                return (
+                  <View
+                    key={pid}
+                    style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                  >
+                    <View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor:
+                          typeof hue === "number" ? hueCss(hue) : colors.textDim,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: typeScale.body,
+                        fontWeight: isSelf ? "700" : "400",
+                      }}
+                    >
+                      {isSelf
+                        ? (identity.self?.name ?? "you")
+                        : displayNameFor(pid, session.selfId)}
+                    </Text>
+                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                      {tag}
+                    </Text>
+                  </View>
+                );
+              }
+            )}
+          </View>
+        ) : null}
+
+        {shareNotice ? (
+          <View
+            style={{
+              ...cardStyle, borderColor: colors.accentLine,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.caption }}>
+              {shareNotice}
+            </Text>
+          </View>
+        ) : null}
+
+        {(() => {
+          const isHost =
+            session.role === "host" ||
+            (mintedRoom !== null && mintedRoom === roomId && session.role !== "guest");
+          const hostMode = session.role === "host" ? session.mode : pickedMode;
+          const inviteUrl = buildInviteUrl(roomId, active?.id, hostMode);
+
+          if (isHost) {
+            return (
+              <View>
+                <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginBottom: spacing.xs }}>
+                  You're hosting this room
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                  The mode is the room's live law — enforced on every
+                  guest's device, not just displayed. Change it any time.
+                </Text>
+                {renderModeRows(hostMode, (m) => {
+                  setPickedMode(m);
+                  requestHostSession(roomId, m);
+                })}
+
+                {session.mode === "control" || (session.role !== "host" && pickedMode === "control") ? (
+                  <View style={{ marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.xs }}>
+                      Driver:{" "}
+                      {session.driverId === session.selfId || session.role !== "host"
+                        ? "you"
+                        : displayNameFor(session.driverId, session.selfId)}
+                    </Text>
+                    {session.guestIds.length === 0 ? (
+                      <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                        No guests yet — send the invite link, then pass
+                        the brush from here.
+                      </Text>
+                    ) : (
+                      session.guestIds.map((gid) => {
+                        const driving = session.driverId === gid;
+                        return (
+                          <View
+                            key={gid}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              paddingVertical: 6,
+                            }}
+                          >
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                              <View
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: 5,
+                                  backgroundColor: identity.peers[gid]
+                                    ? hueCss(identity.peers[gid].hue)
+                                    : colors.textDim,
+                                }}
+                              />
+                              <Text style={{ color: colors.text, fontSize: typeScale.body }}>
+                                {displayNameFor(gid, session.selfId)}
+                              </Text>
+                            </View>
+                            {driving ? (
+                              <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                                Driving
+                              </Text>
+                            ) : (
+                              <Pressable
+                                pointerEvents="auto"
+                                onPress={() => {
+                                  noteActivity();
+                                  requestPassControl(gid);
+                                }}
+                                accessibilityRole="button"
+                                style={{ paddingVertical: 4, paddingHorizontal: 8 }}
+                              >
+                                <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                                  Give control
+                                </Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        );
+                      })
+                    )}
+                    {session.role === "host" &&
+                    session.driverId &&
+                    session.driverId !== session.selfId ? (
+                      <Pressable
+                        pointerEvents="auto"
+                        onPress={() => {
+                          noteActivity();
+                          requestPassControl(null);
+                        }}
+                        accessibilityRole="button"
+                        style={{ paddingVertical: 6 }}
+                      >
+                        <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                          Take back control
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                <Text
+                  selectable
+                  style={{
+                    color: colors.text,
+                    fontSize: typeScale.caption,
+                    ...cardStyle, borderColor: colors.line,
+                  }}
+                >
+                  {inviteUrl}
+                </Text>
+                <View style={{ flexDirection: "row", gap: spacing.sm, marginBottom: spacing.sm }}>
+                  <Pressable
+                    pointerEvents="auto"
+                    onPress={() => void shareInvite(inviteUrl)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      flex: 1,
+                      alignItems: "center",
+                      paddingVertical: 10,
+                      borderRadius: radius.card,
+                      backgroundColor: pressed ? colors.accentDim : colors.accent,
+                    })}
+                  >
+                    <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
+                      Share link
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    pointerEvents="auto"
+                    onPress={() => void copyInvite(inviteUrl)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => ({
+                      flex: 1,
+                      alignItems: "center",
+                      paddingVertical: 10,
+                      borderRadius: radius.card,
+                      borderWidth: 1,
+                      borderColor: colors.line,
+                      backgroundColor: pressed ? colors.accentDim : "transparent",
+                    })}
+                  >
+                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                      {copied ? "Copied" : "Copy link"}
+                    </Text>
+                  </Pressable>
+                </View>
+                <Pressable
+                  pointerEvents="auto"
+                  onPress={() => {
+                    noteActivity();
+                    setMintedRoom(null);
+                    requestStopHosting();
+                  }}
+                  accessibilityRole="button"
+                  style={{ paddingVertical: 6 }}
+                >
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.body, fontWeight: "600" }}>
+                    Stop hosting — room becomes open collab
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          }
+
+          if (session.role === "guest") {
+            const driving = session.mode === "control" && session.driverId === session.selfId;
+            const guestLine =
+              session.mode === "mirror"
+                ? "You see the host's canvas live. Your touches paint only your own screen — the host never sees them."
+                : session.mode === "view"
+                  ? "Audience mode: your canvas input is off. What the host makes is what you feel."
+                  : session.mode === "control"
+                    ? driving
+                      ? "You're driving — the whole room feels your touches."
+                      : `${displayNameFor(session.driverId, session.selfId)} is driving. Your touches stay on your screen until the brush comes to you.`
+                    : "Everyone draws on the shared canvas here.";
+            return (
+              <View>
+                <View
+                  style={{
+                    ...cardStyle, borderColor: colors.accentLine,
+                    gap: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                    {SESSION_MODE_LABEL[session.mode]} · hosted by {displayNameFor(session.hostId, session.selfId)}
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                    {guestLine}
+                  </Text>
+                </View>
+                <Pressable
+                  pointerEvents="auto"
+                  onPress={leaveSession}
+                  accessibilityRole="button"
+                  style={{ paddingVertical: 6 }}
+                >
+                  <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                    Leave — back to the main room
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          }
+
+          // Open room: nobody hosts. Offer the mint-and-host flow.
+          const hint = parseInviteHint();
+          return (
+            <View>
+              {hint && hint.roomId === roomId && hint.mode ? (
+                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                  You arrived with a {SESSION_MODE_LABEL[hint.mode]} invite —
+                  your host hasn't opened this room yet. When they do, the
+                  mode applies automatically; until then this room is open.
+                </Text>
+              ) : null}
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                Invite people to this canvas. Hosting mints a fresh room
+                and moves you into it — your canvas comes with you, and
+                guests land beside you through the link.
+              </Text>
+              {renderModeRows(pickedMode, setPickedMode)}
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => startHosting(pickedMode)}
+                accessibilityRole="button"
+                style={({ pressed }) => ({
+                  alignItems: "center",
+                  paddingVertical: 12,
+                  borderRadius: radius.card,
+                  backgroundColor: pressed ? colors.accentDim : colors.accent,
+                  marginBottom: spacing.sm,
+                })}
+              >
+                <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
+                  Invite to this canvas
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })()}
+
+        {/* The session fabric's guest rules (Slice 19) — the law
+            that binds a guest in this room, stated where the
+            people are. The same fabric-store state the drawer
+            reads; the host's editor for these rules lives on the
+            fabric's card in FABRICS, above. */}
+        {session.role === "guest" && fabric.layerId ? (
+          <View style={{ ...cardStyle, borderColor: colors.line, gap: 4 }}>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              {`Guest rules on ${state.availableExperiences.find((e) => e.id === fabric.layerId)?.name ?? "this fabric"}`}
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {`Here, guests can: ${FABRIC_RULE_KEYS.filter((k) => fabric.rules[k]).map((k) => (k === "draw" ? "draw" : k === "verbs" ? "send verbs" : "play notes")).join(" · ") || "watch and listen"}. Fabric settings are set by your host.`}
+            </Text>
+          </View>
+        ) : null}
+        {/* ---------------- YOU ---------------- */}
+        <SectionHeader>YOU</SectionHeader>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          Yours, on this device — the same on every layer.
+        </Text>
+
+        {/* You (Slice 6) — the human LifePacket v0: the name and
+            signature hue the room sees and hears. Your color tints
+            your strokes on every screen; your stroke sound is
+            pitched by it. Editing announces the new face to the
+            room immediately. Only name + color ever leave this
+            device — the seed stays home. */}
+        <View
+          style={{
+            ...cardStyle, borderColor: colors.accentLine,
+            gap: 4,
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+            You are {identity.self ? identity.self.name : "…"}
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <View
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 6,
+                backgroundColor: identity.self
+                  ? hueCss(identity.self.hue)
+                  : colors.textDim,
+              }}
+            />
+            <Text style={{ flex: 1, color: colors.textDim, fontSize: typeScale.caption }}>
+              {identity.self
+                ? `Signature color · hue ${identity.self.hue}° — your strokes and your sound`
+                : "Generating your identity…"}
+            </Text>
+            <Pressable
+              pointerEvents="auto"
+              onPress={() => {
+                noteActivity();
+                localIdentity.shuffleHue();
+              }}
+              accessibilityRole="button"
+              style={{ paddingVertical: 4, paddingHorizontal: 8 }}
+            >
+              <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                Shuffle
+              </Text>
+            </Pressable>
+          </View>
+          <TextInput
+            pointerEvents="auto"
+            value={nameDraft ?? identity.self?.name ?? ""}
+            onChangeText={setNameDraft}
+            onEndEditing={() => {
+              if (nameDraft !== null) localIdentity.setName(nameDraft);
+              setNameDraft(null);
+            }}
+            onSubmitEditing={() => {
+              if (nameDraft !== null) localIdentity.setName(nameDraft);
+              setNameDraft(null);
+            }}
+            placeholder="Your name in the room"
+            placeholderTextColor={colors.textDim}
+            maxLength={40}
+            style={{
+              color: colors.text,
+              // 16px floor (Hotfix 2.3): iOS Safari auto-zooms any
+              // focused field under 16px and can leave the page
+              // scrolled/zoomed after the keyboard closes — the
+              // stuck half-blank layout Terrell keeps hitting.
+              fontSize: 16,
+              borderWidth: 1,
+              borderColor: colors.line,
+              borderRadius: radius.card,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              marginTop: spacing.xs,
+            }}
+          />
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+            Shown in the room roster and carried on your strokes.
+            Renaming or re-coloring updates the room live.
+          </Text>
+        </View>
+
+        <LifePacketCard />
+
+        {/* Your Ghostie (Slice 20) — the ghostie's HOME: its living fDNA and secure tag, its brain, its
+            Personality, and how it is with others, in one place
+            instead of scattered across the menu and AI Services. */}
+        <Pressable
+          onPress={() => {
+            noteActivity();
+            setGhostHomeOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Open Your Ghostie"
+          style={({ pressed }) => ({
+            ...cardStyle, borderColor: colors.ghostLine,
+            backgroundColor: pressed ? colors.ghostDim : "transparent",
+          })}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: colors.ghost,
+              }}
+            />
+            <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.label, fontWeight: "700" }}>
+              Your Ghostie{ghost.ghostName ? ` — ${ghost.ghostName}` : ""}
+            </Text>
+            <Icon name="chevronRight" size={16} color={colors.textDim} />
+          </View>
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+            {ghost.temperament
+              ? `${ghost.temperament} · ${ghost.presence} · `
+              : ""}
+            its living fDNA and secure tag, its brain, its Personality,
+            and how it is with others.
+          </Text>
+        </Pressable>
+
+        {/* First Breath replay (Slice 10) — the palette step from
+            the first run, reopened on purpose: the packet deals
+            your cards again and a tap re-wears a signature hue
+            through the same identity setter. Palette only — no
+            name step, no flag changes; the full flow belongs to a
+            device's actual first breath and never repeats. */}
+        <Pressable
+          pointerEvents="auto"
+          onPress={() => {
+            noteActivity();
+            requestFirstBreath("palette");
+            setMenuOpen(false);
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => ({
+            ...cardStyle, borderColor: colors.accentLine,
+            gap: 4,
+            backgroundColor: pressed ? colors.accentDim : "transparent",
+          })}
+        >
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+            First Breath — revisit your colors ›
+          </Text>
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+            The palette step from your first run: three cards dealt
+            from your LifePacket seed, shuffle for three more. Your
+            ghost keeps you company while you choose.
+          </Text>
+        </Pressable>
+
+        {/* Your ghost & privacy — the ghost's identity, status, and
+            settings live in Your Ghostie (top of this section) since
+            Slice 20; what stays here is the standing privacy
+            statement, which belongs next to the identity it covers. */}
+        <View
+          style={{
+            ...cardStyle, borderColor: colors.ghostLine,
+            gap: 4,
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+            Your ghost & privacy
+          </Text>
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+            The ghost is always labeled as an AI agent, never appears
+            as a person, and a visiting ghost's sensations can be
+            muted from its pill on the canvas.
+          </Text>
         </View>
 
         {/* ---------------- THIS LAYER ---------------- */}
@@ -1375,43 +2031,15 @@ export default function FabricMenu() {
           <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
             Ghost in this layer
           </Text>
-          <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            {([true, false] as const).map((val) => {
-              const selected = ghostInLayer === val;
-              return (
-                <Pressable
-                  key={String(val)}
-                  pointerEvents="auto"
-                  onPress={() => setGhostInLayer(val)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`Ghost in this layer ${val ? "on" : "off"}`}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 14,
-                    borderRadius: radius.pill,
-                    borderWidth: 1,
-                    borderColor: selected ? colors.accent : colors.line,
-                    backgroundColor: selected ? colors.accentDim : "transparent",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: selected ? colors.accent : colors.text,
-                      fontSize: typeScale.body,
-                      fontWeight: "700",
-                    }}
-                  >
-                    {val ? "On" : "Off"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <BoolPillRow
+            value={ghostInLayer}
+            onPick={setGhostInLayer}
+            labelPrefix="Ghost in this layer"
+          />
           <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
             Your ghost lives in this layer and plays along with the room.
             Off applies to this layer only — other layers keep their own
-            setting, and your ghost preference in Universal still applies.
+            setting, and your ghost preference in YOU still applies.
           </Text>
         </View>
 
@@ -1425,39 +2053,11 @@ export default function FabricMenu() {
           <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
             Ambient life
           </Text>
-          <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            {([true, false] as const).map((val) => {
-              const selected = ambientInLayer === val;
-              return (
-                <Pressable
-                  key={String(val)}
-                  pointerEvents="auto"
-                  onPress={() => setAmbientInLayer(val)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`Ambient life ${val ? "on" : "off"}`}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 14,
-                    borderRadius: radius.pill,
-                    borderWidth: 1,
-                    borderColor: selected ? colors.accent : colors.line,
-                    backgroundColor: selected ? colors.accentDim : "transparent",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: selected ? colors.accent : colors.text,
-                      fontSize: typeScale.body,
-                      fontWeight: "700",
-                    }}
-                  >
-                    {val ? "On" : "Off"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <BoolPillRow
+            value={ambientInLayer}
+            onPick={setAmbientInLayer}
+            labelPrefix="Ambient life"
+          />
           <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
             When everyone goes quiet, this layer breathes, drifts, and
             blooms a little on its own — each device in its own rhythm,
@@ -1494,39 +2094,11 @@ export default function FabricMenu() {
             <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
               Dancers
             </Text>
-            <View style={{ flexDirection: "row", gap: spacing.sm }}>
-              {([true, false] as const).map((val) => {
-                const selected = stageDancer === val;
-                return (
-                  <Pressable
-                    key={String(val)}
-                    pointerEvents="auto"
-                    onPress={() => setStageDancer(val)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={`Dancers ${val ? "on" : "off"}`}
-                    style={{
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      borderRadius: radius.pill,
-                      borderWidth: 1,
-                      borderColor: selected ? colors.accent : colors.line,
-                      backgroundColor: selected ? colors.accentDim : "transparent",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: selected ? colors.accent : colors.text,
-                        fontSize: typeScale.body,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {val ? "On" : "Off"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <BoolPillRow
+              value={stageDancer}
+              onPick={setStageDancer}
+              labelPrefix="Dancers"
+            />
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
               Every participant's ghostie is on stage, and each one
               dances to its own player's notes and verbs — yours to
@@ -1538,39 +2110,11 @@ export default function FabricMenu() {
             <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.sm }}>
               Camera drift
             </Text>
-            <View style={{ flexDirection: "row", gap: spacing.sm }}>
-              {([true, false] as const).map((val) => {
-                const selected = stageDrift === val;
-                return (
-                  <Pressable
-                    key={String(val)}
-                    pointerEvents="auto"
-                    onPress={() => setStageDrift(val)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={`Camera drift ${val ? "on" : "off"}`}
-                    style={{
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
-                      borderRadius: radius.pill,
-                      borderWidth: 1,
-                      borderColor: selected ? colors.accent : colors.line,
-                      backgroundColor: selected ? colors.accentDim : "transparent",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: selected ? colors.accent : colors.text,
-                        fontSize: typeScale.body,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {val ? "On" : "Off"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <BoolPillRow
+              value={stageDrift}
+              onPick={setStageDrift}
+              labelPrefix="Camera drift"
+            />
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
               The camera's slow cinematic sway when the stage is idle.
               Either way, dragging the stage orbits the camera within
@@ -1702,39 +2246,11 @@ export default function FabricMenu() {
           <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
             Motion
           </Text>
-          <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            {([true, false] as const).map((val) => {
-              const selected = motionInLayer === val;
-              return (
-                <Pressable
-                  key={String(val)}
-                  pointerEvents="auto"
-                  onPress={() => setMotionInLayer(val)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`Motion ${val ? "on" : "off"}`}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 14,
-                    borderRadius: radius.pill,
-                    borderWidth: 1,
-                    borderColor: selected ? colors.accent : colors.line,
-                    backgroundColor: selected ? colors.accentDim : "transparent",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: selected ? colors.accent : colors.text,
-                      fontSize: typeScale.body,
-                      fontWeight: "700",
-                    }}
-                  >
-                    {val ? "On" : "Off"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <BoolPillRow
+            value={motionInLayer}
+            onPick={setMotionInLayer}
+            labelPrefix="Motion"
+          />
           {motionInLayer && motionUi.permission === "needs-request" ? (
             <Pressable
               pointerEvents="auto"
@@ -1768,354 +2284,8 @@ export default function FabricMenu() {
           </Text>
         </View>
 
-        {/* ---------------- SHARE ---------------- */}
-        <SectionHeader>SHARE — SESSION</SectionHeader>
-        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
-          Room {roomId} ·{" "}
-          {session.online === "online"
-            ? "Online"
-            : session.online === "connecting"
-              ? "Connecting…"
-              : "Local"}{" "}
-          · {session.peers} {session.peers === 1 ? "peer" : "peers"} here
-          {session.hostId ? ` · ${SESSION_MODE_LABEL[session.mode]} session` : " · open room"}
-        </Text>
-
-        {/* Who's Who roster (Slice 6): everyone in the room by name
-            and signature color — you first, then each known guest.
-            Roles ride the session state; faces ride the identity
-            store. A peer whose card hasn't landed yet keeps their
-            short id and a grey dot — a person is never a blank row. */}
-        {session.guestIds.length > 0 ? (
-          <View style={{ marginBottom: spacing.sm, gap: 4 }}>
-            {[session.selfId, ...session.guestIds.filter((g) => g !== session.selfId)].map(
-              (pid) => {
-                const isSelf = pid === session.selfId;
-                const hue = isSelf
-                  ? identity.self?.hue
-                  : identity.peers[pid]?.hue;
-                const tag = isSelf
-                  ? session.role === "host"
-                    ? "you · host"
-                    : session.driverId === pid
-                      ? "you · driving"
-                      : "you"
-                  : pid === session.hostId
-                    ? "host"
-                    : pid === session.driverId
-                      ? "driving"
-                      : session.hostId
-                        ? "guest"
-                        : "here";
-                return (
-                  <View
-                    key={pid}
-                    style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
-                  >
-                    <View
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 5,
-                        backgroundColor:
-                          typeof hue === "number" ? hueCss(hue) : colors.textDim,
-                      }}
-                    />
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: typeScale.body,
-                        fontWeight: isSelf ? "700" : "400",
-                      }}
-                    >
-                      {isSelf
-                        ? (identity.self?.name ?? "you")
-                        : displayNameFor(pid, session.selfId)}
-                    </Text>
-                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-                      {tag}
-                    </Text>
-                  </View>
-                );
-              }
-            )}
-          </View>
-        ) : null}
-
-        {shareNotice ? (
-          <View
-            style={{
-              borderWidth: 1,
-              borderColor: colors.accentLine,
-              borderRadius: radius.card,
-              padding: spacing.md,
-              marginBottom: spacing.sm,
-            }}
-          >
-            <Text style={{ color: colors.text, fontSize: typeScale.caption }}>
-              {shareNotice}
-            </Text>
-          </View>
-        ) : null}
-
-        {(() => {
-          const isHost =
-            session.role === "host" ||
-            (mintedRoom !== null && mintedRoom === roomId && session.role !== "guest");
-          const hostMode = session.role === "host" ? session.mode : pickedMode;
-          const inviteUrl = buildInviteUrl(roomId, active?.id, hostMode);
-
-          if (isHost) {
-            return (
-              <View>
-                <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginBottom: spacing.xs }}>
-                  You're hosting this room
-                </Text>
-                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
-                  The mode is the room's live law — enforced on every
-                  guest's device, not just displayed. Change it any time.
-                </Text>
-                {renderModeRows(hostMode, (m) => {
-                  setPickedMode(m);
-                  requestHostSession(roomId, m);
-                })}
-
-                {session.mode === "control" || (session.role !== "host" && pickedMode === "control") ? (
-                  <View style={{ marginBottom: spacing.sm }}>
-                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.xs }}>
-                      Driver:{" "}
-                      {session.driverId === session.selfId || session.role !== "host"
-                        ? "you"
-                        : displayNameFor(session.driverId, session.selfId)}
-                    </Text>
-                    {session.guestIds.length === 0 ? (
-                      <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-                        No guests yet — send the invite link, then pass
-                        the brush from here.
-                      </Text>
-                    ) : (
-                      session.guestIds.map((gid) => {
-                        const driving = session.driverId === gid;
-                        return (
-                          <View
-                            key={gid}
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              paddingVertical: 6,
-                            }}
-                          >
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                              <View
-                                style={{
-                                  width: 10,
-                                  height: 10,
-                                  borderRadius: 5,
-                                  backgroundColor: identity.peers[gid]
-                                    ? hueCss(identity.peers[gid].hue)
-                                    : colors.textDim,
-                                }}
-                              />
-                              <Text style={{ color: colors.text, fontSize: typeScale.body }}>
-                                {displayNameFor(gid, session.selfId)}
-                              </Text>
-                            </View>
-                            {driving ? (
-                              <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
-                                Driving
-                              </Text>
-                            ) : (
-                              <Pressable
-                                pointerEvents="auto"
-                                onPress={() => {
-                                  noteActivity();
-                                  requestPassControl(gid);
-                                }}
-                                accessibilityRole="button"
-                                style={{ paddingVertical: 4, paddingHorizontal: 8 }}
-                              >
-                                <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
-                                  Give control
-                                </Text>
-                              </Pressable>
-                            )}
-                          </View>
-                        );
-                      })
-                    )}
-                    {session.role === "host" &&
-                    session.driverId &&
-                    session.driverId !== session.selfId ? (
-                      <Pressable
-                        pointerEvents="auto"
-                        onPress={() => {
-                          noteActivity();
-                          requestPassControl(null);
-                        }}
-                        accessibilityRole="button"
-                        style={{ paddingVertical: 6 }}
-                      >
-                        <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
-                          Take back control
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-
-                <Text
-                  selectable
-                  style={{
-                    color: colors.text,
-                    fontSize: typeScale.caption,
-                    borderWidth: 1,
-                    borderColor: colors.line,
-                    borderRadius: radius.card,
-                    padding: spacing.md,
-                    marginBottom: spacing.sm,
-                  }}
-                >
-                  {inviteUrl}
-                </Text>
-                <View style={{ flexDirection: "row", gap: spacing.sm, marginBottom: spacing.sm }}>
-                  <Pressable
-                    pointerEvents="auto"
-                    onPress={() => void shareInvite(inviteUrl)}
-                    accessibilityRole="button"
-                    style={({ pressed }) => ({
-                      flex: 1,
-                      alignItems: "center",
-                      paddingVertical: 10,
-                      borderRadius: radius.card,
-                      backgroundColor: pressed ? colors.accentDim : colors.accent,
-                    })}
-                  >
-                    <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
-                      Share link
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    pointerEvents="auto"
-                    onPress={() => void copyInvite(inviteUrl)}
-                    accessibilityRole="button"
-                    style={({ pressed }) => ({
-                      flex: 1,
-                      alignItems: "center",
-                      paddingVertical: 10,
-                      borderRadius: radius.card,
-                      borderWidth: 1,
-                      borderColor: colors.line,
-                      backgroundColor: pressed ? colors.accentDim : "transparent",
-                    })}
-                  >
-                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-                      {copied ? "Copied" : "Copy link"}
-                    </Text>
-                  </Pressable>
-                </View>
-                <Pressable
-                  pointerEvents="auto"
-                  onPress={() => {
-                    noteActivity();
-                    setMintedRoom(null);
-                    requestStopHosting();
-                  }}
-                  accessibilityRole="button"
-                  style={{ paddingVertical: 6 }}
-                >
-                  <Text style={{ color: colors.textDim, fontSize: typeScale.body, fontWeight: "600" }}>
-                    Stop hosting — room becomes open collab
-                  </Text>
-                </Pressable>
-              </View>
-            );
-          }
-
-          if (session.role === "guest") {
-            const driving = session.mode === "control" && session.driverId === session.selfId;
-            const guestLine =
-              session.mode === "mirror"
-                ? "You see the host's canvas live. Your touches paint only your own screen — the host never sees them."
-                : session.mode === "view"
-                  ? "Audience mode: your canvas input is off. What the host makes is what you feel."
-                  : session.mode === "control"
-                    ? driving
-                      ? "You're driving — the whole room feels your touches."
-                      : `${displayNameFor(session.driverId, session.selfId)} is driving. Your touches stay on your screen until the brush comes to you.`
-                    : "Everyone draws on the shared canvas here.";
-            return (
-              <View>
-                <View
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.accentLine,
-                    borderRadius: radius.card,
-                    padding: spacing.md,
-                    marginBottom: spacing.sm,
-                    gap: 4,
-                  }}
-                >
-                  <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-                    {SESSION_MODE_LABEL[session.mode]} · hosted by {displayNameFor(session.hostId, session.selfId)}
-                  </Text>
-                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-                    {guestLine}
-                  </Text>
-                </View>
-                <Pressable
-                  pointerEvents="auto"
-                  onPress={leaveSession}
-                  accessibilityRole="button"
-                  style={{ paddingVertical: 6 }}
-                >
-                  <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
-                    Leave — back to the main room
-                  </Text>
-                </Pressable>
-              </View>
-            );
-          }
-
-          // Open room: nobody hosts. Offer the mint-and-host flow.
-          const hint = parseInviteHint();
-          return (
-            <View>
-              {hint && hint.roomId === roomId && hint.mode ? (
-                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
-                  You arrived with a {SESSION_MODE_LABEL[hint.mode]} invite —
-                  your host hasn't opened this room yet. When they do, the
-                  mode applies automatically; until then this room is open.
-                </Text>
-              ) : null}
-              <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
-                Invite people to this canvas. Hosting mints a fresh room
-                and moves you into it — your canvas comes with you, and
-                guests land beside you through the link.
-              </Text>
-              {renderModeRows(pickedMode, setPickedMode)}
-              <Pressable
-                pointerEvents="auto"
-                onPress={() => startHosting(pickedMode)}
-                accessibilityRole="button"
-                style={({ pressed }) => ({
-                  alignItems: "center",
-                  paddingVertical: 12,
-                  borderRadius: radius.card,
-                  backgroundColor: pressed ? colors.accentDim : colors.accent,
-                  marginBottom: spacing.sm,
-                })}
-              >
-                <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
-                  Invite to this canvas
-                </Text>
-              </Pressable>
-            </View>
-          );
-        })()}
-
         {/* ---------------- STUDIO ---------------- */}
-        <SectionHeader>STUDIO — CREATE</SectionHeader>
+        <SectionHeader>STUDIO</SectionHeader>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
           Creation is durable here, not on the canvas. The composer on
           the canvas is a quick action — it fires a pattern once and
@@ -2132,26 +2302,12 @@ export default function FabricMenu() {
               { label: "Composer access & permissions", panel: "ai-settings" as DrawerName },
             ]
           ).map((row) => (
-            <Pressable
+            <DoorRow
               key={row.label}
+              icon="spark"
+              label={row.label}
               onPress={() => openPanel(row.panel)}
-              accessibilityRole="button"
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: spacing.md,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: radius.card,
-                backgroundColor: pressed ? colors.accentDim : "transparent",
-              })}
-            >
-              <Icon name="spark" size={20} color={colors.text} />
-              <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
-                {row.label}
-              </Text>
-              <Icon name="chevronRight" size={16} color={colors.textDim} />
-            </Pressable>
+            />
           ))}
         </View>
 
@@ -2223,84 +2379,17 @@ export default function FabricMenu() {
             real protocol client (its own socket, its own lint:
             peer id) rendered as a menu card — hardware speaks the
             same protocol; see docs/LINT.md. */}
-        <SectionHeader>LINT — OBJECTS</SectionHeader>
+        <SubHeader>Lint — objects</SubHeader>
         <LintSimulatorCard />
 
-        {/* ---------------- UNIVERSAL ---------------- */}
-        <SectionHeader>UNIVERSAL</SectionHeader>
-        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
-          Yours, on this device — the same on every layer.
-        </Text>
-
-        {/* Your Ghostie (Slice 20) — the ghostie's HOME leads this
-            section: its living fDNA and secure tag, its brain, its
-            Personality, and how it is with others, in one place
-            instead of scattered across the menu and AI Services. */}
-        <Pressable
-          onPress={() => {
-            noteActivity();
-            setGhostHomeOpen(true);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Open Your Ghostie"
-          style={({ pressed }) => ({
-            borderWidth: 1,
-            borderColor: colors.ghostLine,
-            borderRadius: radius.card,
-            padding: spacing.md,
-            marginBottom: spacing.sm,
-            backgroundColor: pressed ? colors.ghostDim : "transparent",
-          })}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-            <View
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: 5,
-                backgroundColor: colors.ghost,
-              }}
-            />
-            <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.label, fontWeight: "700" }}>
-              Your Ghostie{ghost.ghostName ? ` — ${ghost.ghostName}` : ""}
-            </Text>
-            <Icon name="chevronRight" size={16} color={colors.textDim} />
-          </View>
-          <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
-            {ghost.temperament
-              ? `${ghost.temperament} · ${ghost.presence} · `
-              : ""}
-            its living fDNA and secure tag, its brain, its Personality,
-            and how it is with others.
-          </Text>
-        </Pressable>
-
-        <ToggleRow
-          label="Haptics"
-          value={prefs.hapticsEnabled}
-          onPress={() => prefs.setHapticsEnabled(!prefs.hapticsEnabled)}
-        />
-        <ToggleRow
-          label="Audio cues"
-          value={prefs.audioEnabled}
-          onPress={() => prefs.setAudioEnabled(!prefs.audioEnabled)}
-        />
-        <ToggleRow
-          label="Voice input panel"
-          value={voiceOpen}
-          onPress={() => setVoiceOpen(!voiceOpen)}
-        />
-
+        {/* ---------------- AI SERVICES ---------------- */}
+        <SectionHeader>AI SERVICES</SectionHeader>
         {/* Agent model tier — the AI Services panel itself stays the
             editor (keys, endpoints, Meta preset); this is its summary
             and the door to it. */}
         <View
           style={{
-            borderWidth: 1,
-            borderColor: colors.line,
-            borderRadius: radius.card,
-            padding: spacing.md,
-            marginBottom: spacing.sm,
+            ...cardStyle, borderColor: colors.line,
             gap: 4,
           }}
         >
@@ -2330,196 +2419,32 @@ export default function FabricMenu() {
           </Pressable>
         </View>
 
-        {/* You (Slice 6) — the human LifePacket v0: the name and
-            signature hue the room sees and hears. Your color tints
-            your strokes on every screen; your stroke sound is
-            pitched by it. Editing announces the new face to the
-            room immediately. Only name + color ever leave this
-            device — the seed stays home. */}
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: colors.accentLine,
-            borderRadius: radius.card,
-            padding: spacing.md,
-            marginBottom: spacing.sm,
-            gap: 4,
-          }}
-        >
-          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-            You are {identity.self ? identity.self.name : "…"}
-          </Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-            <View
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: identity.self
-                  ? hueCss(identity.self.hue)
-                  : colors.textDim,
-              }}
-            />
-            <Text style={{ flex: 1, color: colors.textDim, fontSize: typeScale.caption }}>
-              {identity.self
-                ? `Signature color · hue ${identity.self.hue}° — your strokes and your sound`
-                : "Generating your identity…"}
-            </Text>
-            <Pressable
-              pointerEvents="auto"
-              onPress={() => {
-                noteActivity();
-                localIdentity.shuffleHue();
-              }}
-              accessibilityRole="button"
-              style={{ paddingVertical: 4, paddingHorizontal: 8 }}
-            >
-              <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
-                Shuffle
-              </Text>
-            </Pressable>
-          </View>
-          <TextInput
-            pointerEvents="auto"
-            value={nameDraft ?? identity.self?.name ?? ""}
-            onChangeText={setNameDraft}
-            onEndEditing={() => {
-              if (nameDraft !== null) localIdentity.setName(nameDraft);
-              setNameDraft(null);
-            }}
-            onSubmitEditing={() => {
-              if (nameDraft !== null) localIdentity.setName(nameDraft);
-              setNameDraft(null);
-            }}
-            placeholder="Your name in the room"
-            placeholderTextColor={colors.textDim}
-            maxLength={40}
-            style={{
-              color: colors.text,
-              // 16px floor (Hotfix 2.3): iOS Safari auto-zooms any
-              // focused field under 16px and can leave the page
-              // scrolled/zoomed after the keyboard closes — the
-              // stuck half-blank layout Terrell keeps hitting.
-              fontSize: 16,
-              borderWidth: 1,
-              borderColor: colors.line,
-              borderRadius: radius.card,
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              marginTop: spacing.xs,
-            }}
-          />
-          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-            Shown in the room roster and carried on your strokes.
-            Renaming or re-coloring updates the room live.
-          </Text>
-        </View>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          The ghost's own brain — its tier, its decisions, its
+          Personality — lives in Your Ghostie (YOU, above).
+        </Text>
+        {/* ---------------- SETTINGS & HELP ---------------- */}
+        <SectionHeader>SETTINGS & HELP</SectionHeader>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          Device-wide defaults and the toolbox — nothing here
+          belongs to a single layer.
+        </Text>
 
-        <LifePacketCard />
-
-        {/* First Breath replay (Slice 10) — the palette step from
-            the first run, reopened on purpose: the packet deals
-            your cards again and a tap re-wears a signature hue
-            through the same identity setter. Palette only — no
-            name step, no flag changes; the full flow belongs to a
-            device's actual first breath and never repeats. */}
-        <Pressable
-          pointerEvents="auto"
-          onPress={() => {
-            noteActivity();
-            requestFirstBreath("palette");
-            setMenuOpen(false);
-          }}
-          accessibilityRole="button"
-          style={({ pressed }) => ({
-            borderWidth: 1,
-            borderColor: colors.accentLine,
-            borderRadius: radius.card,
-            padding: spacing.md,
-            marginBottom: spacing.sm,
-            gap: 4,
-            backgroundColor: pressed ? colors.accentDim : "transparent",
-          })}
-        >
-          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-            First Breath — revisit your colors ›
-          </Text>
-          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-            The palette step from your first run: three cards dealt
-            from your LifePacket seed, shuffle for three more. Your
-            ghost keeps you company while you choose.
-          </Text>
-        </Pressable>
-
-        {/* Your ghost & privacy — the ghost's identity, status, and
-            settings live in Your Ghostie (top of this section) since
-            Slice 20; what stays here is the standing privacy
-            statement, which belongs next to the identity it covers. */}
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: colors.ghostLine,
-            borderRadius: radius.card,
-            padding: spacing.md,
-            marginBottom: spacing.sm,
-            gap: 4,
-          }}
-        >
-          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-            Your ghost & privacy
-          </Text>
-          <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-            The ghost is always labeled as an AI agent, never appears
-            as a person, and a visiting ghost's sensations can be
-            muted from its pill on the canvas.
-          </Text>
-        </View>
-
-        {/* Panels — everything the rail used to open, from one list. */}
-        <SectionHeader>OPEN</SectionHeader>
-        <View style={{ gap: spacing.xs }}>
-          {PANEL_ROWS.map((row) => (
-            <Pressable
-              key={row.name}
-              onPress={() => openPanel(row.name)}
-              accessibilityRole="button"
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: spacing.md,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: radius.card,
-                backgroundColor: pressed ? colors.accentDim : "transparent",
-              })}
-            >
-              <Icon name={row.icon} size={20} color={colors.text} />
-              <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
-                {row.label}
-              </Text>
-              <Icon name="chevronRight" size={16} color={colors.textDim} />
-            </Pressable>
-          ))}
-          <Pressable
-            onPress={() => openPanel("settings")}
-            accessibilityRole="button"
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: spacing.md,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: radius.card,
-              backgroundColor: pressed ? colors.accentDim : "transparent",
-            })}
-          >
-            <Icon name="gear" size={20} color={colors.text} />
-            <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
-              Preferences panel
-            </Text>
-            <Icon name="chevronRight" size={16} color={colors.textDim} />
-          </Pressable>
-        </View>
+        <ToggleRow
+          label="Haptics"
+          value={prefs.hapticsEnabled}
+          onPress={() => prefs.setHapticsEnabled(!prefs.hapticsEnabled)}
+        />
+        <ToggleRow
+          label="Audio cues"
+          value={prefs.audioEnabled}
+          onPress={() => prefs.setAudioEnabled(!prefs.audioEnabled)}
+        />
+        <ToggleRow
+          label="Voice input panel"
+          value={voiceOpen}
+          onPress={() => setVoiceOpen(!voiceOpen)}
+        />
 
         {/* Diagnostics — the panel that used to need a drawer hunt. */}
         <Pressable
@@ -2531,8 +2456,28 @@ export default function FabricMenu() {
             {showDiag ? "Hide diagnostics" : "Diagnostics"}
           </Text>
         </Pressable>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          Same convention as the canvas: ?diag=1 in the address wakes
+          Fabric's diagnostic surfaces.
+        </Text>
         {showDiag ? <FabricDiagnostics /> : null}
 
+        <SubHeader>Panels</SubHeader>
+        <View style={{ gap: spacing.xs }}>
+          {PANEL_ROWS.map((row) => (
+            <DoorRow
+              key={row.name}
+              icon={row.icon}
+              label={row.label}
+              onPress={() => openPanel(row.name)}
+            />
+          ))}
+          <DoorRow
+            icon="gear"
+            label="Preferences panel"
+            onPress={() => openPanel("settings")}
+          />
+        </View>
         <Text
           style={{
             color: colors.textDim,
