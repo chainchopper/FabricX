@@ -59,6 +59,7 @@ import {
   setGhostPublicState,
   getGhostPublicState,
   FABRIC_PET_GHOST_EVENT,
+  FABRIC_VOICE_UNHEARD_EVENT,
   FABRIC_WARM_WELCOME_EVENT,
 } from "../../ghost/ghostStore";
 import {
@@ -962,24 +963,6 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     return () => window.removeEventListener(FABRIC_PET_GHOST_EVENT, onPetGhost as EventListener);
   }, []);
 
-  // Slice 24: Warm Welcome. The rewards feed dispatches
-  // FABRIC_WARM_WELCOME_EVENT when a guest joins this client's
-  // hosted session and the power-up is earned; the answer is the
-  // ghost's own warmWelcome — a greeting that spends from its
-  // ordinary emit budget and simply doesn't happen when the
-  // budget (or the ghost) can't pay. The verb is the primary's
-  // chosen greeting, carried in the event detail.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onWarmWelcome = (ev: Event) => {
-      const verb = (ev as CustomEvent<string>).detail;
-      if (verb !== "heart" && verb !== "cheer" && verb !== "tickle") return;
-      ghostRef.current.warmWelcome(verb);
-    };
-    window.addEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
-    return () => window.removeEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
-  }, []);
-
   // Slice 28: Hands. The camera-gesture engine (src/hands) asks on
   // the window, and the answer is this funnel — deliberately the
   // same shape as every other input path: session gate first, then
@@ -1103,6 +1086,39 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       window.removeEventListener(FABRIC_HAND_INPUT_EVENT, onHandInput as EventListener);
       window.removeEventListener(FABRIC_HAND_SIGN_EVENT, onHandSign as EventListener);
     };
+  }, []);
+
+  // Slice 24: Warm Welcome. The rewards feed dispatches
+  // FABRIC_WARM_WELCOME_EVENT when a guest joins this client's
+  // hosted session and the power-up is earned; the answer is the
+  // ghost's own warmWelcome — a greeting that spends from its
+  // ordinary emit budget and simply doesn't happen when the
+  // budget (or the ghost) can't pay. The verb is the primary's
+  // chosen greeting, carried in the event detail.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onWarmWelcome = (ev: Event) => {
+      const verb = (ev as CustomEvent<string>).detail;
+      if (verb !== "heart" && verb !== "cheer" && verb !== "tickle") return;
+      ghostRef.current.warmWelcome(verb);
+    };
+    window.addEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
+    return () => window.removeEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
+  }, []);
+
+  // Hotfix 2.5: the browser refused the compose bar's microphone.
+  // The moment gets the same living answer as an unshapeable ask
+  // (Hotfix 2.4) — the ghost's puzzlement, its curious ear-tilt —
+  // when a ghost is present to perform it. expressPuzzlement is
+  // presence-gated and budget-counted like any act; with no ghost
+  // out, the bar's caption carries the moment alone.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onVoiceUnheard = () => {
+      ghostRef.current.expressPuzzlement();
+    };
+    window.addEventListener(FABRIC_VOICE_UNHEARD_EVENT, onVoiceUnheard);
+    return () => window.removeEventListener(FABRIC_VOICE_UNHEARD_EVENT, onVoiceUnheard);
   }, []);
 
   // ---- Pattern composer (Slice 4) --------------------------------------
@@ -1325,7 +1341,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       if (!raw || typeof raw !== "object") return;
       const recipe = validateRecipe(
         raw,
-        raw.source === "builtin" ? "builtin" : "llm"
+        raw.source === "builtin"
+          ? "builtin"
+          : raw.source === "device"
+            ? "device"
+            : "llm"
       );
       if (!recipe) return;
       playRecipeRef.current(recipe, {
