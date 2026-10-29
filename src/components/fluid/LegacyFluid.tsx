@@ -15,6 +15,7 @@ import {
   FABRIC_PLAY_PATTERN_EVENT,
   getHapticPattern,
   hueToRgb,
+  loadLLMConfig,
   type Pattern,
   type PatternStep,
 } from "../../ai/PatternComposer";
@@ -89,6 +90,18 @@ import {
   useDeviceMotion,
   type MotionStats,
 } from "../../sensors/useDeviceMotion";
+import {
+  FABRIC_SEE_HIGHLIGHT_EVENT,
+  boxCenter,
+  imageBoxToCanvas,
+  parseSeeAct,
+  ringFitFor,
+  touchRadiusFor,
+  type SeeAct,
+} from "../../sam/seeActs";
+import { segmentPhrase } from "../../sam/segmentation";
+import { noteGroundingWanted } from "../../sam/deviceGrounding";
+import { getSamCameraSnapshot } from "../../sam/samCameraStore";
 import { noteBus } from "../../../shared/utils/noteBus";
 import { getAudioContextState } from "../../audio/sharedAudio";
 import {
@@ -1193,6 +1206,216 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       ghostRef.current.noteUserActivity();
     };
 
+    // Slice 30 ("See acts"): on the See layer, an act ask closes
+    // the loop SAM opened — segment the named thing through the
+    // tier seam (cloud SAM 3.1 when configured, the on-device
+    // GroundingDINO eyes when ready), then ACT on the region:
+    // a touch through the shared funnel in the asker's hue, a
+    // ring recipe fitted to the region's box, or (highlight)
+    // the outline alone. Addressed to the ghost, the GHOST
+    // performs through its Slice 23 machinery — draw gate,
+    // budget, cooldown — and when the fabric refuses, nobody
+    // performs in its place. No region, no eyes, a resting
+    // ghost: the established living fallback answers, never a
+    // dev error and never a fabricated region. The act route
+    // CLAIMS its asks on the See layer: the generic interpreter
+    // must never invent a target for an act it cannot see.
+    const rippleInUserHue = () => {
+      const hue = getIdentitySnapshot().self?.hue ?? 200;
+      engineRef.current?.splatAt(0.5, 0.47, 0, -42, hueToRgb(hue, 0.5), 0.8);
+      engineRef.current?.splatAt(0.5, 0.47, 26, -18, hueToRgb(hue, 0.3), 0.5);
+    };
+    const seeActFallback = (line: string | null) => {
+      const puzzled = ghostRef.current.expressPuzzlement();
+      if (!puzzled) rippleInUserHue();
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+          detail: {
+            source: "puzzled",
+            ghostName: puzzled
+              ? (ghostRef.current.identity?.name ?? null)
+              : null,
+          },
+        })
+      );
+      publishState(line);
+    };
+    const performSeeAct = async (act: SeeAct): Promise<void> => {
+      const ghostName = ghostRef.current.identity?.name ?? "Ghost";
+      const llm = await loadLLMConfig();
+      const outcome = await segmentPhrase(act.phrase, {
+        cloud: llm ? { apiKey: llm.apiKey, endpoint: llm.endpoint } : null,
+      });
+      if (outcome.status === "unavailable") {
+        // No eyes can serve the ask: note the want (it raises
+        // the ONE on-device-eyes consent ask when undecided)
+        // and answer in-world, as an unshapeable ask is today.
+        noteGroundingWanted();
+        seeActFallback(
+          "See's eyes are resting on this device — once they're on, that ask works"
+        );
+        return;
+      }
+      if (outcome.status === "error") {
+        publishState(outcome.message);
+        rippleInUserHue();
+        return;
+      }
+      const regions = outcome.regions;
+      if (regions.length === 0) {
+        seeActFallback(`Couldn't find ${act.phrase} in this frame`);
+        return;
+      }
+      // Show what was found — image space; SamLayer maps it
+      // through its cover-fit frame rect like its own results.
+      // For a highlight ask this outline IS the whole act.
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_SEE_HIGHLIGHT_EVENT, {
+          detail: {
+            regions: regions.map((r) => ({ ...r.box, label: r.label })),
+            phrase: act.phrase,
+            pulse: act.kind === "highlight",
+            lingerMs: act.kind === "highlight" ? 5000 : 0,
+          },
+        })
+      );
+      if (act.kind === "highlight") {
+        recordAgentAnswer();
+        window.dispatchEvent(
+          new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+            detail: outcome.tier === "device-grounding" ? "device" : "llm",
+          })
+        );
+        publishState(`There's ${act.phrase} — outlined`);
+        return;
+      }
+      // Map the found box into canvas space through the
+      // cover-fit transform, so the act lands where the user
+      // SEES the object on their screen.
+      const cam = getSamCameraSnapshot();
+      const viewportAspect =
+        typeof window !== "undefined" && window.innerHeight > 0
+          ? window.innerWidth / window.innerHeight
+          : 0;
+      const target = imageBoxToCanvas(
+        regions[0].box,
+        cam.aspect,
+        viewportAspect
+      );
+      const center = boxCenter(target);
+      const sourceDetail =
+        outcome.tier === "device-grounding" ? "device" : "llm";
+
+      if (act.toGhost && act.kind === "touch") {
+        const res = ghostRef.current.answerTouchAt(
+          center.x,
+          center.y,
+          touchRadiusFor(target),
+          act.phrase
+        );
+        if (res === "performed") {
+          recordAgentAnswer();
+          window.dispatchEvent(
+            new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+              detail: "ghost",
+            })
+          );
+          publishState(`${ghostName} touched ${act.phrase}`);
+        } else if (res === "refused") {
+          publishState(
+            `${ghostName} wanted to touch — this fabric doesn't allow it`
+          );
+        } else {
+          seeActFallback(null);
+        }
+        return;
+      }
+      if (act.toGhost && act.kind === "draw") {
+        const fit = ringFitFor(target);
+        const res = ghostRef.current.answerDrawAround(
+          fit.cx,
+          fit.cy,
+          fit.scale,
+          act.phrase
+        );
+        if (res === "performed") {
+          recordAgentAnswer();
+          window.dispatchEvent(
+            new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+              detail: "ghost",
+            })
+          );
+          publishState(`${ghostName} drew a circle around ${act.phrase}`);
+        } else if (res === "refused") {
+          publishState(
+            `${ghostName} wanted to draw — this fabric doesn't allow it`
+          );
+        } else {
+          seeActFallback(null);
+        }
+        return;
+      }
+      if (act.kind === "touch") {
+        // The user's own touch, through the shared funnel —
+        // the same dispatchStep a composed splat rides (send +
+        // local splat, in the asker's hue).
+        dispatchStep({
+          kind: "splat",
+          x: center.x,
+          y: center.y,
+          radius: touchRadiusFor(target),
+          hue: getIdentitySnapshot().self?.hue ?? 200,
+          intensity: 0.85,
+          atMs: 0,
+        });
+        recordAgentAnswer();
+        window.dispatchEvent(
+          new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+            detail: sourceDetail,
+          })
+        );
+        publishState(`Touched ${act.phrase}`);
+        return;
+      }
+      // The user's own draw: a ring fitted to the region,
+      // validated at the door and played through the recipe
+      // send path like every shared drawing.
+      const fit = ringFitFor(target);
+      const hue = getIdentitySnapshot().self?.hue ?? 200;
+      const recipe = validateRecipe(
+        {
+          version: 2,
+          name: `Circle around ${act.phrase}`,
+          seed: (Date.now() ^ 0x5eed) >>> 0,
+          steps: [
+            {
+              shape: "ring",
+              cx: fit.cx,
+              cy: fit.cy,
+              scale: fit.scale,
+              hue: Math.round(hue),
+              durationMs: 2600,
+              style: "draw",
+            },
+          ],
+        },
+        "builtin"
+      );
+      if (!recipe) {
+        seeActFallback(null);
+        return;
+      }
+      recordAgentAnswer();
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+          detail: sourceDetail,
+        })
+      );
+      recipePlayer.stop();
+      playRecipeRef.current(recipe, { send: true, defaultHue: hue });
+      publishState(`Drew a circle around ${act.phrase}`);
+    };
+
     const onCompose = (ev: Event) => {
       const prompt = (ev as CustomEvent<string>).detail;
       if (typeof prompt !== "string" || !prompt.trim()) return;
@@ -1256,6 +1479,19 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
             );
             return;
           }
+        }
+
+        // Slice 30 ("See acts"): on the See layer, an act ask is
+        // answered by SEEING and then ACTING (performSeeAct
+        // above) — it never reaches the generic interpreter,
+        // which cannot see and must not invent the target.
+        const seeAct = parseSeeAct(
+          prompt,
+          ghostRef.current.identity?.name ?? null
+        );
+        if (seeAct && experienceRef.current?.id === "sam-see") {
+          await performSeeAct(seeAct);
+          return;
         }
 
         // Slice 15/17: one entry, two performance vocabularies —

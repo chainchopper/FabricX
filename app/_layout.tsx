@@ -50,6 +50,7 @@ import FabricSessionFollower, {
 } from "./components/fabric/FabricSessionFollower";
 import RewardsFeed from "./components/fabric/RewardsFeed";
 import BrainChrome from "./components/fabric/BrainChrome";
+import GroundingChrome from "./components/fabric/GroundingChrome";
 import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
 import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
@@ -135,6 +136,11 @@ function ChromeLayer() {
           flight; the chip is pointerEvents="none" and the canvas
           never waits on the brain. */}
       <BrainChrome />
+      {/* Slice 30: the on-device eyes' chrome — the one-time
+          consent ask and the download-progress chip, mirroring
+          BrainChrome; it yields while the brain's ask is up so
+          two asks never stack. Renders nothing otherwise. */}
+      <GroundingChrome />
       <ExperienceHUD />
       {/* Slice 29: the Essence — the device's fDNA, alive in the
           corner the connection badge used to occupy (same mount,

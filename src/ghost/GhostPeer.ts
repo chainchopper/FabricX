@@ -406,6 +406,19 @@ interface SocialState {
   nextActionAt: number;
 }
 
+/**
+ * The outcome of an asked See act (Slice 30):
+ *   "performed" — the ghost did it, through its own machinery;
+ *   "refused"   — the fabric's draw gate forbids it here: the
+ *                 refusal is journaled, ZERO emits happen, and
+ *                 nobody else performs it in the ghost's place;
+ *   "unavailable" — the ghost cannot act right now (off,
+ *                 dismissing, resting, budget or cooldown):
+ *                 the caller answers with the fabric itself,
+ *                 the established living fallback.
+ */
+export type GhostActResult = "performed" | "refused" | "unavailable";
+
 export class GhostPeer {
   private options: GhostPeerOptions;
   private rng: () => number;
@@ -896,6 +909,112 @@ export class GhostPeer {
       this.performVerbAct(verbId === "cheer" ? CHEER : TICKLE, 0.75);
     }
     return verbId;
+  }
+
+  /**
+   * Answer a direct See act — "ghostie, touch the apple" — by
+   * touching the found spot AS the ghost (Slice 30). This is
+   * the Slice 23 machinery, not a new path: the fabric draw
+   * gate decides first (a touch is a mark on the fabric), the
+   * splat rides schedule() + emit() so the 16/10s hard budget,
+   * the crowd sub-budget and session broadcast rules bind
+   * exactly as they do for reflex behavior, and the headroom
+   * check is read-only like Warm Welcome's — emit() stays the
+   * final enforcer and the only charger. The touch lands in
+   * the ghost's signature color at the region's center, with a
+   * force scaled mildly by the region's size.
+   */
+  answerTouchAt(
+    x: number,
+    y: number,
+    radius: number,
+    targetLabel: string
+  ): GhostActResult {
+    if (this.destroyed || !this.enabled || this.dismissing) {
+      return "unavailable";
+    }
+    // Being asked is itself company: wake and timestamp the contact.
+    this.noteUserActivity();
+    if (!this.canAct()) return "unavailable";
+    const now = Date.now();
+    if (this.drawGateRefusal(now, "touch")) return "refused";
+    const inWindow = this.emitTimes.filter(
+      (t) => now - t < EMIT_WINDOW_MS
+    ).length;
+    if (EMIT_BUDGET - inWindow < 1) {
+      this.journal("wanted to touch — budget spent", now);
+      return "unavailable";
+    }
+    const px = clamp01(x);
+    const py = clamp01(y);
+    const r = Math.min(1, Math.max(0.05, radius));
+    this.journal(`answered: touched ${targetLabel} on request`, now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(`touched ${targetLabel} on request`);
+    this.options.onSfx?.("play");
+    this.schedule(0, () => {
+      if (!this.canAct()) return;
+      this.emit({
+        position: { x: px, y: py },
+        force: { x: 0, y: -(50 + r * 170) },
+        pressure: 0.55,
+        color: this.sigColor,
+      });
+    });
+    return "performed";
+  }
+
+  /**
+   * Answer a direct See act — "ghostie, draw a circle around
+   * the chair" — by drawing the fitted ring AS the ghost
+   * (Slice 30). The gate, the cooldown and the budget charge
+   * are performDraw's own, shared helpers and all: an asked
+   * ring costs exactly what a deliberated drawing costs
+   * (DRAW_BUDGET_COST of the window, DRAW_MIN_INTERVAL_MS of
+   * quiet), and the recipe rides the host's draw sink, so it
+   * renders here and ships on the recipe transport under the
+   * ghost's peer id like every ghost drawing.
+   */
+  answerDrawAround(
+    cx: number,
+    cy: number,
+    scale: number,
+    targetLabel: string
+  ): GhostActResult {
+    if (this.destroyed || !this.enabled || this.dismissing) {
+      return "unavailable";
+    }
+    // Being asked is itself company: wake and timestamp the contact.
+    this.noteUserActivity();
+    if (!this.canAct()) return "unavailable";
+    const now = Date.now();
+    if (this.drawGateRefusal(now, "draw")) return "refused";
+    if (now - this.lastDrawAt < DRAW_MIN_INTERVAL_MS) {
+      return "unavailable";
+    }
+    if (!this.chargePerformanceBudget(DRAW_BUDGET_COST)) {
+      this.journal("wanted to draw — budget spent", now);
+      return "unavailable";
+    }
+    this.lastDrawAt = now;
+    this.drawCount += 1;
+    const recipe = this.buildDrawRecipe(
+      "ring",
+      clamp01(cx),
+      clamp01(cy),
+      Math.min(0.5, Math.max(0.05, scale))
+    );
+    if (!recipe) return "unavailable"; // Inputs are clamped; stay total anyway.
+    this.journal(
+      `answered: drew a ring around ${targetLabel} on request`,
+      now
+    );
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(
+      `drew a ring around ${targetLabel} on request`
+    );
+    this.options.onDrawRecipe?.(recipe);
+    return "performed";
   }
 
   /**
@@ -2056,24 +2175,39 @@ export class GhostPeer {
    *      (DRAW_BUDGET_COST slots), so a burst of draw decisions
    *      can no more flood the room than a burst of play can.
    */
-  private performDraw(decision: GhostDecision): void {
-    if (!this.canAct()) return;
-    const shape = decision.draw_shape;
-    if (!shape) return;
-    const now = Date.now();
+  /**
+   * The fabric draw gate, shared by every ghost performance
+   * that puts marks on the fabric — deliberated draws (Slice
+   * 23) and asked See acts (Slice 30) alike. Whatever the
+   * caller believed, the fabric's CURRENT rules decide; a
+   * refusal is journaled (the scenario picks it up as a recent
+   * event, so the brain can see its own restraint) and true is
+   * returned. No fabric context (solo, legacy hosts) = no gate.
+   */
+  private drawGateRefusal(now: number, what: string): boolean {
     const fabric = this.currentFabricContext();
     if (fabric && !fabric.rules.draw) {
-      this.journal("wanted to draw — fabric forbids it", now);
-      return;
+      this.journal(`wanted to ${what} — fabric forbids it`, now);
+      return true;
     }
-    if (now - this.lastDrawAt < DRAW_MIN_INTERVAL_MS) return;
-    if (!this.chargePerformanceBudget(DRAW_BUDGET_COST)) {
-      this.journal("wanted to draw — budget spent", now);
-      return;
-    }
-    this.lastDrawAt = now;
-    this.drawCount += 1;
-    const recipe = validateRecipe(
+    return false;
+  }
+
+  /**
+   * Build + validate the one-step draw recipe every ghost
+   * drawing ships as. The seed mixes the identity seed with
+   * the draw count, so consecutive drawings differ; callers
+   * increment drawCount BEFORE building. Returns null only if
+   * validation rejects — callers pass clamped inputs, so this
+   * stays total.
+   */
+  private buildDrawRecipe(
+    shape: NonNullable<GhostDecision["draw_shape"]>,
+    cx: number,
+    cy: number,
+    scale: number
+  ): Recipe | null {
+    return validateRecipe(
       {
         version: 2,
         name: `${this.options.ghostName ?? "Ghost"} drew a ${shape}`,
@@ -2081,12 +2215,9 @@ export class GhostPeer {
         steps: [
           {
             shape,
-            cx: this.position.x,
-            cy: this.position.y,
-            scale: Math.min(
-              0.5,
-              Math.max(0.05, 0.1 + 0.22 * decision.intensity)
-            ),
+            cx,
+            cy,
+            scale,
             hue: Math.round(this.options.identity.hue),
             durationMs: 2600,
             style: shape === "burst" ? "burst" : "draw",
@@ -2094,6 +2225,27 @@ export class GhostPeer {
         ],
       },
       "builtin"
+    );
+  }
+
+  private performDraw(decision: GhostDecision): void {
+    if (!this.canAct()) return;
+    const shape = decision.draw_shape;
+    if (!shape) return;
+    const now = Date.now();
+    if (this.drawGateRefusal(now, "draw")) return;
+    if (now - this.lastDrawAt < DRAW_MIN_INTERVAL_MS) return;
+    if (!this.chargePerformanceBudget(DRAW_BUDGET_COST)) {
+      this.journal("wanted to draw — budget spent", now);
+      return;
+    }
+    this.lastDrawAt = now;
+    this.drawCount += 1;
+    const recipe = this.buildDrawRecipe(
+      shape,
+      this.position.x,
+      this.position.y,
+      Math.min(0.5, Math.max(0.05, 0.1 + 0.22 * decision.intensity))
     );
     if (!recipe) return; // Inputs are clamped; stay total anyway.
     this.journal(`drew a ${shape}`, now);
