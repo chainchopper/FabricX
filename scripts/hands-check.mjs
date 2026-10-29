@@ -31,8 +31,10 @@
  *   mounts both Hands components; the SAM camera store exposes
  *   its element for on-device detection; the menu carries the
  *   toggle (THIS LAYER block + host edit fields + card labels);
- *   the ID cards carry the privacy line; package.json carries the
- *   MediaPipe dependency.
+ *   the ID cards carry the privacy line; package.json does NOT
+ *   carry the MediaPipe dependency (Metro cannot bundle it —
+ *   Hotfix 2.10) and the engine loads the pinned library build
+ *   from the CDN through a runtime-constructed import instead.
  *
  * Build + run:
  *   node scripts/hands-check.mjs
@@ -69,7 +71,10 @@ execFileSync(
   [
     "-y", "esbuild", entry,
     "--bundle", "--format=esm", "--platform=node",
-    "--external:@mediapipe/tasks-vision",
+    // NO --external for @mediapipe/tasks-vision: since Hotfix 2.10
+    // the engine never names that specifier to a bundler, so this
+    // bundle succeeding with no external proves the point — any
+    // literal import creeping back fails resolution right here.
     `--outfile=${bundlePath}`,
   ],
   { stdio: "inherit" }
@@ -344,6 +349,7 @@ const ghost = read("src/ghost/GhostPeer.ts");
 const layer = read("src/components/hands/HandsLayer.tsx");
 const fluidTypes = read("src/types/fluid.ts");
 const pkg = read("package.json");
+const engine = read("src/hands/handsEngine.ts");
 
 check("renderer imports HandsLayer + HandsCameraBackground",
   renderer.includes("HandsLayer") && renderer.includes("HandsCameraBackground"));
@@ -374,7 +380,10 @@ check("menu: layer card labels carry Hands", menu.includes('handsEnabled: "Hands
 check("ID cards carry the hands privacy line (both layers)",
   (cards.match(/Hands: your camera is read on this device only/g) ?? []).length >= 2);
 check("ID card lists Hands among See's tools", cards.includes('"Hands — gesture input"'));
-check("package.json carries the MediaPipe dependency", pkg.includes('"@mediapipe/tasks-vision"'));
+check("package.json does NOT carry the MediaPipe dependency (Metro cannot bundle it)", !pkg.includes('"@mediapipe/tasks-vision"'));
+check("engine loads tasks-vision from the pinned CDN build", engine.includes("TASKS_VISION_CDN_URL") && engine.includes("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@") && engine.includes("/vision_bundle.mjs"));
+check("engine imports tasks-vision at runtime only (no bundler-visible specifier)",
+  engine.includes("return import(u)") && !engine.includes('import("@mediapipe/tasks-vision")') && !engine.includes('from "@mediapipe/tasks-vision"'));
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
