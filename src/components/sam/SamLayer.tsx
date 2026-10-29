@@ -21,17 +21,33 @@ import {
   type SamCameraSnapshot,
 } from "../../sam/samCameraStore";
 import {
+  publishSegmentationSource,
+  seeChipDecision,
+  segmentationAvailable,
+  subscribeSegmentationAvailable,
+} from "../../sam/segmentationAvailability";
+import {
+  getBrainSnapshot,
+  subscribeOnDeviceBrain,
+} from "../../ai/onDeviceBrain";
+import { colors, radius, spacing } from "../../theme/tokens";
+// Slice 30's imports sit below the theme import on purpose:
+// Slices 29 and 30 both first inserted at the anchor above, and
+// the S29/S30 reconciliation keeps each side's insertion on its
+// own ground so the merge stays clean.
+import {
   FABRIC_SEE_HIGHLIGHT_EVENT,
   type SeeHighlightDetail,
 } from "../../sam/seeActs";
 import { segmentPhrase } from "../../sam/segmentation";
 import {
   getGroundingSnapshot,
+  isDeviceGroundingReady,
   noteGroundingWanted,
   subscribeDeviceGrounding,
   type GroundingSnapshot,
 } from "../../sam/deviceGrounding";
-import { colors, radius, spacing } from "../../theme/tokens";
+import { getSegmentationSources } from "../../sam/segmentationAvailability";
 
 /**
  * SamLayer — the "See" layer (Slice 14): touch what you see.
@@ -68,21 +84,30 @@ import { colors, radius, spacing } from "../../theme/tokens";
  * (see ExperienceContext), and a paused camera is what stillness
  * means here.
  *
- * STATUS, NOT MECHANISM-SPEAK (Hotfix 2.4): the layer's face is a
- * one-line chip at the top edge — "See · Camera live" / "See ·
- * Segmentation resting" / "See · Segmenting". How segmentation
- * works and the frame-privacy line live where reference copy
- * belongs: this layer's ID card and THIS LAYER in the menu. The
- * privacy behavior itself is unchanged and true in the code:
- * frames are sent ONLY on the explicit Segment tap — one frame, to
- * the resolved Meta endpoint (the user's own AI Services config, or
- * Fanalogy's build-time-locked cloud — the composer's shared
- * resolution, Cleanup 2). Nothing streams to the API, the frame is
- * captured to a local data URL, used for that one request, and
- * dropped; regions keep only box coordinates. With no cloud
- * resolved at all, the chip says "resting" — plainly, with no plea
- * to connect anything; the camera and the rest of the layer still
- * work.
+ * STATUS, NOT MECHANISM-SPEAK (Hotfix 2.4; silence rule, Slice
+ * 29): the layer's face at the top edge is SILENT by default —
+ * when the camera is live and a segmentation path is available,
+ * the chip renders nothing at all; the layer working is not news.
+ * Availability is the shared boolean in
+ * src/sam/segmentationAvailability.ts: the cloud path publishes
+ * its presence from the resolution below, the on-device tier from
+ * the brain snapshot, and Slice 30's Acts interpreter from its own
+ * router — one boolean every See surface reads. A one-line chip
+ * appears only for genuine need states — the camera denied/absent
+ * ("See · Camera blocked"), or no segmentation path anywhere
+ * ("See · Segmentation resting", plainly, with no plea to connect
+ * anything) — and stays dismissible to the small "See" pill, as
+ * before. How segmentation works and the frame-privacy line live
+ * where reference copy belongs: this layer's ID card and THIS
+ * LAYER in the menu. The privacy behavior itself is unchanged and
+ * true in the code: frames are sent ONLY on the explicit Segment
+ * tap — one frame, to the resolved Meta endpoint (the user's own
+ * AI Services config, or Fanalogy's build-time-locked cloud — the
+ * composer's shared resolution, Cleanup 2). Nothing streams to
+ * the API, the frame is captured to a local data URL, used for
+ * that one request, and dropped; regions keep only box
+ * coordinates. With no path resolved at all, the camera and the
+ * rest of the layer still work.
  *
  * Pointer events (PR #16 discipline): the overlay root is box-none,
  * the camera surface and its video element are "none" (the video
@@ -104,6 +129,23 @@ import { colors, radius, spacing } from "../../theme/tokens";
  * results (a soft pulse, for a highlight ask). The manual flow
  * below runs on the same seam, so Segment works with whichever
  * eyes this device has — its frame discipline is unchanged.
+ *
+ * Availability wiring (S29/S30 reconciliation): the STATUS
+ * paragraph above says the seam's "device" source comes from
+ * the brain snapshot — that was Slice 29's placeholder, written
+ * before the on-device eyes existed, and it misattributes
+ * availability (a ready brain is not a pair of eyes). It is
+ * RETIRED in place below: the brain-snapshot publish stays as
+ * text (deleting main-side lines from this branch would make
+ * the merge itself conflict), but a corrective publisher —
+ * subscribed after it on the brain store, and on the grounding
+ * store — re-derives "device" from the grounding tier's own
+ * readiness after every change, so the seam's resting value is
+ * always the tier truth, and derives "acts" (servable whenever
+ * either tier is) from the seam's current sources. The tier
+ * truth is segmentation.ts's getSegmentationStatus(); the
+ * seam's API is unchanged. A post-merge cleanup on main can
+ * delete the retired publish outright.
  *
  * Powered by Nirvana
  */
@@ -276,18 +318,23 @@ export default function SamLayer() {
   const [regions, setRegions] = useState<SamRegion[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [chipDismissed, setChipDismissed] = useState(false);
-
-  // Slice 30, Tier B: this device's own eyes (GroundingDINO).
-  // The tools render when EITHER tier can serve — a resolved
-  // cloud model (Tier A) or ready on-device eyes (Tier B).
-  const [grounding, setGrounding] = useState<GroundingSnapshot>(() =>
-    getGroundingSnapshot()
+  // Slice 29: the shared segmentation-availability boolean (the
+  // seam in src/sam/segmentationAvailability.ts). This layer
+  // publishes the cloud and on-device sources; Slice 30's Acts
+  // tier publishes its own. The chip below reads only this.
+  const [segAvailable, setSegAvailable] = useState<boolean>(() =>
+    segmentationAvailable()
   );
-  useEffect(() => subscribeDeviceGrounding(setGrounding), []);
-  const eyesReady = grounding.state === "ready";
-  const [pulse, setPulse] = useState(false);
-  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => subscribeSegmentationAvailable(setSegAvailable), []);
+  useEffect(() => {
+    publishSegmentationSource(
+      "device",
+      getBrainSnapshot().state === "ready"
+    );
+    return subscribeOnDeviceBrain((snap) =>
+      publishSegmentationSource("device", snap.state === "ready")
+    );
+  }, []);
 
   // Displayed-frame geometry: the video is COVER-fit, so SAM's
   // normalized boxes map onto the displayed frame rect, which may
@@ -307,6 +354,58 @@ export default function SamLayer() {
     return { left: (hostW - w) / 2, top: (hostH - h) / 2, w, h };
   }, [cam.size, cam.aspect]);
 
+  // Slice 30, Tier B: this device's own eyes (GroundingDINO).
+  // The tools render when EITHER tier can serve — a resolved
+  // cloud model (Tier A) or ready on-device eyes (Tier B).
+  // (Relocated below frameRect in the S29/S30 reconciliation:
+  // both slices' state blocks first landed in the same gap.)
+  const [grounding, setGrounding] = useState<GroundingSnapshot>(() =>
+    getGroundingSnapshot()
+  );
+  useEffect(() => subscribeDeviceGrounding(setGrounding), []);
+  const eyesReady = grounding.state === "ready";
+  const [pulse, setPulse] = useState(false);
+  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // S29/S30 reconciliation — the availability seam's truth
+  // keeper. Slice 29's effect above publishes "device" from the
+  // WebLLM BRAIN's readiness: a placeholder that misattributes
+  // availability (it predates the on-device eyes). It is retired
+  // in place (kept as text so this branch's merge stays clean)
+  // and superseded by this publisher: subscribed AFTER the
+  // retired one on the brain store, and on the grounding store,
+  // it re-derives "device" from the grounding tier's own
+  // readiness — the same truth segmentation.ts's
+  // getSegmentationStatus() reports — after every change, so
+  // the seam's resting value is always the tier truth; and it
+  // derives "acts" (servable whenever either tier is) from the
+  // seam's current sources. The config watcher covers the cloud
+  // side: when this layer's model resolution settles, "acts"
+  // re-derives against the cloud source the resolution
+  // published. Net behavior, every combination: cloud configured
+  // or eyes ready → the seam says available and acts can serve;
+  // neither → "Segmentation resting" and acts honestly cannot.
+  const publishAvailabilityTruth = useCallback(() => {
+    publishSegmentationSource("device", isDeviceGroundingReady());
+    const s = getSegmentationSources();
+    publishSegmentationSource("acts", s.cloud || s.device);
+  }, []);
+  useEffect(() => {
+    publishAvailabilityTruth();
+    const offGrounding = subscribeDeviceGrounding(
+      publishAvailabilityTruth
+    );
+    const offBrain = subscribeOnDeviceBrain(publishAvailabilityTruth);
+    return () => {
+      offGrounding();
+      offBrain();
+    };
+  }, [publishAvailabilityTruth]);
+  useEffect(() => {
+    publishAvailabilityTruth();
+  }, [config, publishAvailabilityTruth]);
+
   // -- Model resolution (the composer's shared path, Cleanup 2) -----
   // The user's saved model first, then Fanalogy's build-time-locked
   // cloud — so the demo's SAM works out of the box with nothing to
@@ -324,6 +423,8 @@ export default function SamLayer() {
       } else {
         setConfig(null);
       }
+      // The cloud path's presence joins the shared boolean.
+      publishSegmentationSource("cloud", !!resolved);
       setConfigLoaded(true);
     })();
     return () => {
@@ -474,21 +575,17 @@ export default function SamLayer() {
   const hue = getLocalIdentity()?.hue ?? 187;
   const outline = hueCss(hue);
 
-  // The chip's one line. Precedence: an in-flight Segment and a
-  // blocked camera outrank the resting state; resting (no cloud
-  // resolved) outranks the plain camera states — it is the fact a
-  // person in this layer actually needs.
-  const chipText = segmenting
-    ? "See · Segmenting"
-    : cam.status === "error"
-      ? "See · Camera blocked"
-      : configLoaded && !config
-        ? "See · Segmentation resting"
-        : cam.status === "live"
-          ? "See · Camera live"
-          : cam.status === "paused"
-            ? "See · Camera paused"
-            : "See · Camera starting";
+  // The chip's decision (Slice 29 silence rule, pure in
+  // segmentationAvailability.ts): nothing at all while the camera
+  // is live and any segmentation path is available; one plain line
+  // for the two genuine need states; the small "See" pill when a
+  // need state is dismissed.
+  const chip = seeChipDecision({
+    camStatus: cam.status,
+    segAvailable,
+    configLoaded,
+    dismissed: chipDismissed,
+  });
 
   return (
     <View
@@ -544,9 +641,11 @@ export default function SamLayer() {
           ))
         : null}
 
-      {/* Top edge column: the status chip, then the Segment tools.
-          Doctrine: nothing covers the work — one line of state at
-          the edge, and the tools stay a slim strip under it. */}
+      {/* Top edge column: the status chip (silent unless a need
+          state speaks — Slice 29), then the Segment tools.
+          Doctrine: nothing covers the work — at most one line of
+          state at the edge, and the tools stay a slim strip
+          under it. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -557,7 +656,7 @@ export default function SamLayer() {
           alignItems: "center",
         }}
       >
-        {chipDismissed ? (
+        {chip.kind === "pill" ? (
           <Pressable
             pointerEvents="auto"
             onPress={() => setChipDismissed(false)}
@@ -576,7 +675,7 @@ export default function SamLayer() {
               See
             </Text>
           </Pressable>
-        ) : (
+        ) : chip.kind === "line" ? (
           <View
             pointerEvents="auto"
             style={{
@@ -592,7 +691,7 @@ export default function SamLayer() {
             }}
           >
             <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>
-              {chipText}
+              {chip.text}
             </Text>
             <Pressable
               pointerEvents="auto"
@@ -606,7 +705,7 @@ export default function SamLayer() {
               </Text>
             </Pressable>
           </View>
-        )}
+        ) : null}
 
         {cam.status === "error" && cam.error ? (
           <Text style={{ color: "#fca5a5", fontSize: 11, marginTop: 6 }}>
