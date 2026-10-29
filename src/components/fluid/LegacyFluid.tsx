@@ -1191,7 +1191,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       if (!raw || typeof raw !== "object") return;
       const recipe = validateRecipe(
         raw,
-        raw.source === "builtin" ? "builtin" : "llm"
+        raw.source === "builtin"
+          ? "builtin"
+          : raw.source === "device"
+            ? "device"
+            : "llm"
       );
       if (!recipe) return;
       playRecipeRef.current(recipe, {

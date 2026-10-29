@@ -497,7 +497,7 @@ export class GhostPeer {
   private deliberationDirty = true;
   private lastBrainDecision: {
     decision: GhostDecision;
-    source: "spark" | "table";
+    source: "spark" | "table" | "device";
     at: number;
   } | null = null;
   /** nap/idle directives silence autonomous drift + antics until here. */
@@ -1912,7 +1912,10 @@ export class GhostPeer {
    * never talks. Called by the host's router only; the reflex brain
    * never blocks on it.
    */
-  applyBrainDecision(decision: GhostDecision, source: "spark" | "table"): void {
+  applyBrainDecision(
+    decision: GhostDecision,
+    source: "spark" | "table" | "device"
+  ): void {
     if (this.destroyed || !this.enabled) return;
     const now = Date.now();
     this.lastBrainDecision = { decision, source, at: now };

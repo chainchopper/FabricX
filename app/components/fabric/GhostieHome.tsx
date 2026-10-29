@@ -128,6 +128,7 @@ import {
 } from "../../../src/rewards/rewardsStore";
 import { BadgeGlyphMark } from "./ProfileCard";
 import { GhostiePortrait } from "./IdCards";
+import OnDeviceBrainCard from "./OnDeviceBrainCard";
 import { getJSON } from "../../utils/storage";
 
 const GRID_STEP_MS = 300;
@@ -700,7 +701,7 @@ export default function GhostieHome({
                 {
                   value: "on-device" as GhostBrainTier,
                   title: "On-device",
-                  sub: "A decision table distilled from curated ghost scenarios. Instant, offline, private.",
+                  sub: "This device's own brain: its downloaded model deliberates when it's ready; the decision table distilled from curated ghost scenarios answers instantly underneath. Offline, private.",
                 },
                 {
                   value: "spark-cloud" as GhostBrainTier,
@@ -745,6 +746,13 @@ export default function GhostieHome({
               Either way, the emit budgets and the petting rules stay
               hard-coded — a decision steers the ghost, it never commands it.
             </Text>
+            {/* Slice 27: the on-device tier's model itself — its
+                download state, the model picker, and the one
+                explicit Download press. The same card lives in AI
+                Services; the brain is one, so its surface is one. */}
+            <View style={{ marginTop: spacing.md }}>
+              <OnDeviceBrainCard />
+            </View>
           </View>
 
           {/* ---------- personality ---------- */}

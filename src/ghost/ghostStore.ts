@@ -91,9 +91,10 @@ export interface GhostPublicState {
 
 export interface GhostBrainStatus {
   /** The brain that actually produced this outcome. */
-  source: "spark" | "table";
+  source: "spark" | "table" | "device";
   /**
-   * Live tier label, e.g. "Spark", "On-device table", or
+   * Live tier label, e.g. "Spark", "On-device table", "On-device
+   * model" (Slice 27: this device's downloaded WebLLM brain), or
    * "On-device brain" (cloud tier picked, no cloud resolved —
    * Cleanup 2: stated as the brain at work, never as a key plea).
    */

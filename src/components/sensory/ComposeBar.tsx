@@ -66,9 +66,9 @@ export default function ComposeBar() {
   const [prompt, setPrompt] = useState("");
   const [composing, setComposing] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
-  const [source, setSource] = useState<"llm" | "builtin" | "ghost" | null>(
-    null
-  );
+  const [source, setSource] = useState<
+    "llm" | "builtin" | "ghost" | "device" | null
+  >(null);
   // Hotfix 2.4: the living fallback's caption state — the ghost's
   // name when the ghost performed its puzzlement, null when the
   // fabric itself rippled (no ghost able to act).
@@ -91,7 +91,10 @@ export default function ComposeBar() {
       ).detail;
       if (typeof detail === "string") {
         setSource(
-          detail === "llm" || detail === "builtin" || detail === "ghost"
+          detail === "llm" ||
+            detail === "builtin" ||
+            detail === "ghost" ||
+            detail === "device"
             ? detail
             : null
         );
@@ -253,9 +256,11 @@ export default function ComposeBar() {
         <Text style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
           {source === "builtin"
             ? "Interpreted on-device."
-            : source === "ghost"
-              ? "Answered by your ghost, from its live state."
-              : "Interpreted by the cloud model."}
+            : source === "device"
+              ? "Interpreted on this device."
+              : source === "ghost"
+                ? "Answered by your ghost, from its live state."
+                : "Interpreted by the cloud model."}
         </Text>
       ) : null}
       {puzzled ? (

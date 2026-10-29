@@ -16,18 +16,25 @@
  * - Any failure — no cloud model resolved, network error, invalid
  *   output — resolves to null or a built-in pattern. This module
  *   never throws into UI code.
- * - Which cloud model answers is a RESOLUTION, never a user chore
+ * - Which model answers is a RESOLUTION, never a user chore
  *   (Cleanup 2, Terrell's standing rule: the demo never asks anyone
- *   for a key). loadLLMConfig resolves in order:
+ *   for a key). The cloud resolution (loadLLMConfig) runs:
  *   1. the user's own saved AI Services config
  *      (`fabric_ai_config_v1`, the same shape the ghost poll reads),
  *      when it is enabled and carries a key;
  *   2. Fanalogy's built-in cloud, locked in at build time through
  *      the EXPO_PUBLIC_FANALOGY_LLM_* env vars (see docs/AI.md) —
  *      the demo's cloud, already connected out of the box;
- *   3. no cloud at all: the in-browser built-ins below answer.
- *   The in-browser model is the product default and is presented
- *   that way everywhere; the cloud tiers are upgrades, not gates.
+ *   3. no cloud at all.
+ *   Below the cloud sits the REAL on-device tier (Slice 27,
+ *   resolveBrainTier + src/ai/onDeviceBrain.ts): a WebLLM model
+ *   downloaded once — with the user's explicit yes — and run on
+ *   this device over WebGPU. When it is ready it answers before
+ *   the in-browser built-ins below; when it is absent or still
+ *   downloading, the built-ins answer exactly as before and no
+ *   request ever waits on it. The in-browser interpreter remains
+ *   the instant floor and is presented as the product default;
+ *   every model tier is an upgrade, not a gate.
  *
  * Offline: with no cloud resolved, three built-in patterns (rain,
  * heartbeat, ocean) are matched by keyword so the feature still demos.
@@ -44,6 +51,11 @@
 import { getJSON } from "../../app/utils/storage";
 import { getLLMService, type LLMConfig } from "../services/LLMService";
 import { SENSORY_VERBS } from "../sensory/verbs";
+import {
+  isOnDeviceBrainReady,
+  noteBrainWanted,
+  onDeviceChat,
+} from "./onDeviceBrain";
 
 /** HUD -> canvas: compose this prompt (detail: string). */
 export const FABRIC_COMPOSE_EVENT = "fabric:compose";
@@ -115,7 +127,12 @@ export interface Pattern {
   steps: PatternStep[];
   /** atMs of the last step. */
   durationMs: number;
-  source: "llm" | "builtin";
+  /**
+   * Who authored it: "llm" a cloud model, "device" this device's
+   * own downloaded model (Slice 27), "builtin" the in-browser
+   * interpreter. The compose bar credits each honestly.
+   */
+  source: "llm" | "builtin" | "device";
 }
 
 /** HSV -> RGB floats 0..1 in the FluidInteraction color shape. */
@@ -430,6 +447,66 @@ export async function loadLLMConfig(): Promise<LLMConfig | null> {
   return (await resolveLLMConfig()).config;
 }
 
+// ---------------------------------------------------------------------------
+// The full brain resolution (Slice 27): cloud → on-device model →
+// floor. resolveLLMConfig above stays the CLOUD resolution (SAM's
+// status line and the ghost's cloud tier read it as such); this is
+// the layered answer every intelligence path actually walks:
+//
+//   1. the user's saved cloud model, else Fanalogy's built-in
+//      cloud (resolveLLMConfig);
+//   2. this device's own downloaded model (WebLLM over WebGPU),
+//      when — and only when — it is already READY. A tier check
+//      never starts, joins, or waits on a download;
+//   3. no model: the in-browser interpreter / decision table is
+//      the answer, and the want is noted (it may raise the
+//      one-time consent ask in chrome — see onDeviceBrain).
+// ---------------------------------------------------------------------------
+
+export type BrainTier =
+  | { kind: "cloud"; config: LLMConfig; source: "user" | "builtin-cloud" }
+  | { kind: "device" }
+  | { kind: "none" };
+
+export async function resolveBrainTier(): Promise<BrainTier> {
+  const { config, source } = await resolveLLMConfig();
+  if (config) {
+    return {
+      kind: "cloud",
+      config,
+      source: source === "user" ? "user" : "builtin-cloud",
+    };
+  }
+  if (isOnDeviceBrainReady()) return { kind: "device" };
+  noteBrainWanted();
+  return { kind: "none" };
+}
+
+/** True when this device's own model is loaded and thinking. */
+export function isDeviceBrainReady(): boolean {
+  return isOnDeviceBrainReady();
+}
+
+/**
+ * Chat with this device's own model (null when not ready/failed).
+ * The shared entry the recipe/performance composers use, so the
+ * device tier speaks with one voice everywhere.
+ */
+export async function deviceChat(
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>,
+  options: { temperature?: number; maxTokens?: number } = {}
+): Promise<string | null> {
+  return onDeviceChat(messages, options);
+}
+
+/** Note that a feature wanted the device brain (consent plumbing). */
+export function noteDeviceBrainWanted(): void {
+  noteBrainWanted();
+}
+
 const SYSTEM_PROMPT = [
   "You compose sensory patterns for Fabric, a shared touch canvas where",
   "people feel each other's touch as fluid motion, vibration and sound.",
@@ -445,9 +522,67 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
+ * The on-device tier's pattern prompt: the same schema as
+ * SYSTEM_PROMPT, tightened for a small local model — short
+ * imperative lines, the JSON demand up front, modest output.
+ * Structured call: low temperature, capped tokens (Slice 27).
+ */
+const DEVICE_SYSTEM_PROMPT = [
+  "You compose sensory patterns for Fabric, a shared touch canvas.",
+  "Reply with ONLY one JSON object. No prose, no code fences:",
+  '{"name": string, "steps": [step, ...]}',
+  'Step: {"atMs": int 0..16000, "kind": "verb"|"splat"|"haptic", "intensity": 0..1} plus per kind:',
+  'verb -> "verbId": heart|cheer|tickle',
+  'splat -> "x" 0..1, "y" 0..1, "radius" 0.05..1, "hue" 0..360',
+  'haptic -> "hapticId": tap|double-tap|heartbeat|wave|buzz',
+  "At most 12 steps, ordered by atMs. Timing, color and rhythm carry the feeling.",
+].join("\n");
+
+/**
+ * Compose with this device's own model. Only called when the
+ * engine is already ready — it never starts or waits on a
+ * download. One repair retry, then null. Never throws.
+ */
+export async function composePatternWithDevice(
+  userPrompt: string
+): Promise<Pattern | null> {
+  const prompt = (userPrompt || "").trim();
+  if (!prompt || !isOnDeviceBrainReady()) return null;
+  try {
+    const first = await onDeviceChat(
+      [
+        { role: "system", content: DEVICE_SYSTEM_PROMPT },
+        { role: "user", content: `Compose a pattern for: ${prompt}` },
+      ],
+      { temperature: 0.3, maxTokens: 512 }
+    );
+    let pattern = validatePattern(parsePatternJson(first ?? ""), "device");
+    if (!pattern) {
+      const repair = await onDeviceChat(
+        [
+          { role: "system", content: DEVICE_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content:
+              `Compose a pattern for: ${prompt}\n` +
+              "Your previous reply was not valid pattern JSON. Reply with ONLY the JSON object, exactly matching the schema.",
+          },
+        ],
+        { temperature: 0.2, maxTokens: 512 }
+      );
+      pattern = validatePattern(parsePatternJson(repair ?? ""), "device");
+    }
+    return pattern;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Compose a pattern for a plain-language prompt. LLM first when a
- * cloud model resolves (with one repair retry); built-in keyword
- * match otherwise — and also as the degradation path when the LLM fails.
+ * cloud model resolves (with one repair retry); this device's own
+ * model next when it is ready; the built-in keyword match
+ * otherwise — and also as the degradation path when a model fails.
  * Returns null when nothing valid can be produced. Never throws.
  */
 export async function composePattern(
@@ -485,8 +620,18 @@ export async function composePattern(
       }
       if (pattern) return pattern;
     } catch {
-      // LLM unreachable/misconfigured: degrade to built-ins below.
+      // LLM unreachable/misconfigured: degrade to the tiers below.
     }
+  }
+
+  // Slice 27: this device's own model, when it is ready. When it
+  // is not, the want is noted (the one-time consent ask may rise
+  // in chrome) and the built-ins answer as they always have.
+  if (isOnDeviceBrainReady()) {
+    const devicePattern = await composePatternWithDevice(prompt);
+    if (devicePattern) return devicePattern;
+  } else if (!config) {
+    noteBrainWanted();
   }
 
   return matchBuiltinPattern(prompt);
