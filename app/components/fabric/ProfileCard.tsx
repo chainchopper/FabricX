@@ -20,9 +20,9 @@
  *   with the id beside it, never a crash or a fake label.
  *
  * Quick actions (other people's cards only) invent no new send
- * paths: "Send a heart" dispatches the same FABRIC_VERB_EVENT
- * the VerbBar fires, so the heart flows through the canvas's
- * funnel (mode gate, fabric rules) exactly as if tapped there;
+ * paths: "Send a heart" dispatches the canvas's FABRIC_VERB_EVENT
+ * (the same event a held hand sign dispatches), so the heart flows
+ * through the canvas's funnel (mode gate, fabric rules);
  * "Pet their ghostie" dispatches FABRIC_PET_GHOST_EVENT, which
  * the fluid canvas answers with ordinary strokes at the ghost's
  * sensed position — the owner's own accept-pets setting decides

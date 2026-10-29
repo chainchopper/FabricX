@@ -10,11 +10,16 @@
  * they work over every transport useFluidMultiUser supports (WebRTC data
  * channels, BroadcastChannel fallback) with no protocol changes.
  *
- * SENSORY_VERBS is the human-facing set shown on the VerbBar. PURR is a
- * ghost-only pattern (see src/ghost): it is deliberately NOT in
- * SENSORY_VERBS, so it never appears as a button humans can send, but
- * receivers still resolve it through getVerbById and play it through the
- * exact same verb-effect path as any other verb.
+ * SENSORY_VERBS is the human-facing verb set — the canonical data
+ * every surface resolves (profile-card hearts, hand signs, the
+ * ghost's asked verbs, composed verb steps). There is no button row
+ * anymore: Hotfix 2.8 retired the VerbBar (preset macros are not how
+ * Fabric verbs happen — you ask, you sign, you send one to a
+ * person). PURR is a ghost-only pattern (see src/ghost): it is
+ * deliberately NOT in SENSORY_VERBS, so it is never a verb humans
+ * send directly, but receivers still resolve it through getVerbById
+ * and play it through the exact same verb-effect path as any other
+ * verb.
  *
  * Powered by Nirvana
  */
@@ -22,10 +27,12 @@
 import type { FluidInteraction } from "../types/fluid";
 
 /**
- * Window event used to ask the live canvas to send a verb: UI surfaces
- * (e.g. the VerbBar in ExperienceHUD) dispatch it with the verb id as
- * `detail`, and the canvas component (LegacyFluid) performs the send so
- * the interaction flows through its useFluidMultiUser transport.
+ * Window event used to ask the live canvas to send a verb: surfaces
+ * dispatch it with the verb id as `detail` — a profile card's
+ * "Send a heart", a held hand sign (Slice 28's hands engine) — and
+ * the canvas component (LegacyFluid) performs the send so the
+ * interaction flows through its useFluidMultiUser transport, its
+ * session gates, and the rewards hook that lives in that listener.
  */
 export const FABRIC_VERB_EVENT = "fabric:verb";
 
