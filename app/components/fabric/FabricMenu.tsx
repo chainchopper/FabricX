@@ -156,9 +156,15 @@ import {
   clearStageCharacter,
   getStageCharacterState,
   requestCharacterPick,
+  setStageCharacterRemote,
   subscribeStageCharacter,
   type StageCharacterState,
 } from "../../../src/dancer/stageCharacter";
+import {
+  TRAUMA_IDLES,
+  traumaIdleDef,
+  type TraumaIdleId,
+} from "../../../src/dancer/traumaCharacter";
 import {
   getMotionPublicState,
   requestMotionPermission,
@@ -457,6 +463,16 @@ const LAYER_EDIT_FIELDS: Record<string, LayerEditField[]> = {
         { value: "amber", label: "Amber" },
       ],
       defaultValue: "cyan",
+    },
+    {
+      key: "stageTraumaIdle",
+      label: "Trauma idle (built-in character)",
+      kind: "choice",
+      options: [
+        { value: "mma", label: "MMA idle" },
+        { value: "bouncing", label: "Bouncing fight" },
+      ],
+      defaultValue: "mma",
     },
   ],
   "sam-see": [
@@ -856,6 +872,7 @@ export default function FabricMenu() {
     stageDancerEnabled: "Dancers",
     stageCameraDrift: "Camera drift",
     stageTheme: "Stage theme",
+    stageTraumaIdle: "Trauma idle",
   };
   const layerToggleSummary = (
     exp: ExperienceLayer
@@ -1087,6 +1104,14 @@ export default function FabricMenu() {
   //                        dances vs stands at rest (Stage v2)
   //   stageCameraDrift   — the camera's slow cinematic sway
   //   stageTheme         — cyan | violet | magenta | amber
+  //   stageTraumaIdle    — the built-in character's idle pick
+  //                        (Slice 25): "mma" | "bouncing". The pick
+  //                        is the layer's memory of its ghostie's
+  //                        built-in body — DancerStage rebinds the
+  //                        same-origin GLB on mount; picking an
+  //                        idle here binds it immediately. Loading
+  //                        your own file or restoring the mannequin
+  //                        clears the pick.
   // The character slot itself is device-local state, not layer
   // config: the stageCharacter store holds the loaded glTF's object
   // URL + load status, and the local rig reports back through it.
@@ -1124,6 +1149,32 @@ export default function FabricMenu() {
       specific: {
         ...(state.experienceConfig.specific as any),
         stageTheme: next,
+      },
+    });
+  };
+  // The built-in character (Trauma, Slice 25): the layer setting
+  // holds the idle pick; the slot store holds the live binding.
+  // traumaIdleDef coerces an unset value to the default (MMA) so
+  // the pills always have a current pick to show.
+  const stageTraumaIdleRaw = (state.experienceConfig.specific as any)
+    ?.stageTraumaIdle;
+  const stageTraumaIdle = traumaIdleDef(stageTraumaIdleRaw).id;
+  const bindTraumaIdle = (next: TraumaIdleId) => {
+    noteActivity();
+    const def = traumaIdleDef(next);
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        stageTraumaIdle: def.id,
+      },
+    });
+    setStageCharacterRemote(def.url, def.characterName);
+  };
+  const clearStageTraumaIdle = () => {
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        stageTraumaIdle: undefined,
       },
     });
   };
@@ -2899,6 +2950,9 @@ export default function FabricMenu() {
                 pointerEvents="auto"
                 onPress={() => {
                   noteActivity();
+                  // Your own file retires the layer's built-in
+                  // pick — the stage won't rebind Trauma over it.
+                  clearStageTraumaIdle();
                   requestCharacterPick();
                 }}
                 accessibilityRole="button"
@@ -2921,6 +2975,7 @@ export default function FabricMenu() {
                   pointerEvents="auto"
                   onPress={() => {
                     noteActivity();
+                    clearStageTraumaIdle();
                     clearStageCharacter();
                   }}
                   accessibilityRole="button"
@@ -2940,12 +2995,67 @@ export default function FabricMenu() {
                 </Pressable>
               ) : null}
             </View>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.sm }}>
+              Built-in character — Trauma
+            </Text>
+            <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
+              {TRAUMA_IDLES.map((def) => {
+                // Lit when this idle is bound right now — or when
+                // it's the layer's remembered pick and the slot is
+                // still empty (the stage binds it on mount).
+                const selected =
+                  charUi.url === def.url ||
+                  (charUi.url === null &&
+                    typeof stageTraumaIdleRaw === "string" &&
+                    stageTraumaIdle === def.id);
+                return (
+                  <Pressable
+                    key={def.id}
+                    pointerEvents="auto"
+                    onPress={() => bindTraumaIdle(def.id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Trauma idle ${def.label}`}
+                    style={{
+                      paddingVertical: 8,
+                      paddingHorizontal: 14,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: selected ? colors.accent : colors.line,
+                      backgroundColor: selected ? colors.accentDim : "transparent",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? colors.accent : colors.text,
+                        fontSize: typeScale.body,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {def.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              Trauma ships with the stage — pick an idle and your
+              ghostie wears him, washed in its hue with its name tag
+              flying. The idle loops on its own (it IS how he rests),
+              and your notes still move his body over it, band by
+              band. The layer remembers the pick; restore the
+              mannequin to forget it.
+            </Text>
+
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
               A .glb or .gltf whose skeleton uses the UE5 Mannequin
               bone names (pelvis, spine_01, upperarm_l, …) takes the
               stage and dances with the same driver — this is the
-              door for Unreal exports. Missing bones are skipped; a
-              file that fails to load leaves the mannequin standing.
+              door for Unreal exports. A Mixamo skeleton
+              (mixamorig:Hips, mixamorig:LeftArm, …) binds too —
+              Fabric maps it onto the same contract. Missing bones
+              are skipped; a file that fails to load leaves the
+              mannequin standing.
               The character is YOUR ghostie's body: it binds to your
               dancer only. Other participants keep their own
               ghosties, and models never travel over the wire — the

@@ -23,11 +23,27 @@
  *  2. THE CHARACTER SLOT: when the user loads a glTF from the
  *     stage's settings, GLTFLoader brings it in and it REPLACES the
  *     mannequin — bound by bone NAME against the same UE5 contract
- *     (stageCharacter store; docs/DANCER.md). Missing bones are
+ *     (stageCharacter store; docs/DANCER.md). Bones may also arrive
+ *     as a Mixamo skeleton (`mixamorig:Hips.2`, ...) — mixamoBones
+ *     maps those onto the contract at adoption. Missing bones are
  *     skipped silently; a failed load leaves the mannequin standing.
  *     The slot exists ONLY on the local rig (characterSlot): the
  *     character is YOUR ghostie's body. Models never travel over
  *     the wire — remote ghosties always wear their hue mannequins.
+ *
+ *     A character that carries an animation clip — the built-in
+ *     Trauma above all (traumaCharacter.ts) — gets an IDLE LAYER:
+ *     an AnimationMixer loops the clip as the body's base pose,
+ *     and the driver's band impulses compose ADDITIVELY over each
+ *     frame's clip pose, so the notes still move the body down
+ *     the bands while it idles. That is the stage's idle doctrine
+ *     for a bound character: the idle clip IS the ambient
+ *     behavior — when nobody plays, the character doesn't freeze,
+ *     it idles; when the figure is switched off (THIS LAYER), the
+ *     mixer rests and the body returns to its bind pose like the
+ *     rest of the cast. The character's authored materials stay,
+ *     washed lightly toward the owner's hue so the ghostie's
+ *     identity still reads (the name tag flies regardless).
  *
  * The DancerDriver is the only choreographer: tick() yields
  * per-band offsets (spring return-to-rest) + the breath phase, and
@@ -50,6 +66,7 @@ import type { DancerDriver, DancerPose, DancerBandId } from "./DancerDriver";
 import type { StageFxState } from "./stageFx";
 import { NEUTRAL_STYLE, type RigStyle } from "./stageRoster";
 import RigLabel from "./RigLabel";
+import { resolveContractBoneName } from "./mixamoBones";
 import {
   getStageCharacterState,
   setStageCharacterStatus,
@@ -418,7 +435,16 @@ function applyPose(
 interface AdoptedCharacter {
   scene: THREE.Object3D;
   bones: Map<string, THREE.Object3D>;
+  /** Bind-pose quaternions — the pose base when no clip plays
+   *  (and the rest the body returns to when the figure is off). */
   rest: Map<string, THREE.Quaternion>;
+  /** Per-frame clip pose, preallocated at adoption: when a mixer
+   *  plays, useFrame snapshots the clip's quaternions here and
+   *  applyPose composes the driver's impulses over them. */
+  clipBase: Map<string, THREE.Quaternion>;
+  /** The idle layer: a looping AnimationMixer over the loaded
+   *  clip, or null when the character carries no animation. */
+  mixer: THREE.AnimationMixer | null;
 }
 
 export default function DancerRig({
@@ -476,6 +502,7 @@ export default function DancerRig({
       return;
     }
     let cancelled = false;
+    let adopted: AdoptedCharacter | null = null;
     setStageCharacterStatus("loading");
     new GLTFLoader()
       .loadAsync(url)
@@ -484,9 +511,19 @@ export default function DancerRig({
         const bones = new Map<string, THREE.Object3D>();
         const rest = new Map<string, THREE.Quaternion>();
         gltf.scene.traverse((obj) => {
-          if (UE5_SET.has(obj.name) && !bones.has(obj.name)) {
-            bones.set(obj.name, obj);
-            rest.set(obj.name, obj.quaternion.clone());
+          // Resolve by the AUTHORED name: GLTFLoader renames
+          // nodes to a sanitized unique form and keeps the
+          // authored name in userData.name (mixamoBones.ts has
+          // the why). UE5 names bind exactly; Mixamo names map
+          // onto the contract; anything else is skipped.
+          const authored =
+            typeof obj.userData?.name === "string" && obj.userData.name
+              ? obj.userData.name
+              : obj.name;
+          const contract = resolveContractBoneName(authored, UE5_SET);
+          if (contract && !bones.has(contract)) {
+            bones.set(contract, obj);
+            rest.set(contract, obj.quaternion.clone());
           }
         });
         if (!bones.has("pelvis")) {
@@ -504,7 +541,52 @@ export default function DancerRig({
           gltf.scene.position.x -= (box2.min.x + box2.max.x) / 2;
           gltf.scene.position.z -= (box2.min.z + box2.max.z) / 2;
         }
-        setCharacter({ scene: gltf.scene, bones, rest });
+        // Identity wash: the character keeps its authored
+        // materials, tinted lightly toward the owner's hue so
+        // the ghostie still reads as ITSELF in the cast (its
+        // name tag carries the same hue). Each unique material
+        // is washed once, however many meshes share it.
+        if (tintHue !== null) {
+          const wash = new THREE.Color().setHSL(
+            (((tintHue % 360) + 360) % 360) / 360,
+            0.55,
+            0.55
+          );
+          const seen = new Set<THREE.Material>();
+          gltf.scene.traverse((obj) => {
+            const mats = (obj as THREE.Mesh).material;
+            for (const m of mats
+              ? Array.isArray(mats)
+                ? mats
+                : [mats]
+              : []) {
+              if (seen.has(m)) continue;
+              seen.add(m);
+              const col = (m as THREE.MeshStandardMaterial).color;
+              if (col) col.lerp(wash, 0.22);
+            }
+          });
+        }
+        // The idle layer: a character carrying a clip (Trauma's
+        // GLBs are character + idle in one file) loops it through
+        // a mixer; useFrame composes the driver's impulses over
+        // the clip's per-frame pose. Tracks bind by the loader's
+        // sanitized node names, so the authored-name mapping
+        // above never disturbs playback.
+        let mixer: THREE.AnimationMixer | null = null;
+        const clipBase = new Map<string, THREE.Quaternion>();
+        const clip = gltf.animations?.[0];
+        if (clip) {
+          mixer = new THREE.AnimationMixer(gltf.scene);
+          const action = mixer.clipAction(clip);
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          action.play();
+          bones.forEach((b, name) =>
+            clipBase.set(name, b.quaternion.clone())
+          );
+        }
+        adopted = { scene: gltf.scene, bones, rest, clipBase, mixer };
+        setCharacter(adopted);
         setStageCharacterStatus("ready");
       })
       .catch(() => {
@@ -514,10 +596,14 @@ export default function DancerRig({
       });
     return () => {
       cancelled = true;
+      if (adopted?.mixer) {
+        adopted.mixer.stopAllAction();
+        adopted.mixer.uncacheRoot(adopted.scene);
+      }
     };
-  }, [charState.url, characterSlot]);
+  }, [charState.url, characterSlot, tintHue]);
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
     // Drain THIS rig's queued verb gestures onto the render clock
     // (Stage v2: entries are addressed by participant id — a verb
@@ -539,8 +625,47 @@ export default function DancerRig({
 
     const pose = driver.tick(performance.now());
     const extra = gestureExtra(gesturesRef.current, t);
-    const active = character ?? mannequin;
-    applyPose(active.bones, active.rest, pose, extra, figureEnabled, styleRef.current);
+    if (character) {
+      if (character.mixer && figureEnabled) {
+        // Idle layer: advance the clip, snapshot its pose as
+        // this frame's base, and compose the driver's band
+        // impulses ADDITIVELY over it — the body keeps idling
+        // and the notes still answer down the bands.
+        character.mixer.update(Math.min(delta, 0.1));
+        character.bones.forEach((bone, name) => {
+          character.clipBase.get(name)?.copy(bone.quaternion);
+        });
+        applyPose(
+          character.bones,
+          character.clipBase,
+          pose,
+          extra,
+          figureEnabled,
+          styleRef.current
+        );
+      } else {
+        // No clip — or the cast is switched to rest, in which
+        // case the mixer rests too and the body composes over
+        // its bind pose like every other figure.
+        applyPose(
+          character.bones,
+          character.rest,
+          pose,
+          extra,
+          figureEnabled,
+          styleRef.current
+        );
+      }
+    } else {
+      applyPose(
+        mannequin.bones,
+        mannequin.rest,
+        pose,
+        extra,
+        figureEnabled,
+        styleRef.current
+      );
+    }
 
     // Band glow on the mannequin (the character slot keeps its own
     // authored materials; the stage lights + floor carry its glow).
