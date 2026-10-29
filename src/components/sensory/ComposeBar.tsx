@@ -17,8 +17,13 @@ import { useComposeVoice } from "./useComposeVoice";
  * FABRIC_COMPOSE_STATE_EVENT ("playing: <name>"), and the Stop button
  * cancels through FABRIC_COMPOSE_STOP_EVENT.
  *
- * With no AI key configured the canvas falls back to built-in patterns
- * (rain / heartbeat / ocean), so this works offline too. Slice 15 adds
+ * The in-browser interpreter is the default and answers on-device
+ * (built-in patterns — rain / heartbeat / ocean — and the generative
+ * performance templates), so this works offline with nothing to
+ * connect. A resolved cloud model (the user's own saved one, or
+ * Fanalogy's built-in cloud — see PatternComposer's resolution)
+ * invents open-ended answers instead. Nothing here ever asks for a
+ * key (Cleanup 2). Slice 15 adds
  * the second vocabulary behind the same input: a drawing prompt
  * ("draw a heart", "a ring that bursts") composes a Recipe instead —
  * the canvas routes it, this bar doesn't need to know.
@@ -42,9 +47,9 @@ export default function ComposeBar() {
   const [prompt, setPrompt] = useState("");
   const [composing, setComposing] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
-  const [source, setSource] = useState<"llm" | "builtin" | "ghost" | null>(
-    null
-  );
+  const [source, setSource] = useState<
+    "llm" | "builtin" | "ghost" | "beyond-builtin" | "beyond-model" | null
+  >(null);
   const composingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -56,7 +61,11 @@ export default function ComposeBar() {
     const onSource = (ev: Event) => {
       const detail = (ev as CustomEvent<string>).detail;
       setSource(
-        detail === "llm" || detail === "builtin" || detail === "ghost"
+        detail === "llm" ||
+          detail === "builtin" ||
+          detail === "ghost" ||
+          detail === "beyond-builtin" ||
+          detail === "beyond-model"
           ? detail
           : null
       );
@@ -179,10 +188,14 @@ export default function ComposeBar() {
       {source ? (
         <Text style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
           {source === "builtin"
-            ? "Built-in interpretation — add a key in AI Services for open-ended ones."
+            ? "Interpreted on-device."
             : source === "ghost"
               ? "Answered by your ghost, from its live state."
-              : "Interpreted by your configured model."}
+              : source === "beyond-builtin"
+                ? "That one's beyond the built-in interpreter."
+                : source === "beyond-model"
+                  ? "That one's beyond the cloud model too — try a feeling, a shape, or a rhythm."
+                  : "Interpreted by the cloud model."}
         </Text>
       ) : null}
       {playing ? (

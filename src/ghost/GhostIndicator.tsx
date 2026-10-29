@@ -1,4 +1,17 @@
 /**
+ * GhostIndicator — RETIRED from the canvas in Cleanup 2 (Oct 29).
+ *
+ * This was the ghost's honest HUD presence, next to the VerbBar —
+ * the bottom-center chip ("Boop · summoned · playful" + Dismiss).
+ * Terrell's call: the chip "has no purpose at this point"; the
+ * ghostie's surface is its ID card / the Ghostie Home. The chip is
+ * unmounted (ExperienceHUD no longer renders it) and its controls
+ * moved, dispatching the same window events: on/off + Summon/
+ * Dismiss live in Your Ghostie, Summon/Dismiss also ride THIS
+ * LAYER's ghost row in the F menu. The component stays in-tree
+ * (snapshot pushes can't delete) for reference only — do not
+ * remount it.
+ *
  * GhostIndicator — the ghost's honest HUD presence, next to the VerbBar.
  *
  * Shows YOUR ghost's state (its persistent name + temperament, or

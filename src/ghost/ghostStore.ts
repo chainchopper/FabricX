@@ -33,8 +33,9 @@ export interface GhostPublicState {
    * layer", THIS LAYER settings, stored per layer id under
    * fabric_layer_settings_v1:<layerId>). Independent of the per-user
    * preference above: the local ghost runs in a layer only when BOTH
-   * are on, and when this is off the indicator pill leaves the canvas
-   * cluster entirely — the feature simply isn't part of that layer.
+   * are on; when this is off the feature simply isn't part of that
+   * layer. (Cleanup 2 retired the resident canvas chip — the ghost's
+   * controls live in THIS LAYER and Your Ghostie now.)
    */
   layerEnabled: boolean;
   /**
@@ -74,7 +75,8 @@ export interface GhostBrainStatus {
   source: "spark" | "table";
   /**
    * Live tier label, e.g. "Spark", "On-device table", or
-   * "On-device table · Spark picked, no key saved".
+   * "On-device brain" (cloud tier picked, no cloud resolved —
+   * Cleanup 2: stated as the brain at work, never as a key plea).
    */
   tierLabel: string;
   /** Outcome line, e.g. "decided: mirror · linger 6.5s". */

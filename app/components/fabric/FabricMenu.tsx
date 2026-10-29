@@ -77,11 +77,13 @@ import { getJSON, setJSON } from "../../utils/storage";
 import { buildInviteUrl } from "../../utils/invite";
 import * as Clipboard from "expo-clipboard";
 import {
+  FABRIC_GHOST_SESSION_EVENT,
   FABRIC_PET_GHOST_EVENT,
   getGhostPublicState,
   subscribeGhostState,
   type GhostPublicState,
 } from "../../../src/ghost/ghostStore";
+import { MAX_GHOSTS_PER_ROOM } from "../../../src/ghost/GhostPeer";
 import {
   FABRIC_SHARE_LIVE_EVENT,
   SESSION_MODES,
@@ -807,10 +809,11 @@ export default function FabricMenu() {
   // its toggle lives in this layer's own config (specific.ghostEnabled),
   // persisted per layer id by the settings mirror and restored when
   // the layer is activated again. Absent means on. LegacyFluid reads
-  // the same field to gate the local ghost brain, and the ghost pill
-  // leaves the canvas cluster while a layer has it off. Distinct from
-  // the per-user ghost preference (fabric_ghost_v1, YOU): the
-  // ghost runs only when both are on.
+  // the same field to gate the local ghost brain, and (Cleanup 2)
+  // the menu's own Summon/Dismiss row reads it too — the retired
+  // canvas ghost pill used to leave the cluster while a layer had
+  // it off. Distinct from the per-user ghost preference
+  // (fabric_ghost_v1, YOU): the ghost runs only when both are on.
   const ghostInLayer =
     (state.experienceConfig.specific as any)?.ghostEnabled !== false;
   const setGhostInLayer = (next: boolean) => {
@@ -2310,7 +2313,8 @@ export default function FabricMenu() {
         {/* Ghost in this layer — a per-layer feature toggle, shown for
             every layer and stored under that layer's own id like the
             settings above. Off: the local ghost does not run in this
-            layer and its pill leaves the canvas cluster. */}
+            layer. (Cleanup 2 retired the resident canvas chip — the
+            ghost's Summon/Dismiss live here and in Your Ghostie.) */}
         <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
           <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
             Ghost in this layer
@@ -2325,6 +2329,77 @@ export default function FabricMenu() {
             Off applies to this layer only — other layers keep their own
             setting, and your ghost preference in YOU still applies.
           </Text>
+          {/* Summon / Dismiss — the retired chip's session controls,
+              dispatching the same window event the canvas has always
+              listened to. Same visibility rules the chip used:
+              dismiss while hosting your ghost; summon while people
+              are here, your ghost is on, this layer allows it, and
+              the room isn't full. */}
+          {ghost.sessionRole === "host" ? (
+            <Pressable
+              pointerEvents="auto"
+              onPress={() => {
+                noteActivity();
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent(FABRIC_GHOST_SESSION_EVENT, {
+                      detail: "dismiss",
+                    })
+                  );
+                }
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Dismiss your ghost ${ghost.ghostName ?? ""} from the session`}
+              style={({ pressed }) => ({
+                alignSelf: "flex-start",
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: radius.card,
+                borderWidth: 1,
+                borderColor: colors.ghostLine,
+                backgroundColor: pressed ? colors.ghostDim : "transparent",
+              })}
+            >
+              <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+                Dismiss {ghost.ghostName ?? "your ghost"}
+              </Text>
+            </Pressable>
+          ) : session.peers > 0 && ghost.enabled && ghostInLayer ? (
+            ghost.otherGhostCount >= MAX_GHOSTS_PER_ROOM ? (
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                Too many ghosts in the room ({MAX_GHOSTS_PER_ROOM} max) — yours waits with you.
+              </Text>
+            ) : (
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => {
+                  noteActivity();
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent(FABRIC_GHOST_SESSION_EVENT, {
+                        detail: "summon",
+                      })
+                    );
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Summon your ghost ${ghost.ghostName ?? ""} into the session`}
+                style={({ pressed }) => ({
+                  alignSelf: "flex-start",
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: radius.card,
+                  borderWidth: 1,
+                  borderColor: colors.ghostLine,
+                  backgroundColor: pressed ? colors.ghostDim : "transparent",
+                })}
+              >
+                <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+                  Summon {ghost.ghostName ?? "your ghost"}
+                </Text>
+              </Pressable>
+            )
+          ) : null}
         </View>
 
         {/* Ambient life in this layer — the idle contract's setting.

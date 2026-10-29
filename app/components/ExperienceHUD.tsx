@@ -6,7 +6,6 @@ import { useMIDI } from "../../src/hooks/useMIDI";
 import { getAudioReactive } from "../../src/shared/utils/audioReactive";
 import VerbBar from "../../src/components/sensory/VerbBar";
 import ComposeBar from "../../src/components/sensory/ComposeBar";
-import GhostIndicator from "../../src/ghost/GhostIndicator";
 import { useFabricChrome } from "./fabric/FabricChromeContext";
 import PianoKeyboard from "./PianoKeyboard";
 import { colors, radius, spacing } from "../../src/theme/tokens";
@@ -34,16 +33,21 @@ import {
  * same corner. Now the collapsed state is exactly ONE cluster, bottom
  * center, holding only the loaded layer's own controls:
  *
- *   layer label + live status · Heart / Cheer / Tickle · Compose ·
- *   ghost pill
+ *   layer label + live status · Heart / Cheer / Tickle · Compose
+ *
+ * (The ghost pill that once closed the list was retired in
+ * Cleanup 2 — the ghostie's surface is its ID card / Ghostie Home,
+ * and its controls live in the F menu.)
  *
  * in separate rows that can never overlap. Heart is always fully
  * visible. The whole cluster fades with the chrome after ~4s idle
  * (FabricChromeContext) and stops receiving touches while faded, so
  * the canvas is the only thing on screen — touch anywhere restores.
  *
- * All wiring is unchanged: VerbBar / ComposeBar / GhostIndicator still
- * talk to the single persistent canvas through their window events.
+ * All wiring is unchanged: VerbBar / ComposeBar still talk to the
+ * single persistent canvas through their window events (and so do
+ * the ghost's menu controls, which dispatch the very events the
+ * retired chip used to send from here).
  *
  * Mount point (the tappability fix): this cluster is rendered by
  * _layout's ChromeLayer as a direct child of the root view — NOT from
@@ -233,9 +237,13 @@ export default function ExperienceHUD() {
         {/* Pattern composer (Slice 4): describe a feeling, Spark composes
             a pattern the whole session plays. */}
         <ComposeBar />
-        {/* Ghost AI presence + controls (Slice 2): honest agent indicator
-            with on/off toggle and Summon/Dismiss for shared sessions. */}
-        <GhostIndicator />
+        {/* The ghost's resident chip used to sit here (Slice 2's
+            GhostIndicator). Cleanup 2 retired it — Terrell: the
+            bottom-middle ghostie menu "has no purpose at this
+            point." The ghost's controls live in the menu now (THIS
+            LAYER's Summon/Dismiss + Your Ghostie's on/off and
+            session controls), dispatching the same window events;
+            petting is still by touching the ghostie on the canvas. */}
       </View>
     </Animated.View>
   );

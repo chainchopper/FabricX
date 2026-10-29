@@ -19,10 +19,13 @@
  * ghost deliberates, and the tier picks the brain:
  * - "on-device": the distilled decision table decides locally. No
  *   network, instant, offline.
- * - "spark-cloud": the scenario is posted to the AI Services
- *   configured model through the same loader the composer uses. If
- *   no key is saved there, the on-device table decides instead and
- *   the live brain line says so — never a silent fake.
+ * - "spark-cloud": the scenario is posted to the resolved cloud
+ *   model through the same loader the composer uses (the user's
+ *   saved model, else Fanalogy's build-time-locked cloud — see
+ *   PatternComposer's resolution). If no cloud resolves at all,
+ *   the on-device table decides instead and the live brain line
+ *   publishes the state as "On-device brain" — never a silent
+ *   fake, never a plea for a key (Cleanup 2).
  *
  * The switch itself lives in Your Ghostie (Slice 20, GhostieHome)
  * — it moved out of AI Services, which now carries only a pointer
