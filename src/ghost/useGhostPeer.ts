@@ -74,6 +74,7 @@ import {
   GhostPeer,
   ghostPeerIdFor,
   isGhostPeerId,
+  type GhostActResult,
   type GhostIdentity,
   type GhostVerbAskId,
 } from "./GhostPeer";
@@ -153,6 +154,13 @@ export interface UseGhostPeerOptions {
    * it on the recipe transport under the ghost's peer id).
    */
   onDrawRecipe?: (recipe: Recipe) => void;
+  /**
+   * The NOTE tools' sink (Slice 31): a note the ghost chose to
+   * play. LegacyFluid puts it on the shared noteBus — the
+   * pipeline human keys use — so it sounds, lights, streams and
+   * syncs exactly like a tapped key.
+   */
+  onNote?: (note: string, velocity: number, durationMs: number) => void;
 }
 
 const GHOST_NAMES = [
@@ -268,6 +276,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   getFabricContextRef.current = options.getFabricContext;
   const onDrawRecipeRef = useRef(options.onDrawRecipe);
   onDrawRecipeRef.current = options.onDrawRecipe;
+  const onNoteRef = useRef(options.onNote);
+  onNoteRef.current = options.onNote;
 
   const persist = useCallback(
     (nextEnabled: boolean, id: GhostIdentityFull) => {
@@ -285,7 +295,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   // the ghost store so AI Services + diag show what actually decided.
   // ---------------------------------------------------------------
   const describeDecision = (d: GhostDecision): string =>
-    `decided: ${d.intent}${d.pattern_id ? ` · ${d.pattern_id}` : ""}${d.draw_shape ? ` · ${d.draw_shape}` : ""} · linger ${d.linger_s}s`;
+    `decided: ${d.intent}${d.pattern_id ? ` · ${d.pattern_id}` : ""}${d.draw_shape ? ` · ${d.draw_shape}` : ""}${d.note_name ? ` · ${d.note_name}` : ""} · linger ${d.linger_s}s`;
 
   const publishBrain = (status: GhostBrainStatus): void => {
     setGhostPublicState({ brain: status });
@@ -563,6 +573,9 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         onDrawRecipe: (recipe) => {
           onDrawRecipeRef.current?.(recipe);
         },
+        onNote: (note, velocity, durationMs) => {
+          onNoteRef.current?.(note, velocity, durationMs);
+        },
       });
       peer.setEnabled(en && layerEnabledRef.current);
       setGhostPublicState({ layerEnabled: layerEnabledRef.current });
@@ -687,6 +700,79 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     []
   );
 
+  /** Slice 31: ask this ghost to play one note (null = its choice). */
+  const answerNote = useCallback(
+    (note: string | null): GhostActResult => {
+      return peerRef.current?.answerNote(note) ?? "unavailable";
+    },
+    []
+  );
+
+  /** Slice 31: ask this ghost to replay the last note it heard/played. */
+  const answerNoteAgain = useCallback((): GhostActResult => {
+    return peerRef.current?.answerNoteAgain() ?? "unavailable";
+  }, []);
+
+  /** Slice 31: ask this ghost to play an arpeggio (one tool call). */
+  const answerArpeggio = useCallback(
+    (descending: boolean): GhostActResult => {
+      return peerRef.current?.answerArpeggio(descending) ?? "unavailable";
+    },
+    []
+  );
+
+  /** Slice 31: a human played a note at the piano (a sense). */
+  const noteHumanNote = useCallback((note: string): void => {
+    peerRef.current?.noteHumanNote(note);
+  }, []);
+
+  /*
+   * Slice 31 drive-by: the three wrappers below existed on
+   * GhostPeer since Slices 28/30 but were never exposed on this
+   * hook's return — LegacyFluid has been calling them through
+   * ghostRef into undefined (hand-sign journaling threw inside
+   * its listener; ghost-addressed See acts died as unhandled
+   * rejections). Metro/esbuild don't type-check, so it shipped
+   * silently. Exposed now, same pattern as every other wrapper.
+   */
+
+  /** Slice 28: a held hand sign was recognized (a sense). */
+  const noteHandSign = useCallback((sign: string): void => {
+    peerRef.current?.noteHandSign(sign);
+  }, []);
+
+  /** Slice 30: ask this ghost to touch/tap/poke a seen region. */
+  const answerTouchAt = useCallback(
+    (
+      x: number,
+      y: number,
+      radius: number,
+      targetLabel: string
+    ): GhostActResult => {
+      return (
+        peerRef.current?.answerTouchAt(x, y, radius, targetLabel) ??
+        "unavailable"
+      );
+    },
+    []
+  );
+
+  /** Slice 30: ask this ghost to draw around a seen region. */
+  const answerDrawAround = useCallback(
+    (
+      cx: number,
+      cy: number,
+      scale: number,
+      targetLabel: string
+    ): GhostActResult => {
+      return (
+        peerRef.current?.answerDrawAround(cx, cy, scale, targetLabel) ??
+        "unavailable"
+      );
+    },
+    []
+  );
+
   /**
    * Hotfix 2.4: the living fallback — when no interpreter can shape
    * an ask, the ghost reacts in-world with puzzlement (a curious
@@ -717,6 +803,13 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     warmWelcome,
     answerHeartbeat,
     answerVerb,
+    answerNote,
+    answerNoteAgain,
+    answerArpeggio,
+    noteHumanNote,
+    noteHandSign,
+    answerTouchAt,
+    answerDrawAround,
     expressPuzzlement,
     otherGhostPosition,
   };

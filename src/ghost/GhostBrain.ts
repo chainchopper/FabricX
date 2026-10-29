@@ -66,6 +66,17 @@
  * personality bias -> stamina bias -> tool gate (see
  * ghostTools.ts, the registry these tools are declared in).
  *
+ * Ghostie Tools II (Slice 31): a second tool intent, "play-note"
+ * — call and response at the piano. When a human plays a note,
+ * the peer journals it into recent_events ("human played C4");
+ * the note overlay in decideOnDevice answers it in character
+ * (echo / octave / fifth by temperament) when the fabric allows
+ * notes and the piano is the layer — gated exactly like draw,
+ * at the validator, with its own refusal line. The legacy
+ * scenarios carry no such events, so the battery still cannot
+ * move. Ask-driven performances (play a note / arpeggio / that
+ * again) live in GhostPeer's NOTE tools, priced by its budget.
+ *
  * Pure module: no imports, no storage, no timers of its own, so the
  * node check can exercise the table, the validator, and the Spark
  * path (with a mocked chat function) outside the app.
@@ -92,6 +103,7 @@ export const GHOST_INTENTS = [
   "idle",
   "heart",
   "draw",
+  "play-note",
 ] as const;
 export type GhostIntent = (typeof GHOST_INTENTS)[number];
 
@@ -110,6 +122,71 @@ export const GHOST_DRAW_SHAPES = [
   "heart",
 ] as const;
 export type GhostDrawShape = (typeof GHOST_DRAW_SHAPES)[number];
+
+/**
+ * The NOTE tool's vocabulary (Slice 31) — the shared noteBus's
+ * own note ids (shared/utils/noteBus.ts): scientific pitch
+ * names with sharps only, octaves 0–8. Mirrored by hand like
+ * the draw shapes (this module stays import-free); the tools
+ * check pins the regex and the number math against the bus's
+ * parser shape.
+ */
+export const GHOST_PIANO_LAYER_ID = "ar-piano";
+
+const GHOST_NOTE_RE = /^([A-G]#?)([0-8])$/;
+
+export function isGhostNoteName(name: unknown): name is string {
+  return typeof name === "string" && GHOST_NOTE_RE.test(name);
+}
+
+const NOTE_PITCH_CLASS: Record<string, number> = {
+  C: 0, "C#": 1, D: 2, "D#": 3, E: 4, F: 5,
+  "F#": 6, G: 7, "G#": 8, A: 9, "A#": 10, B: 11,
+};
+const NOTE_NAMES_SHARP = [
+  "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
+
+/** Note name -> MIDI-style number ((octave+1)*12 + pitch class). */
+export function ghostNoteNumber(name: string): number | null {
+  const m = GHOST_NOTE_RE.exec(name);
+  if (!m) return null;
+  return (parseInt(m[2], 10) + 1) * 12 + NOTE_PITCH_CLASS[m[1]];
+}
+
+/** Number -> note name in the bus's sharp vocabulary, clamped to C1..C7. */
+export function ghostNoteName(num: number): string {
+  const n = Math.min(96, Math.max(24, Math.round(num)));
+  return `${NOTE_NAMES_SHARP[n % 12]}${Math.floor(n / 12) - 1}`;
+}
+
+/**
+ * The call-and-response answer (Slice 31): what THIS temperament
+ * plays back when a human plays `heard`. Playful echoes it,
+ * curious asks an octave up, affectionate harmonizes a fifth
+ * up, sassy drops it an octave; sleepy would echo drowsily at
+ * the same pitch, but the note overlay never selects sleepy —
+ * a sleepy ghost listens.
+ */
+export function ghostAnswerNote(
+  heard: string,
+  temperament: GhostBrainTemperament
+): string {
+  const n = ghostNoteNumber(heard);
+  if (n === null) return "C4";
+  switch (temperament) {
+    case "playful":
+      return ghostNoteName(n);
+    case "curious":
+      return ghostNoteName(n + 12);
+    case "affectionate":
+      return ghostNoteName(n + 7);
+    case "sassy":
+      return ghostNoteName(n - 12);
+    case "sleepy":
+      return ghostNoteName(n);
+  }
+}
 
 /** Pattern ids the ghost's play repertoire implements. */
 export const GHOST_PATTERN_IDS = [
@@ -233,6 +310,19 @@ export function fabricAllowsDraw(scenario: GhostScenario): boolean {
 export const GHOST_DRAW_REFUSAL_TEXT =
   "wanted to draw — this fabric doesn't allow it";
 
+/**
+ * The fabric's notes rule (Slice 19), brain-side (Slice 31) —
+ * the note gate's twin of fabricAllowsDraw. No fabric context
+ * (solo, or a peer that doesn't supply one) means allowed.
+ */
+export function fabricAllowsNotes(scenario: GhostScenario): boolean {
+  if (!scenario.fabric) return true;
+  return scenario.fabric.rules.notes;
+}
+
+export const GHOST_NOTE_REFUSAL_TEXT =
+  "wanted to play a note — this fabric doesn't allow it";
+
 /** Scenario snapshot — the dataset's input schema, verbatim. */
 export interface GhostScenario {
   temperament: GhostBrainTemperament;
@@ -263,6 +353,8 @@ export interface GhostDecision {
   pattern_id: GhostPatternId | null;
   /** Slice 23: the DRAW tool's shape; null unless intent is "draw". */
   draw_shape: GhostDrawShape | null;
+  /** Slice 31: the NOTE tool's note (bus vocabulary); null unless intent is "play-note". */
+  note_name: string | null;
   intensity: number;
   linger_s: number;
 }
@@ -308,6 +400,11 @@ const clamp = (v: number, lo: number, hi: number): number =>
  *     a Spark reply meets the fabric's law, before any routing.
  *     Callers that need to SAY so use ghostDrawGateRefusal() to
  *     name the refusal for the brain line;
+ *   - intent "play-note" (Slice 31) follows the draw's exact
+ *     discipline: it REQUIRES a note_name in the bus's
+ *     vocabulary, a note_name on any other intent is dropped,
+ *     and the fabric's notes rule refuses it outright the same
+ *     way (callers say so via ghostNoteGateRefusal());
  *   - intensity defaults to 0.5 and clamps to [0.05, 0.9];
  *   - linger_s defaults to 5 and clamps to [0.5, 30];
  *   - mood_shift must be null or a real temperament.
@@ -353,6 +450,17 @@ export function validateGhostDecision(
     if (scenario && !fabricAllowsDraw(scenario)) return null;
   }
 
+  // Slice 31: "play-note" carries the same structural discipline
+  // as "draw" — the note name is required and must be in the
+  // bus's vocabulary, the fabric's notes rule refuses it
+  // outright, and a note_name on any other intent is dropped.
+  let noteName: string | null = null;
+  if (intent === "play-note") {
+    if (!isGhostNoteName(d.note_name)) return null;
+    noteName = d.note_name;
+    if (scenario && !fabricAllowsNotes(scenario)) return null;
+  }
+
   let moodShift: GhostBrainTemperament | null = null;
   if (d.mood_shift !== undefined && d.mood_shift !== null) {
     if (
@@ -385,6 +493,7 @@ export function validateGhostDecision(
     intent: intent as GhostIntent,
     pattern_id: patternId,
     draw_shape: drawShape,
+    note_name: noteName,
     intensity,
     linger_s: linger,
   };
@@ -414,6 +523,23 @@ export function ghostDrawGateRefusal(
     return null;
   }
   return GHOST_DRAW_REFUSAL_TEXT;
+}
+
+/**
+ * The note gate's refusal, named — ghostDrawGateRefusal's twin
+ * (Slice 31): the value IS a well-formed play-note decision,
+ * but the scenario's fabric refuses notes for the ghost's side.
+ */
+export function ghostNoteGateRefusal(
+  raw: unknown,
+  scenario?: GhostScenario
+): string | null {
+  if (!scenario || fabricAllowsNotes(scenario)) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const d = raw as Record<string, unknown>;
+  if (d.intent !== "play-note") return null;
+  if (!isGhostNoteName(d.note_name)) return null;
+  return GHOST_NOTE_REFUSAL_TEXT;
 }
 
 /**
@@ -458,6 +584,7 @@ const dec = (
   intent,
   pattern_id,
   draw_shape: null,
+  note_name: null,
   intensity,
   linger_s,
 });
@@ -657,6 +784,7 @@ export function drawDecisionFor(
       intent: "draw",
       pattern_id: null,
       draw_shape: shape,
+      note_name: null,
       intensity,
       linger_s: 6,
     },
@@ -666,17 +794,84 @@ export function drawDecisionFor(
   return { decision, ruleId: `draw-${shape}` };
 }
 
+/* ------------------------------------------------------------------ */
+/* The NOTE tool's on-device rules (Slice 31)                          */
+/* ------------------------------------------------------------------ */
+/*
+ * Call and response: when a human plays a note at the piano, the
+ * peer journals it into recent_events in the dataset's event
+ * vocabulary ("human played C4") — and this overlay is where
+ * deliberation answers it. Deliberately narrow, like the draw's:
+ *
+ *   - the stimulus is real: a recent_events entry names a note
+ *     in the bus's vocabulary (legacy scenarios never carry one,
+ *     so the 60-pair battery cannot move);
+ *   - the fabric, when present, allows notes AND the layer is
+ *     the piano — the event's provenance is the layer binding
+ *     (the peer only hears notes while the Piano layer is
+ *     front), so a fabric-less scenario trusts it;
+ *   - petting and startle keep their own answers (the table's);
+ *   - a sleepy ghost just listens — every other temperament
+ *     answers in character (ghostAnswerNote: echo, octave,
+ *     fifth, drop).
+ *
+ * The peer's own note cooldown (8s) and emit budget price the
+ * performances, so deliberation can offer answers freely.
+ */
+const HUMAN_NOTE_EVENT_RE = /^human played ([A-G]#?[0-8])$/;
+
+export function noteDecisionFor(
+  scenario: GhostScenario
+): { decision: GhostDecision; ruleId: string } | null {
+  let heard: string | null = null;
+  for (const e of scenario.recent_events) {
+    const m = HUMAN_NOTE_EVENT_RE.exec(e);
+    if (m) heard = m[1];
+  }
+  if (!heard) return null;
+  if (scenario.fabric) {
+    if (!fabricAllowsNotes(scenario)) return null;
+    if (scenario.fabric.layer_id !== GHOST_PIANO_LAYER_ID) return null;
+  }
+  if (scenario.pets_in_last_5s > 0) return null;
+  if (scenario.nearby_splat_intensity >= 0.7) return null;
+  if (scenario.temperament === "sleepy") return null;
+  const note = ghostAnswerNote(heard, scenario.temperament);
+  const decision = validateGhostDecision(
+    {
+      mood_shift: null,
+      intent: "play-note",
+      pattern_id: null,
+      draw_shape: null,
+      note_name: note,
+      intensity: scenario.temperament === "playful" ? 0.65 : 0.55,
+      linger_s: 3,
+    },
+    scenario
+  );
+  if (!decision) return null;
+  return { decision, ruleId: `note-answer-${scenario.temperament}` };
+}
+
 /**
- * The on-device brain: the draw overlay answers first when its
- * narrow window is open (fabric scenarios only); otherwise the
- * first matching table rule decides. The output is run through
- * the same validator as a Spark reply, so both tiers share one
- * safety gate. Never throws.
+ * The on-device brain: the note overlay answers first when a
+ * human just played (it is the most specific stimulus in the
+ * room), then the draw overlay when its narrow window is open
+ * (fabric scenarios only); otherwise the first matching table
+ * rule decides. The output is run through the same validator as
+ * a Spark reply, so both tiers share one safety gate. Never
+ * throws.
  */
 export function decideOnDevice(scenario: GhostScenario): {
   decision: GhostDecision;
   ruleId: string;
 } {
+  try {
+    const note = noteDecisionFor(scenario);
+    if (note) return note;
+  } catch {
+    // The overlay must never take the table down with it.
+  }
   try {
     const draw = drawDecisionFor(scenario);
     if (draw) return draw;
@@ -694,7 +889,7 @@ export function decideOnDevice(scenario: GhostScenario): {
     }
   }
   return {
-    decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, intensity: 0.25, linger_s: 5 },
+    decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.25, linger_s: 5 },
     ruleId: "fallback-drift",
   };
 }
@@ -921,7 +1116,9 @@ export function applyPersonalityBias(
  * is tired because it worked — the card's Stamina bar and this
  * bias are two views of the one truth. Slice 23: drawing is a
  * performing intent here too — drained rests instead of drawing;
- * merely low draws smaller.
+ * merely low draws smaller. Slice 31: answering at the piano is
+ * performing in the same way — drained rests instead of playing;
+ * merely low plays softer.
  */
 
 /** Below this reading the ghost counts as tired (bias + Spark note). */
@@ -950,11 +1147,13 @@ export function applyStaminaBias(
       next.intent === "heart" ||
       next.intent === "mirror" ||
       next.intent === "sniff" ||
-      next.intent === "draw"
+      next.intent === "draw" ||
+      next.intent === "play-note"
     ) {
       next.intent = "nap";
       next.pattern_id = null;
       next.draw_shape = null;
+      next.note_name = null;
       next.intensity = clamp(Math.min(next.intensity, 0.2), 0.05, 0.9);
       next.linger_s = clamp(Math.max(next.linger_s, 16), 0.5, 30);
       steeredBy.push("stamina drained: rests instead of performing");
@@ -979,6 +1178,12 @@ export function applyStaminaBias(
       // instead, like every other performance.
       next.intensity = clamp(next.intensity * 0.8, 0.05, 0.9);
       steeredBy.push("stamina low: draws smaller");
+    } else if (next.intent === "play-note") {
+      // Answering at the piano is performing too (Slice 31): a
+      // tired ghost that still answers plays softer — intensity
+      // is the note's velocity on the peer side.
+      next.intensity = clamp(next.intensity * 0.8, 0.05, 0.9);
+      steeredBy.push("stamina low: plays softer");
     }
   }
   return { decision: next, steeredBy };
@@ -1017,7 +1222,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Mango", hue: 35, seed_traits: ["bouncy", "giggly"] },
     },
-    decision: { mood_shift: null, intent: "startle", pattern_id: null, draw_shape: null, intensity: 0.8, linger_s: 1.5 },
+    decision: { mood_shift: null, intent: "startle", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.8, linger_s: 1.5 },
   },
   {
     scenario: {
@@ -1031,7 +1236,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Biscuit", hue: 335, seed_traits: ["cuddly", "loyal"] },
     },
-    decision: { mood_shift: null, intent: "heart", pattern_id: null, draw_shape: null, intensity: 0.75, linger_s: 7 },
+    decision: { mood_shift: null, intent: "heart", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.75, linger_s: 7 },
   },
   {
     scenario: {
@@ -1045,15 +1250,15 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "falling",
       ghost_identity: { name: "Pesto", hue: 135, seed_traits: ["drowsy", "dim glow"] },
     },
-    decision: { mood_shift: null, intent: "nap", pattern_id: null, draw_shape: null, intensity: 0.15, linger_s: 24 },
+    decision: { mood_shift: null, intent: "nap", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.15, linger_s: 24 },
   },
 ];
 
 const SPARK_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost that lives on a shared touch canvas. The ghost never speaks; it expresses itself only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Given a scenario snapshot, reply with ONLY one JSON decision object — no prose, no code fences:",
-  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
+  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
+  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
 ].join("\n");
 
 /**
@@ -1182,7 +1387,9 @@ export async function consultSparkBrain(
     const extracted = extractDecisionJson(reply);
     const decision = validateGhostDecision(extracted, scenario);
     if (!decision && onGateRefusal) {
-      const refusal = ghostDrawGateRefusal(extracted, scenario);
+      const refusal =
+        ghostDrawGateRefusal(extracted, scenario) ??
+        ghostNoteGateRefusal(extracted, scenario);
       if (refusal) onGateRefusal(refusal);
     }
     return decision;
@@ -1209,8 +1416,8 @@ export async function consultSparkBrain(
 const DEVICE_GHOST_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost on a shared touch canvas. The ghost never speaks; it acts only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Reply with ONLY one JSON object — no prose, no code fences:",
-  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
+  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
+  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
 ].join("\n");
 
 /**
@@ -1267,7 +1474,9 @@ export async function consultDeviceBrain(
     const extracted = extractDecisionJson(reply);
     const decision = validateGhostDecision(extracted, scenario);
     if (!decision && onGateRefusal) {
-      const refusal = ghostDrawGateRefusal(extracted, scenario);
+      const refusal =
+        ghostDrawGateRefusal(extracted, scenario) ??
+        ghostNoteGateRefusal(extracted, scenario);
       if (refusal) onGateRefusal(refusal);
     }
     return decision;

@@ -104,6 +104,10 @@ import type {
   GhostScenarioOther,
 } from "./GhostBrain";
 import {
+  GHOST_PIANO_LAYER_ID,
+  ghostNoteName,
+  ghostNoteNumber,
+  isGhostNoteName,
   sanitizeFabricContext,
   seedTraitsForTemperament,
 } from "./GhostBrain";
@@ -184,6 +188,119 @@ export function ghostVerbAsk(
     if (at >= 0 && (!best || at < best.at)) best = { id, at };
   }
   return best ? best.id : null;
+}
+
+/**
+ * What a note ask routes to (Slice 31): one named note (or the
+ * ghost's choice when note is null), a replay of the last note
+ * it heard or played, or an arpeggio.
+ */
+export type GhostNoteAsk =
+  | { kind: "note"; note: string | null }
+  | { kind: "again" }
+  | { kind: "arpeggio"; descending: boolean };
+
+const GHOST_NOTE_LETTER_PC: Record<string, number> = {
+  c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11,
+};
+const GHOST_NOTE_SHARP_NAMES = [
+  "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
+
+/** Letter + accidental + octave -> the bus's canonical (sharps) name. */
+function ghostCanonicalNote(
+  letter: string,
+  accidental: string,
+  octave: number
+): string | null {
+  let pc = GHOST_NOTE_LETTER_PC[letter];
+  if (pc === undefined) return null;
+  if (accidental === "#") pc += 1;
+  else if (accidental === "b") pc -= 1;
+  let oct = octave;
+  if (pc < 0) {
+    pc += 12;
+    oct -= 1;
+  }
+  if (pc > 11) {
+    pc -= 12;
+    oct += 1;
+  }
+  if (oct < 0 || oct > 8) return null;
+  const name = `${GHOST_NOTE_SHARP_NAMES[pc]}${oct}`;
+  return isGhostNoteName(name) ? name : null;
+}
+
+/**
+ * The note-ask router (Slice 31) — the compose path's note
+ * sibling of ghostVerbAsk, and deliberately NARROWER in what it
+ * claims and LOOSER in how:
+ *
+ *   - It claims only play-shaped asks carrying a note shape:
+ *     "play a note" (the ghost chooses), "play middle C",
+ *     "play C#4", "play Eb3" (flats land on their sharp names),
+ *     "play that again", "play an arpeggio" (up, or down when
+ *     the ask says so). "Play a song / some jazz / the
+ *     heartbeat" claim nothing — songs are the composer's
+ *     business, not the NOTE tool's.
+ *   - Unlike ghostVerbAsk it does NOT require addressing: a
+ *     verb can also be performed by the generic interpreter as
+ *     a pattern step, so say-it needs the ghost's name to know
+ *     whose act it is — a named NOTE is not something the
+ *     generic interpreter can perform at all, and the layer
+ *     gates the rest (LegacyFluid only performs on the Piano
+ *     layer and redirects the ask in-world anywhere else).
+ *
+ * ghostName is accepted for signature parity with ghostVerbAsk;
+ * it is not consulted.
+ */
+export function ghostNoteAsk(
+  prompt: string,
+  ghostName?: string | null
+): GhostNoteAsk | null {
+  void ghostName;
+  const text = (prompt || "").toLowerCase();
+  const playAt = text.search(/\bplay(?:s|ing|ed)?\b/);
+  if (playAt < 0) return null;
+  const tail = text
+    .slice(playAt)
+    .replace(/^play(?:s|ing|ed)?\b/, " ")
+    .trim();
+  if (/\barpeggio\b/.test(tail)) {
+    return {
+      kind: "arpeggio",
+      descending: /\b(descending|downwards?|down)\b/.test(tail),
+    };
+  }
+  if (/\bmiddle\s+c\b/.test(tail)) return { kind: "note", note: "C4" };
+  const accidental = tail.match(/\b([a-g])(#|b)\s*([0-8])?\b/);
+  if (accidental) {
+    const note = ghostCanonicalNote(
+      accidental[1],
+      accidental[2],
+      accidental[3] ? parseInt(accidental[3], 10) : 4
+    );
+    return note ? { kind: "note", note } : null;
+  }
+  const withOctave = tail.match(/\b([a-g])([0-8])\b/);
+  if (withOctave) {
+    const note = ghostCanonicalNote(
+      withOctave[1],
+      "",
+      parseInt(withOctave[2], 10)
+    );
+    return note ? { kind: "note", note } : null;
+  }
+  if (/\bagain\b/.test(tail)) return { kind: "again" };
+  if (/^(the\s+|a\s+|an\s+)?notes?\b/.test(tail)) {
+    return { kind: "note", note: null };
+  }
+  const lone = tail.replace(/^(the|a|an)\s+/, "").trim();
+  if (/^[a-g]$/.test(lone)) {
+    const note = ghostCanonicalNote(lone, "", 4);
+    return note ? { kind: "note", note } : null;
+  }
+  return null;
 }
 
 export type GhostMode = "solo" | "session";
@@ -269,6 +386,17 @@ export interface GhostPeerOptions {
    * the host owns the wires.
    */
   onDrawRecipe?: (recipe: Recipe) => void;
+  /**
+   * The NOTE tools' sink (Slice 31): one note the ghost chose to
+   * play — name in the bus's vocabulary, velocity, ring length.
+   * The host puts it on the shared noteBus, the pipeline human
+   * keys use, so it sounds through the soundfont on this device,
+   * lights the key, streams into the fluid, and rides the note
+   * transport to the room under the session's notes gate, exactly
+   * like a tapped key. The peer owns the decision, the gates and
+   * the budget charge; the host owns the bus.
+   */
+  onNote?: (note: string, velocity: number, durationMs: number) => void;
 }
 
 export const MAX_GHOSTS_PER_ROOM = 4;
@@ -317,6 +445,19 @@ const DELIBERATION_MIN_MS = 10_000;
  */
 const DRAW_BUDGET_COST = 6;
 const DRAW_MIN_INTERVAL_MS = 45_000;
+/**
+ * The NOTE tools' price and pace (Slice 31). A single note is
+ * the smallest act the ghost has — 1 emit slot; a four-note
+ * arpeggio is one gesture priced at 3. The cooldown sits far
+ * below the draw's 45s (a conversation at the piano is quicker
+ * than a doodle) and far above anything deliberation could spam:
+ * an answer per stimulus, never a metronome.
+ */
+const NOTE_BUDGET_COST = 1;
+const ARPEGGIO_BUDGET_COST = 3;
+const NOTE_MIN_INTERVAL_MS = 8_000;
+const NOTE_DURATION_MS = 900;
+const ARPEGGIO_STEP_MS = 150;
 /**
  * Warm Welcome's price (Slice 24): a session-mode verb burst is
  * three emits, and the greeting is all-or-nothing against the
@@ -518,6 +659,12 @@ export class GhostPeer {
   /** DRAW tool state (Slice 23): last performance + count (seed salt). */
   private lastDrawAt = 0;
   private drawCount = 0;
+  /** NOTE tool state (Slice 31): last performance + the notes memory. */
+  private lastNoteAt = 0;
+  /** The last note a HUMAN played at the piano (call-and-response memory). */
+  private lastHumanNote: string | null = null;
+  /** The last note this ghost itself played ("play that again"). */
+  private lastPlayedNote: string | null = null;
   /** Scenario journal, in the dataset's event vocabulary. */
   private eventJournal: { label: string; at: number }[] = [];
   private verbsSeenLog: { id: string; at: number }[] = [];
@@ -1018,6 +1165,144 @@ export class GhostPeer {
   }
 
   /**
+   * Play ONE note because the primary asked (Slice 31, the
+   * note-perform tool): "play middle C", "play a note". A null
+   * note is the ghost's choice — it answers with the note it
+   * last heard a human play if it has one, then its own last
+   * note, then middle C. Same gates, budget and cooldown as the
+   * deliberated call-and-response: the fabric's notes rule
+   * refuses outright ("refused"), and away from the Piano layer
+   * the tool does not exist ("unavailable" — the caller answers
+   * with the in-world redirect, never an error).
+   */
+  answerNote(note: string | null): GhostActResult {
+    if (this.destroyed || !this.enabled || this.dismissing) {
+      return "unavailable";
+    }
+    this.noteUserActivity();
+    if (!this.canAct()) return "unavailable";
+    const now = Date.now();
+    if (this.noteGateRefusal(now, "play")) return "refused";
+    if (this.noteLayerUnavailable()) return "unavailable";
+    const target =
+      note ?? this.lastHumanNote ?? this.lastPlayedNote ?? "C4";
+    if (!isGhostNoteName(target)) return "unavailable";
+    return this.performAskedNote(
+      target,
+      `answered: played ${target} on request`,
+      `played ${target} on request`,
+      NOTE_BUDGET_COST
+    );
+  }
+
+  /**
+   * "Play that again" (Slice 31): replay the last note a human
+   * played at this piano, or the ghost's own last note when no
+   * human note is remembered. Nothing remembered = nothing to
+   * replay ("unavailable" — the caller falls back in-world).
+   */
+  answerNoteAgain(): GhostActResult {
+    if (this.destroyed || !this.enabled || this.dismissing) {
+      return "unavailable";
+    }
+    this.noteUserActivity();
+    if (!this.canAct()) return "unavailable";
+    const now = Date.now();
+    if (this.noteGateRefusal(now, "play")) return "refused";
+    if (this.noteLayerUnavailable()) return "unavailable";
+    const target = this.lastHumanNote ?? this.lastPlayedNote;
+    if (!target) return "unavailable";
+    return this.performAskedNote(
+      target,
+      `answered: played ${target} again on request`,
+      `played ${target} again on request`,
+      NOTE_BUDGET_COST
+    );
+  }
+
+  /**
+   * Play an arpeggio because the primary asked (Slice 31): four
+   * chord tones (root, third, fifth, octave) from the note the
+   * ghost last heard or played — middle C when it has neither —
+   * ascending, or descending when the ask said so. ONE tool
+   * call, ONE budget charge of ARPEGGIO_BUDGET_COST, one
+   * cooldown stamp; the notes themselves stagger ARPEGGIO_STEP_MS
+   * apart through the sink.
+   */
+  answerArpeggio(descending = false): GhostActResult {
+    if (this.destroyed || !this.enabled || this.dismissing) {
+      return "unavailable";
+    }
+    this.noteUserActivity();
+    if (!this.canAct()) return "unavailable";
+    const now = Date.now();
+    if (this.noteGateRefusal(now, "play")) return "refused";
+    if (this.noteLayerUnavailable()) return "unavailable";
+    const root = this.lastHumanNote ?? this.lastPlayedNote ?? "C4";
+    const rootNum = ghostNoteNumber(root);
+    if (rootNum === null) return "unavailable";
+    if (now - this.lastNoteAt < NOTE_MIN_INTERVAL_MS) {
+      return "unavailable";
+    }
+    if (!this.chargePerformanceBudget(ARPEGGIO_BUDGET_COST)) {
+      this.journal("wanted to play — budget spent", now);
+      return "unavailable";
+    }
+    this.lastNoteAt = now;
+    const notes = [0, 4, 7, 12].map((step) => ghostNoteName(rootNum + step));
+    if (descending) notes.reverse();
+    this.lastPlayedNote = notes[notes.length - 1];
+    this.journal("answered: played an arpeggio on request", now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.("played an arpeggio on request");
+    notes.forEach((note, k) =>
+      this.emitNoteToSink(note, 0.65, k * ARPEGGIO_STEP_MS)
+    );
+    return "performed";
+  }
+
+  /**
+   * The asked single-note performance's shared tail (Slice 31):
+   * cooldown, budget charge, journal, sink. The deliberated
+   * call-and-response (performPlayNote) runs the same prices
+   * through its own journal wording.
+   */
+  private performAskedNote(
+    note: string,
+    journalLabel: string,
+    performanceLabel: string,
+    cost: number
+  ): GhostActResult {
+    const now = Date.now();
+    if (now - this.lastNoteAt < NOTE_MIN_INTERVAL_MS) {
+      return "unavailable";
+    }
+    if (!this.chargePerformanceBudget(cost)) {
+      this.journal("wanted to play — budget spent", now);
+      return "unavailable";
+    }
+    this.lastNoteAt = now;
+    this.lastPlayedNote = note;
+    this.journal(journalLabel, now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(performanceLabel);
+    this.emitNoteToSink(note, 0.7, 0);
+    return "performed";
+  }
+
+  /** One note into the sink, on the peer's own clock. */
+  private emitNoteToSink(
+    note: string,
+    velocity: number,
+    delayMs: number
+  ): void {
+    this.schedule(delayMs, () => {
+      if (!this.canAct()) return;
+      this.options.onNote?.(note, velocity, NOTE_DURATION_MS);
+    });
+  }
+
+  /**
    * React to a request NO interpreter could shape (Hotfix 2.4, the
    * living fallback). The honest answer to an unshapeable ask is
    * not an error caption — it is the ghost being puzzled, in-world:
@@ -1124,6 +1409,31 @@ export class GhostPeer {
     const now = Date.now();
     this.noteUserActivity();
     this.journal(label, now);
+    this.markDeliberationDirty();
+  }
+
+  /**
+   * A human played a note at the piano (Slice 31). LegacyFluid
+   * forwards bus note-ons here while the Piano layer is front —
+   * local keys and remote peers' notes alike (both ride the
+   * bus); the ghost's own sink emissions are guarded out by the
+   * host, so everything that lands here is a person playing.
+   * This is a SENSE, like noteHandSign: nothing is emitted and
+   * nothing is spent. The note is remembered (the
+   * call-and-response memory: answerNoteAgain and the arpeggio's
+   * root read it) and journaled in the dataset's event
+   * vocabulary, so the brain's next deliberation happens in a
+   * room where someone just played — and the brain's NOTE
+   * overlay may answer it. Playing near the ghost is company:
+   * it wakes and timestamps like any activity.
+   */
+  noteHumanNote(note: string): void {
+    if (this.destroyed) return;
+    if (!isGhostNoteName(note)) return;
+    this.lastHumanNote = note;
+    const now = Date.now();
+    this.noteUserActivity();
+    this.journal(`human played ${note}`, now);
     this.markDeliberationDirty();
   }
 
@@ -2081,6 +2391,9 @@ export class GhostPeer {
       case "draw":
         this.performDraw(decision);
         break;
+      case "play-note":
+        this.performPlayNote(decision);
+        break;
       case "mirror":
         // Amplify the reflex mirror/response path for the linger.
         this.setMoodBias("mirror", decision.linger_s * 1000);
@@ -2194,6 +2507,34 @@ export class GhostPeer {
   }
 
   /**
+   * The fabric note gate, peer-side (Slice 31) — drawGateRefusal's
+   * sibling for the NOTE tools: the fabric's CURRENT notes rule
+   * decides, a refusal is journaled in the same vocabulary, and
+   * no fabric context means no gate.
+   */
+  private noteGateRefusal(now: number, what: string): boolean {
+    const fabric = this.currentFabricContext();
+    if (fabric && !fabric.rules.notes) {
+      this.journal(`wanted to ${what} — fabric forbids it`, now);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * The NOTE tools exist only at the piano (Slice 31): true when
+   * the ghost is verifiably on another layer. With no fabric
+   * context the layer is unknown — the deliberated path only
+   * ever hears notes through the Piano layer's own forwarder,
+   * so unknown means allowed, exactly the draw gate's solo
+   * semantics.
+   */
+  private noteLayerUnavailable(): boolean {
+    const fabric = this.currentFabricContext();
+    return fabric !== null && fabric.layer_id !== GHOST_PIANO_LAYER_ID;
+  }
+
+  /**
    * Build + validate the one-step draw recipe every ghost
    * drawing ships as. The seed mixes the identity seed with
    * the draw count, so consecutive drawings differ; callers
@@ -2252,6 +2593,40 @@ export class GhostPeer {
     this.markDeliberationDirty();
     this.options.onPerformance?.(`drew a ${shape}`);
     this.options.onDrawRecipe?.(recipe);
+  }
+
+  /**
+   * Perform a deliberated "play-note" decision (Slice 31) — call
+   * and response: the brain heard a human's note in the scenario
+   * and chose to answer. The performance runs the full peer-side
+   * discipline performDraw runs, at the note prices: the fabric's
+   * notes rule refuses (journaled), the piano is the only stage,
+   * the note cooldown paces, and the shared emit budget charges
+   * NOTE_BUDGET_COST before the sink is touched. The note then
+   * rides the note bus exactly like a human's key press.
+   */
+  private performPlayNote(decision: GhostDecision): void {
+    if (!this.canAct()) return;
+    const note = decision.note_name;
+    if (!note || !isGhostNoteName(note)) return;
+    const now = Date.now();
+    if (this.noteGateRefusal(now, "play")) return;
+    if (this.noteLayerUnavailable()) return;
+    if (now - this.lastNoteAt < NOTE_MIN_INTERVAL_MS) return;
+    if (!this.chargePerformanceBudget(NOTE_BUDGET_COST)) {
+      this.journal("wanted to play — budget spent", now);
+      return;
+    }
+    this.lastNoteAt = now;
+    this.lastPlayedNote = note;
+    this.journal(`answered with ${note}`, now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(`answered with ${note}`);
+    this.emitNoteToSink(
+      note,
+      Math.min(0.85, Math.max(0.4, decision.intensity + 0.15)),
+      0
+    );
   }
 
   private performPlayPattern(

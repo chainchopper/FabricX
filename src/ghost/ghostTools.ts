@@ -9,9 +9,11 @@
  * executes and the scenario requirements it answers to. The
  * router (useGhostPeer) resolves every brain decision through
  * this registry before GhostPeer applies it — deliberation ->
- * registry gate -> tool — so the next tools (gesture response,
- * SAM-aware acts, note playing) plug into the same path instead
- * of growing new branches through the brain.
+ * registry gate -> tool — so later tools plug into the same
+ * path instead of growing new branches through the brain:
+ * gesture response and the SAM-aware acts perform through
+ * GhostPeer's ask methods, and note playing (Slice 31) is
+ * registered here in full, deliberation and ask sides both.
  *
  * Two kinds of tools live here:
  *
@@ -25,10 +27,17 @@
  *
  *   - ASK tools execute the primary's direct requests, routed by
  *     the compose path (LegacyFluid), never by deliberation:
- *     "verb-perform" ("tickle, Boop") and "heartbeat-answer"
- *     (Slice 17). They are registered so the ghost's full
- *     capability surface is one list a reader — or a future
- *     tool-using brain — can see whole.
+ *     "verb-perform" ("tickle, Boop"), "heartbeat-answer"
+ *     (Slice 17), and "note-perform" (Slice 31 — "play middle
+ *     C"). They are registered so the ghost's full capability
+ *     surface is one list a reader — or a future tool-using
+ *     brain — can see whole.
+ *
+ *   - "play-note" (Slice 31) is the second DELIBERATION tool
+ *     with a fabric requirement: the ghost answers a human's
+ *     played note only where the fabric allows notes and the
+ *     piano is the layer, and the refusal is named here the
+ *     same way the draw's is.
  *
  * The registry gates; it never performs. Performance stays in
  * GhostPeer, under its budgets and invariants, exactly as before.
@@ -38,7 +47,9 @@
 
 import {
   fabricAllowsDraw,
+  fabricAllowsNotes,
   GHOST_DRAW_REFUSAL_TEXT,
+  GHOST_NOTE_REFUSAL_TEXT,
   type GhostIntent,
   type GhostScenario,
 } from "./GhostBrain";
@@ -47,7 +58,9 @@ export type GhostToolId =
   | "splat-play"
   | "draw"
   | "verb-perform"
-  | "heartbeat-answer";
+  | "heartbeat-answer"
+  | "play-note"
+  | "note-perform";
 
 export interface GhostToolDef {
   id: GhostToolId;
@@ -100,6 +113,20 @@ export const GHOST_TOOL_REGISTRY: readonly GhostToolDef[] = [
     id: "heartbeat-answer",
     blurb:
       "Ask-driven: a heartbeat request addressed to the ghost is answered with a generated lub-dub pulse at the ghost's live tempo (Slice 17).",
+    intents: [],
+  },
+  {
+    id: "play-note",
+    blurb:
+      "Call and response at the piano: when a human plays a note, deliberation may answer with one of its own — an echo, an octave, a fifth by temperament — through the shared note bus, so it sounds on every end exactly like a played key. A note is an act: it spends emit budget like any performance, and the fabric's notes rule can refuse it outright.",
+    intents: ["play-note"],
+    refusalFor: (scenario) =>
+      fabricAllowsNotes(scenario) ? null : GHOST_NOTE_REFUSAL_TEXT,
+  },
+  {
+    id: "note-perform",
+    blurb:
+      "Ask-driven: the primary asks their ghost to play — 'play middle C', 'play that again', 'play an arpeggio' — and the ghost performs it at the piano through the same note bus, gates, budget and cooldown as its deliberated answers.",
     intents: [],
   },
 ];
