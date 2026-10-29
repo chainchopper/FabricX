@@ -21,7 +21,7 @@ import {
 import {
   FABRIC_COMPOSE_SOURCE_EVENT,
   FABRIC_PLAY_RECIPE_EVENT,
-  composeWithShapes,
+  composeWithShapesDetailed,
 } from "../../ai/RecipeComposer";
 import {
   recipeBus,
@@ -807,12 +807,26 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         }
 
         // Slice 15/17: one entry, two performance vocabularies —
-        // composeWithShapes asks a configured model to invent the
-        // answer, degrades to generative built-in performances, and
-        // otherwise routes drawing prompts to recipes and the rest
-        // to the Slice 4 pattern path.
-        const result = await composeWithShapes(prompt);
+        // composeWithShapes asks a resolved cloud model to invent
+        // the answer, degrades to generative built-in performances,
+        // and otherwise routes drawing prompts to recipes and the
+        // rest to the Slice 4 pattern path.
+        const outcome = await composeWithShapesDetailed(prompt);
+        const result = outcome.result;
         if (!result) {
+          // Cleanup 2: a request nobody could shape gets an honest
+          // caption, not silence — and never a plea for a key. The
+          // source event carries which path was walked so the bar
+          // can say "beyond the built-in interpreter" (on-device
+          // only) or "beyond the cloud model" (cloud tried too).
+          window.dispatchEvent(
+            new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+              detail:
+                outcome.path === "model"
+                  ? "beyond-model"
+                  : "beyond-builtin",
+            })
+          );
           publishState(null);
         } else if (result.kind === "recipe") {
           window.dispatchEvent(

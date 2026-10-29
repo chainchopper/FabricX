@@ -13,17 +13,26 @@
  *   field is validated against allowlists and ranges. One invalid step
  *   invalidates the whole pattern.
  * - One repair retry with a corrective prompt, then give up.
- * - Any failure — no key configured, network error, invalid output —
- *   resolves to null or a built-in pattern. This module never throws
- *   into UI code.
- * - The key only ever comes from the user's own AI Settings config
- *   (`fabric_ai_config_v1`, the same shape the ghost poll reads). No
- *   env vars, no hardcoded secrets.
+ * - Any failure — no cloud model resolved, network error, invalid
+ *   output — resolves to null or a built-in pattern. This module
+ *   never throws into UI code.
+ * - Which cloud model answers is a RESOLUTION, never a user chore
+ *   (Cleanup 2, Terrell's standing rule: the demo never asks anyone
+ *   for a key). loadLLMConfig resolves in order:
+ *   1. the user's own saved AI Services config
+ *      (`fabric_ai_config_v1`, the same shape the ghost poll reads),
+ *      when it is enabled and carries a key;
+ *   2. Fanalogy's built-in cloud, locked in at build time through
+ *      the EXPO_PUBLIC_FANALOGY_LLM_* env vars (see docs/AI.md) —
+ *      the demo's cloud, already connected out of the box;
+ *   3. no cloud at all: the in-browser built-ins below answer.
+ *   The in-browser model is the product default and is presented
+ *   that way everywhere; the cloud tiers are upgrades, not gates.
  *
- * Offline: with no LLM configured, three built-in patterns (rain,
+ * Offline: with no cloud resolved, three built-in patterns (rain,
  * heartbeat, ocean) are matched by keyword so the feature still demos.
- * If the LLM is configured but unreachable/invalid, the same built-in
- * match is tried before returning null.
+ * If a cloud model is resolved but unreachable/invalid, the same
+ * built-in match is tried before returning null.
  *
  * Spark note: Muse Spark reasons before it answers, so the request
  * uses a generous maxTokens (2048) — a small cap can return empty
@@ -324,7 +333,8 @@ interface AIConfigShape {
   };
 }
 
-export async function loadLLMConfig(): Promise<LLMConfig | null> {
+/** The user's own saved AI Services config, when it can serve. */
+async function loadUserLLMConfig(): Promise<LLMConfig | null> {
   let config: AIConfigShape | null = null;
   try {
     config = await getJSON<AIConfigShape | null>(AI_CONFIG_KEY, null);
@@ -333,7 +343,7 @@ export async function loadLLMConfig(): Promise<LLMConfig | null> {
   }
   const llm = config?.llm;
   if (!llm || !llm.enabled || llm.provider === "none" || !llm.apiKey) {
-    return null; // unconfigured/disabled: built-ins only
+    return null; // not serving: resolution falls through
   }
   return {
     provider: llm.provider as LLMConfig["provider"],
@@ -341,6 +351,83 @@ export async function loadLLMConfig(): Promise<LLMConfig | null> {
     endpoint: llm.endpoint,
     model: llm.model,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Fanalogy's built-in cloud (Cleanup 2) — locked in at build time.
+//
+// The demo ships with Fanalogy's own Meta Model API key + model baked
+// in through EXPO_PUBLIC_ env vars (set on the Vercel project; see
+// docs/AI.md). EXPO_PUBLIC_ values are inlined into the shipped bundle
+// and are therefore VISIBLE in it — acceptable for this demo key,
+// which sits behind a hard spend cap on Fanalogy's side. That is
+// Fanalogy's call, made deliberately; the release direction is
+// Fanalogy-trained models running on device, with this cloud as an
+// opt-in tier.
+//
+// IMPORTANT: the three reads below must stay literal
+// `process.env.EXPO_PUBLIC_*` member accesses — Expo/Metro inlines
+// EXPO_PUBLIC_ variables at build time only in that exact shape.
+// Dynamic key access would ship unfilled.
+// ---------------------------------------------------------------------------
+
+export const BUILTIN_CLOUD_BASE_URL_DEFAULT = "https://api.meta.ai/v1";
+export const BUILTIN_CLOUD_MODEL_DEFAULT = "muse-spark-1.3";
+
+function envTrimmed(direct: string | undefined): string {
+  return typeof direct === "string" ? direct.trim() : "";
+}
+
+export function getBuiltinCloudConfig(): LLMConfig | null {
+  let apiKey = "";
+  let baseUrl = "";
+  let model = "";
+  try {
+    apiKey = envTrimmed(process.env.EXPO_PUBLIC_FANALOGY_LLM_API_KEY);
+    baseUrl = envTrimmed(process.env.EXPO_PUBLIC_FANALOGY_LLM_BASE_URL);
+    model = envTrimmed(process.env.EXPO_PUBLIC_FANALOGY_LLM_MODEL);
+  } catch {
+    // No process global at all (bare native runtime): no built-in cloud.
+    return null;
+  }
+  if (!apiKey) return null;
+  return {
+    // Meta's Model API is OpenAI-compatible; LLMService's "custom"
+    // provider appends /chat/completions and sends the Bearer key.
+    provider: "custom",
+    apiKey,
+    endpoint: baseUrl || BUILTIN_CLOUD_BASE_URL_DEFAULT,
+    model: model || BUILTIN_CLOUD_MODEL_DEFAULT,
+  };
+}
+
+/** True when this build carries Fanalogy's locked-in cloud key. */
+export function hasBuiltinCloud(): boolean {
+  return getBuiltinCloudConfig() !== null;
+}
+
+export interface LLMConfigResolution {
+  config: LLMConfig | null;
+  /** Where the cloud config came from — "none" means on-device only. */
+  source: "user" | "builtin-cloud" | "none";
+}
+
+/**
+ * The one resolution every intelligence path reads (composer, ghost
+ * brain, SAM): user's saved model first, then the built-in cloud,
+ * then no cloud — in which case the in-browser model is the answer,
+ * not an error. Never throws.
+ */
+export async function resolveLLMConfig(): Promise<LLMConfigResolution> {
+  const user = await loadUserLLMConfig();
+  if (user) return { config: user, source: "user" };
+  const builtin = getBuiltinCloudConfig();
+  if (builtin) return { config: builtin, source: "builtin-cloud" };
+  return { config: null, source: "none" };
+}
+
+export async function loadLLMConfig(): Promise<LLMConfig | null> {
+  return (await resolveLLMConfig()).config;
 }
 
 const SYSTEM_PROMPT = [
@@ -358,9 +445,9 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
- * Compose a pattern for a plain-language prompt. LLM first when a key
- * is configured (with one repair retry); built-in keyword match
- * otherwise — and also as the degradation path when the LLM fails.
+ * Compose a pattern for a plain-language prompt. LLM first when a
+ * cloud model resolves (with one repair retry); built-in keyword
+ * match otherwise — and also as the degradation path when the LLM fails.
  * Returns null when nothing valid can be produced. Never throws.
  */
 export async function composePattern(

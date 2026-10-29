@@ -11,11 +11,13 @@
  *   field validated by validateRecipe. One invalid step kills the
  *   whole recipe — a bad recipe can never reach the renderer.
  * - One repair retry with a corrective prompt, then give up.
- * - The key only ever comes from the user's AI Settings config
- *   (PatternComposer.loadLLMConfig). No env vars, no secrets.
+ * - The model comes from the shared resolution
+ *   (PatternComposer.loadLLMConfig): the user's saved model, else
+ *   Fanalogy's build-time-locked cloud, else no cloud. No code here
+ *   ever asks the user for a key (Cleanup 2).
  * - Offline: built-in recipes (heart / spiral / ring-burst + the
  *   rest of the shape library) match deterministically by intent,
- *   so the feature demos with no key. Failures resolve to null or
+ *   so the feature demos with no cloud. Failures resolve to null or
  *   a built-in — this module never throws into UI code.
  *
  * composeWithShapes is the single entry the canvas calls: shape
@@ -33,6 +35,7 @@ import {
   composePattern,
   loadLLMConfig,
   parsePatternJson,
+  resolveLLMConfig,
   validatePattern,
   type Pattern,
 } from "./PatternComposer";
@@ -57,9 +60,13 @@ export const FABRIC_PLAY_RECIPE_EVENT = "fabric:play-recipe";
 
 /**
  * Canvas -> ComposeBar: where the current answer came from
- * (detail: "llm" | "builtin" | "ghost"). Slice 17 honesty surface:
- * the bar captions built-in interpretations as built-ins instead of
- * letting a template masquerade as open-ended model intelligence.
+ * (detail: "llm" | "builtin" | "ghost", plus Cleanup 2's failure
+ * captions "beyond-builtin" | "beyond-model" when a request could
+ * not be shaped). Slice 17 honesty surface: the bar captions
+ * built-in interpretations as built-ins instead of letting a
+ * template masquerade as open-ended model intelligence — and a
+ * failure is captioned against the path that was walked, never
+ * blamed on a missing key.
  */
 export const FABRIC_COMPOSE_SOURCE_EVENT = "fabric:compose-source";
 
@@ -84,9 +91,10 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
- * Compose a recipe for a drawing prompt. LLM first when a key is
- * configured (one repair retry); the deterministic built-in match
- * otherwise — and also as the degradation path when the LLM fails.
+ * Compose a recipe for a drawing prompt. LLM first when a cloud
+ * model resolves (one repair retry); the deterministic built-in
+ * match otherwise — and also as the degradation path when the
+ * LLM fails.
  * Returns null when nothing valid can be produced. Never throws.
  */
 export async function composeRecipe(
@@ -217,9 +225,11 @@ async function composePerformanceWithModel(
 /**
  * The canvas's one compose entry, upgraded by Slice 17 ("The Agent
  * Answers"). Any free-form request is a performance request:
- * - with a configured model, the model invents a pattern or a pulsed
- *   recipe from the full vocabulary (strictly validated, one repair);
- * - with no key (or after a failed model attempt), the generative
+ * - with a cloud model resolved (the user's saved model, or
+ *   Fanalogy's built-in cloud), the model invents a pattern or a
+ *   pulsed recipe from the full vocabulary (strictly validated,
+ *   one repair);
+ * - with no cloud (or after a failed model attempt), the generative
  *   built-in performance templates answer performance families
  *   (heartbeat, breathing, rain, waves, gallop, sparkle, tide, galaxy);
  * - drawing prompts then take the Slice 15 recipe path and all other
@@ -229,22 +239,48 @@ async function composePerformanceWithModel(
 export async function composeWithShapes(
   userPrompt: string
 ): Promise<ComposedResult | null> {
-  const prompt = (userPrompt || "").trim();
-  if (!prompt) return null;
+  return (await composeWithShapesDetailed(userPrompt)).result;
+}
 
-  const config = await loadLLMConfig();
+/** Which path a compose attempt walked — drives the honest caption. */
+export type ComposePath = "model" | "builtin";
+
+export interface ComposeOutcome {
+  result: ComposedResult | null;
+  /**
+   * "model" when a cloud model was resolved (and tried first);
+   * "builtin" when the in-browser interpreter was the only path.
+   * When result is null the canvas captions the failure against
+   * THIS path — "beyond the built-in interpreter" vs "beyond the
+   * cloud model" — and never blames a missing key (Cleanup 2).
+   */
+  path: ComposePath;
+}
+
+/**
+ * composeWithShapes with its path reported. Same behavior; the
+ * canvas uses the path only to caption a null result honestly.
+ */
+export async function composeWithShapesDetailed(
+  userPrompt: string
+): Promise<ComposeOutcome> {
+  const prompt = (userPrompt || "").trim();
+  if (!prompt) return { result: null, path: "builtin" };
+
+  const { config } = await resolveLLMConfig();
+  const path: ComposePath = config ? "model" : "builtin";
   if (config) {
     const invented = await composePerformanceWithModel(prompt, config);
-    if (invented) return invented;
+    if (invented) return { result: invented, path };
   }
 
   const performance = matchBuiltinPerformance(prompt);
-  if (performance) return { kind: "recipe", recipe: performance };
+  if (performance) return { result: { kind: "recipe", recipe: performance }, path };
 
   if (detectShapeIntent(prompt)) {
     const recipe = await composeRecipe(prompt);
-    if (recipe) return { kind: "recipe", recipe };
+    if (recipe) return { result: { kind: "recipe", recipe }, path };
   }
   const pattern = await composePattern(prompt);
-  return pattern ? { kind: "pattern", pattern } : null;
+  return { result: pattern ? { kind: "pattern", pattern } : null, path };
 }

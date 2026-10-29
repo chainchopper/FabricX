@@ -23,7 +23,10 @@
  * 2. STATUS + BRAIN. Name, temperament, live presence from the
  *    ghost store, the brain tier switch (moved here from AI
  *    Services — ghostBrainPref is unchanged underneath), and the
- *    LIVE brain line: the last deliberation and its age.
+ *    LIVE brain line: the last deliberation and its age. Cleanup 2
+ *    also moved the ghost's CONTROLS here — the per-device on/off
+ *    and Summon/Dismiss — when the resident canvas chip was
+ *    retired; they dispatch the same window events the chip did.
  *
  * 3. PERSONALITY. The primary's own words for their ghostie
  *    (fabric_ghost_personality_v1, 280 chars). The words steer
@@ -65,10 +68,15 @@ import {
   stepFdnaGrid,
 } from "../../../src/identity/fdna";
 import {
+  FABRIC_GHOST_SESSION_EVENT,
+  FABRIC_GHOST_TOGGLE_EVENT,
   getGhostPublicState,
   subscribeGhostState,
   type GhostPublicState,
 } from "../../../src/ghost/ghostStore";
+import { subscribeRealtimeStatus } from "../../../src/shared/utils/realtimeStatus";
+import { MAX_GHOSTS_PER_ROOM } from "../../../src/ghost/GhostPeer";
+import { hasBuiltinCloud } from "../../../src/ai/PatternComposer";
 import {
   getGhostBrainTier,
   setGhostBrainTier,
@@ -172,6 +180,22 @@ export default function GhostieHome({ onBack }: { onBack: () => void }) {
     getGhostPublicState()
   );
   useEffect(() => subscribeGhostState(setGhost), []);
+
+  // Cleanup 2: the canvas ghost chip is retired — its controls
+  // (on/off, Summon/Dismiss) live here and in THIS LAYER now. They
+  // dispatch the same window events the chip used; the canvas
+  // (useGhostPeer) listens exactly as before. Peer count comes from
+  // the same realtime status source the chip read.
+  const [peers, setPeers] = useState(0);
+  useEffect(
+    () => subscribeRealtimeStatus((s) => setPeers(s.peers)),
+    []
+  );
+  const dispatchGhost = (type: string, detail: unknown) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(type, { detail }));
+    }
+  };
 
   const ghostName = ghost.ghostName ?? "your ghostie";
 
@@ -459,7 +483,7 @@ export default function GhostieHome({ onBack }: { onBack: () => void }) {
             </Text>
             {!ghost.enabled ? (
               <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
-                Muted at the ghost toggle — {ghostName} is resting everywhere.
+                Resting — {ghostName} is off on this device (the switch just below).
               </Text>
             ) : !ghost.layerEnabled ? (
               <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
@@ -467,6 +491,72 @@ export default function GhostieHome({ onBack }: { onBack: () => void }) {
                 and on fabrics you open yourself when host-following is off.
               </Text>
             ) : null}
+
+            {/* Cleanup 2: the retired canvas chip's controls, at
+                home. On/off is the per-user preference itself
+                (fabric_ghost_v1 via the canvas listener); Summon /
+                Dismiss mirror the chip's exact visibility rules —
+                summon only while people are here, you're not already
+                hosting your ghost, and the room isn't full. */}
+            <View style={{ marginTop: spacing.md }}>
+              <HomeToggleRow
+                label={`${ghostName} on this device`}
+                caption={`Off rests ${ghostName} everywhere on this device — no visits, no deliberation. Your settings here stay saved.`}
+                value={ghost.enabled}
+                onPress={() =>
+                  dispatchGhost(FABRIC_GHOST_TOGGLE_EVENT, !ghost.enabled)
+                }
+              />
+              {ghost.sessionRole === "host" ? (
+                <Pressable
+                  onPress={() => dispatchGhost(FABRIC_GHOST_SESSION_EVENT, "dismiss")}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Dismiss your ghost ${ghostName} from the session`}
+                  style={({ pressed }) => ({
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    borderRadius: radius.card,
+                    borderWidth: 1,
+                    borderColor: colors.line,
+                    backgroundColor: pressed ? colors.ghostDim : "transparent",
+                  })}
+                >
+                  <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+                    Dismiss {ghostName}
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+                    {ghostName} leaves the shared session and comes back to your canvas alone.
+                  </Text>
+                </Pressable>
+              ) : peers > 0 && ghost.enabled ? (
+                ghost.otherGhostCount >= MAX_GHOSTS_PER_ROOM ? (
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+                    Too many ghosts in the room ({MAX_GHOSTS_PER_ROOM} max) — {ghostName} waits here with you.
+                  </Text>
+                ) : (
+                  <Pressable
+                    onPress={() => dispatchGhost(FABRIC_GHOST_SESSION_EVENT, "summon")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Summon your ghost ${ghostName} into the session`}
+                    style={({ pressed }) => ({
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.card,
+                      borderWidth: 1,
+                      borderColor: colors.line,
+                      backgroundColor: pressed ? colors.ghostDim : "transparent",
+                    })}
+                  >
+                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+                      Summon {ghostName}
+                    </Text>
+                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+                      People are here — send {ghostName} into the shared session to play with the room.
+                    </Text>
+                  </Pressable>
+                )
+              ) : null}
+            </View>
 
             <Text
               style={{
@@ -489,7 +579,9 @@ export default function GhostieHome({ onBack }: { onBack: () => void }) {
                 {
                   value: "spark-cloud" as GhostBrainTier,
                   title: "Muse Spark — cloud",
-                  sub: "Your configured model (AI Services) deliberates with the same scenario. Needs a saved key; without one the table decides and says so.",
+                  sub: hasBuiltinCloud()
+                    ? "Muse Spark deliberates with the same scenario — Fanalogy cloud is built into this build, no key needed. A model you save yourself in AI Services takes over instead."
+                    : "Muse Spark deliberates with the same scenario when a cloud model is connected (your own, in AI Services). None is connected in this build, so the on-device brain decides.",
                 },
               ]
             ).map((opt) => {

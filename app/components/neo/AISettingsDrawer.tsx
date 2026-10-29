@@ -1,6 +1,13 @@
 /**
  * AISettingsDrawer - Configuration for AI services (LLM, Vision, OCR, Voice)
- * Allows users to connect their own API keys and endpoints
+ *
+ * Posture (Cleanup 2, Terrell's standing rule): Fabric thinks in the
+ * browser by default — no account, no key — and the demo's cloud
+ * ships locked in at build time (Fanalogy's own key + Muse Spark;
+ * see src/ai/PatternComposer's resolution and docs/AI.md). This
+ * drawer is where a user may connect their OWN models instead;
+ * nothing in the product asks them to. A user's saved model wins
+ * over the built-in cloud wherever both exist.
  * Powered by Nirvana
  */
 import React, { useState, useEffect } from "react";
@@ -18,6 +25,10 @@ import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { getJSON, setJSON } from "../../utils/storage";
 import { useToast } from "../Toast";
+import {
+  getBuiltinCloudConfig,
+  hasBuiltinCloud,
+} from "../../../src/ai/PatternComposer";
 
 
 const STORAGE_KEY = "fabric_ai_config_v1";
@@ -58,7 +69,9 @@ export interface AIServiceConfig {
  * /chat/completions to the endpoint below and sends the key as a Bearer
  * token. Base URL and model id verified against Meta's Model API
  * documentation (Oct 2026): https://api.meta.ai/v1, model "muse-spark-1.3".
- * Get a key at dev.meta.ai (keys start with "LLM_").
+ * Fanalogy's build-time-locked cloud uses this same endpoint/model
+ * with Fanalogy's own key (keys start with "LLM_", from dev.meta.ai);
+ * a key typed here is the user's own override, never a requirement.
  */
 const META_MODEL_API_ENDPOINT = "https://api.meta.ai/v1";
 const META_MUSE_SPARK_MODEL = "muse-spark-1.3";
@@ -159,7 +172,11 @@ export default function AISettingsDrawer() {
       model: META_MUSE_SPARK_MODEL,
       enabled: true,
     });
-    toast.show("Meta (Muse Spark) preset set — paste your Model API key below");
+    toast.show(
+      hasBuiltinCloud()
+        ? "Meta (Muse Spark) preset set — Fanalogy cloud is already built in; a key here is optional"
+        : "Meta (Muse Spark) preset set — Fabric still runs on-device until a model is connected"
+    );
   };
 
   const updateVision = (updates: Partial<AIServiceConfig["vision"]>) => {
@@ -320,7 +337,8 @@ export default function AISettingsDrawer() {
             paddingHorizontal: 16,
           }}
         >
-          Configure AI endpoints and API keys
+          Fabric thinks in your browser by default — no account, no
+          key. Connect your own models only if you want to.
         </Text>
 
         {/* The ghost brain tier moved to Your Ghostie (Slice 20) —
@@ -396,6 +414,47 @@ export default function AISettingsDrawer() {
               <Text style={{ color: "#22d3ee", fontWeight: "700", fontSize: 16 }}>
                 Language Model (LLM)
               </Text>
+
+              {/* Where intelligence comes from right now (Cleanup 2):
+                  the resolution made visible — user's model, else
+                  the build's locked-in Fanalogy cloud, else the
+                  in-browser default. Never a request for a key. */}
+              {(() => {
+                const builtin = getBuiltinCloudConfig();
+                const userActive =
+                  config.llm.enabled &&
+                  config.llm.provider !== "none" &&
+                  !!config.llm.apiKey.trim();
+                const line = userActive
+                  ? "Your saved model is the active cloud — composing, the ghost's cloud tier, and SAM resolve to it first."
+                  : builtin
+                    ? `Fanalogy cloud — built in. Muse Spark (${builtin.model}) is locked into this build, so the cloud tier works with nothing to set up. Your own model below overrides it.`
+                    : "On-device by default: the in-browser interpreter composes and your ghost thinks locally — no account, no key. Everything below is only for connecting a model of your own.";
+                return (
+                  <View
+                    style={{
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: "rgba(34,211,238,0.45)",
+                      backgroundColor: "rgba(34,211,238,0.08)",
+                      gap: 2,
+                    }}
+                  >
+                    <Text style={{ color: "#22d3ee", fontWeight: "700", fontSize: 13 }}>
+                      {userActive
+                        ? "Your model — connected"
+                        : builtin
+                          ? "Fanalogy cloud — built in"
+                          : "In-browser model — the default"}
+                    </Text>
+                    <Text style={{ color: "#cbd5e1", fontSize: 12 }}>
+                      {line}
+                    </Text>
+                  </View>
+                );
+              })()}
 
               {/* Enable Toggle */}
               <Pressable
@@ -484,7 +543,7 @@ export default function AISettingsDrawer() {
                   Use Meta (Muse Spark)
                 </Text>
                 <Text style={{ color: "#93c5fd", fontSize: 11 }}>
-                  {META_MODEL_API_ENDPOINT} · {META_MUSE_SPARK_MODEL} — then paste your key below
+                  {META_MODEL_API_ENDPOINT} · {META_MUSE_SPARK_MODEL} — the cloud Fanalogy builds in; your own key is optional
                 </Text>
               </Pressable>
 
@@ -493,7 +552,7 @@ export default function AISettingsDrawer() {
                 <>
                   <View>
                     <Text style={{ color: "#e5e7eb", marginBottom: 8 }}>
-                      API Key:
+                      API Key (yours — optional):
                     </Text>
                     <TextInput
                       value={config.llm.apiKey}
@@ -529,7 +588,7 @@ export default function AISettingsDrawer() {
                     <TextInput
                       value={config.llm.endpoint}
                       onChangeText={(text) => updateLLM({ endpoint: text })}
-                      placeholder="https://api.openai.com/v1"
+                      placeholder="https://api.meta.ai/v1 or http://localhost:11434/v1"
                       placeholderTextColor="rgba(148,163,184,0.5)"
                       style={{
                         backgroundColor: "rgba(15,23,42,0.7)",
@@ -541,6 +600,13 @@ export default function AISettingsDrawer() {
                         fontFamily: Platform.OS === "web" ? "monospace" : undefined,
                       }}
                     />
+                    <Text
+                      style={{ color: "#93c5fd", fontSize: 12, marginTop: 6 }}
+                    >
+                      Local models welcome — e.g.
+                      http://your-pc.tailnet:11434/v1 (your server must
+                      allow CORS from fabric.fanalogy.com)
+                    </Text>
                   </View>
 
                   {/* Model Input */}

@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
-import { getJSON } from "../../../app/utils/storage";
 import { getLocalIdentity, hueCss } from "../../identity/identityStore";
 import { useNewDrawers } from "../../../app/components/neo/NewDrawersContext";
 import {
   FABRIC_PLAY_PATTERN_EVENT,
+  loadLLMConfig,
   validatePattern,
   type Pattern,
 } from "../../ai/PatternComposer";
@@ -39,13 +39,14 @@ import { colors, radius, spacing } from "../../theme/tokens";
  * paused camera is what stillness means here.
  *
  * PRIVACY, IN THE UI'S OWN WORDS (and true in the code): frames are
- * sent ONLY on the explicit Segment tap — one frame, to the endpoint
- * in the user's own AI Services config (the Meta preset). Nothing
- * streams to the API, the frame is captured to a local data URL,
- * used for that one request, and dropped; regions keep only box
- * coordinates. The key is read from fabric_ai_config_v1 (the
- * composer's configured-model path); with no key saved, the layer
- * says so and offers the AI Services door instead of failing dark.
+ * sent ONLY on the explicit Segment tap — one frame, to the
+ * resolved Meta endpoint (the user's own AI Services config, or
+ * Fanalogy's build-time-locked cloud — the composer's shared
+ * resolution, Cleanup 2). Nothing streams to the API, the frame
+ * is captured to a local data URL, used for that one request, and
+ * dropped; regions keep only box coordinates. With no cloud
+ * resolved at all, the layer says so plainly and offers the AI
+ * Services door instead of failing dark.
  *
  * Pointer events (PR #16 discipline): the overlay root is box-none,
  * the video surface is "none", and every control — chips, input,
@@ -66,18 +67,6 @@ const PRESET_EXPRESSIONS = [
   "the person",
   "the screen",
 ] as const;
-
-const AI_CONFIG_KEY = "fabric_ai_config_v1";
-
-interface AIConfigShape {
-  llm?: {
-    provider: string;
-"apiKey": string;
-    endpoint: string;
-    model: string;
-    enabled: boolean;
-  };
-}
 
 type CamStatus = "starting" | "live" | "paused" | "error";
 
@@ -116,22 +105,19 @@ export default function SamLayer() {
   const streamRef = useRef<MediaStream | null>(null);
   const runningRef = useRef(false);
 
-  // -- AI Services config (the composer's configured-model path) -----
+  // -- Model resolution (the composer's shared path, Cleanup 2) -----
+  // The user's saved model first, then Fanalogy's build-time-locked
+  // cloud — so the demo's SAM works out of the box with nothing to
+  // connect, exactly like the composer and the ghost brain.
   useEffect(() => {
     let mounted = true;
     (async () => {
-      let cfg: AIConfigShape | null = null;
-      try {
-        cfg = await getJSON<AIConfigShape | null>(AI_CONFIG_KEY, null);
-      } catch {
-        cfg = null;
-      }
+      const resolved = await loadLLMConfig();
       if (!mounted) return;
-      const llm = cfg?.llm;
-      if (llm && llm.enabled && llm.provider !== "none" && llm.apiKey) {
+      if (resolved) {
         setConfig({
-          "apiKey": llm.apiKey,
-          endpoint: llm.endpoint || "https://api.meta.ai/v1",
+          "apiKey": resolved.apiKey,
+          endpoint: resolved.endpoint || "https://api.meta.ai/v1",
         });
       } else {
         setConfig(null);
@@ -250,7 +236,7 @@ export default function SamLayer() {
   const onSegment = useCallback(async () => {
     if (segmenting) return;
     if (!config) {
-      setStatus("SAM needs your Meta Model API key — open AI Services to add it.");
+      setStatus("SAM is off on this device — no Meta Model API connection is configured.");
       return;
     }
     const frame = captureFrame();
@@ -434,9 +420,11 @@ export default function SamLayer() {
           {configLoaded && !config ? (
             <View style={{ gap: 6 }}>
               <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                SAM 3.1 needs your Meta Model API key. Add it once in AI
-                Services (Meta preset) and this layer can segment what
-                the camera sees.
+                SAM 3.1 segments through the Meta Model API. This build
+                carries no locked-in cloud and this device has no model
+                saved, so segmentation is off — the camera and the rest
+                of this layer still work. Connect your own model in AI
+                Services only if you want it.
               </Text>
               <Pressable
                 pointerEvents="auto"

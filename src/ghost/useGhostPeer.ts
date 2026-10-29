@@ -35,9 +35,12 @@
  *   Services configured model through the composer's own loader
  *   (loadLLMConfig + LLMService); the reply is validated against the
  *   dataset decision contract, and an invalid/failed/slow reply
- *   changes nothing. Spark picked with NO key saved: the table
- *   decides and the outcome is published as such — never a silent
- *   fake. Every outcome is published to the ghost store's `brain`
+ *   changes nothing. Cloud tier picked with no cloud model
+ *   resolved (Cleanup 2's shared resolution: no user-saved model
+ *   and no build-time-locked Fanalogy cloud): the table decides
+ *   and the outcome is published as the on-device brain at work —
+ *   never a silent fake, and never a complaint about a key. Every
+ *   outcome is published to the ghost store's `brain`
  *   field for the AI Services row and the diag panel. This replaces
  *   the old 45s one-word mood-bias poll; setMoodBias survives as the
  *   steering seam deliberation itself uses.
@@ -264,8 +267,11 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         if (tier === "spark-cloud") {
           const config = await loadLLMConfig();
           if (!config) {
-            // Spark picked but no key saved in AI Services: the
-            // on-device table decides, and the row says so.
+            // Cloud tier picked but no cloud model resolved (no
+            // user-saved model, and this build carries no locked-in
+            // Fanalogy cloud): the on-device table decides. The
+            // published state is simply the on-device brain at work
+            // (Cleanup 2) — never a complaint about a missing key.
             const raw = decideOnDevice(scenario).decision;
             const { decision, steeredBy } = applyPersonalityBias(
               raw,
@@ -275,7 +281,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
             peerRef.current?.applyBrainDecision(decision, "table");
             publishBrain({
               source: "table",
-              tierLabel: "On-device table · Spark picked, no key saved",
+              tierLabel: "On-device brain",
               lastText:
                 describeDecision(decision) +
                 (steeredBy.length
