@@ -91,6 +91,14 @@ import {
 } from "../../sensors/useDeviceMotion";
 import { noteBus } from "../../../shared/utils/noteBus";
 import { getAudioContextState } from "../../audio/sharedAudio";
+import {
+  FABRIC_HAND_INPUT_EVENT,
+  FABRIC_HAND_SIGN_EVENT,
+  getHandsSnapshot,
+  subscribeHands,
+  type HandInputDetail,
+  type HandSignDetail,
+} from "../../hands/handsStore";
 
 interface LegacyFluidProps {
   /**
@@ -766,7 +774,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     // compositing — entering the app ON See starts with the camera
     // already beneath a transparent fluid (the watcher below keeps
     // it current across switches; the canvas never remounts).
-    engine.transparentBackdrop = experienceRef.current?.id === "sam-see";
+    engine.transparentBackdrop =
+      experienceRef.current?.id === "sam-see" ||
+      getHandsSnapshot().cameraLive;
     engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       // Hotfix 1.9: engine stroke points opt into the funnel's
@@ -807,9 +817,24 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   useEffect(() => {
     if (engineRef.current) {
       engineRef.current.transparentBackdrop =
-        state.activeExperience?.id === "sam-see";
+        state.activeExperience?.id === "sam-see" ||
+        getHandsSnapshot().cameraLive;
     }
   }, [state.activeExperience?.id]);
+
+  // Slice 28: Hands brings its own camera to layers that don't
+  // have one — when its stream is live on the fluid, the same
+  // compositing applies (camera behind, fluid over), so the flag
+  // follows the hands store too. A subscription, not a render: the
+  // canvas never remounts for a camera starting or stopping.
+  useEffect(() => {
+    return subscribeHands((s) => {
+      if (engineRef.current) {
+        engineRef.current.transparentBackdrop =
+          experienceRef.current?.id === "sam-see" || s.cameraLive;
+      }
+    });
+  }, []);
 
   // Hotfix 1.5: poll the engine's telemetry while diagnostics mode
   // is on (see diagEnabled above). Zero cost when off — the effect
@@ -936,6 +961,131 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
     window.addEventListener(FABRIC_PET_GHOST_EVENT, onPetGhost as EventListener);
     return () => window.removeEventListener(FABRIC_PET_GHOST_EVENT, onPetGhost as EventListener);
+  }, []);
+
+  // Slice 28: Hands. The camera-gesture engine (src/hands) asks on
+  // the window, and the answer is this funnel — deliberately the
+  // same shape as every other input path: session gate first, then
+  // sendInteraction (which stamps identity and enforces the mode +
+  // fabric draw rules), a local engine.splatAt with the same
+  // fields, and a note to the ghost. A hand-touch is a touch: the
+  // ONLY difference the fluid can see is the interaction's
+  // source: "hand" tag. Stroke force uses the engine's own pointer
+  // math (delta * SPLAT_FORCE 6000, pressure from the same clamp),
+  // so a drawn line feels identical whether a finger or a fingertip
+  // in the air drew it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+    const onHandInput = (ev: Event) => {
+      const d = (ev as CustomEvent<HandInputDetail>).detail;
+      if (!d || d.source !== "hand") return;
+      // A view-only guest's hand is an audience hand: no painting,
+      // exactly like their verbs and strokes.
+      if (!sessionRef.current.inputEnabled) return;
+      markActivity();
+      const hue = getIdentitySnapshot().self?.hue ?? 205;
+      const color = hueDyeColor(hue, 0.95);
+      const engine = engineRef.current;
+
+      if (d.kind === "stroke") {
+        const fx = d.dx * 6000;
+        const fy = d.dy * 6000;
+        const pressure = d.pinched
+          ? Math.max(0.85, Math.min(1, Math.hypot(fx, fy) / 250))
+          : Math.min(1, Math.max(0.25, Math.hypot(fx, fy) / 250));
+        const interaction: Omit<FluidInteraction, "userId" | "timestamp"> = {
+          position: { x: clamp01(d.x), y: clamp01(d.y) },
+          force: { x: fx, y: fy },
+          pressure,
+          color,
+          radiusScale: d.pinched ? 1.6 : 1,
+          source: "hand",
+        };
+        const full = sendRef.current(interaction, undefined, { batch: true });
+        engine?.splatAt(
+          interaction.position.x,
+          interaction.position.y,
+          fx,
+          fy,
+          color,
+          interaction.radiusScale
+        );
+        ghostRef.current.noteLocalInteraction(full);
+      } else if (d.kind === "push") {
+        // A broad impulse along the palm's motion: three splats
+        // strung along the vector, one broadcast interaction with
+        // the same force so peers feel the same shove.
+        const fx = d.dx * 150;
+        const fy = d.dy * 150;
+        const interaction: Omit<FluidInteraction, "userId" | "timestamp"> = {
+          position: { x: clamp01(d.x), y: clamp01(d.y) },
+          force: { x: fx, y: fy },
+          pressure: 0.8,
+          color,
+          radiusScale: 2.0,
+          source: "hand",
+        };
+        const full = sendRef.current(interaction);
+        for (const k of [-1, 0, 1]) {
+          engine?.splatAt(
+            clamp01(d.x + d.dx * 0.05 * k),
+            clamp01(d.y + d.dy * 0.05 * k),
+            fx,
+            fy,
+            color,
+            2.0
+          );
+        }
+        ghostRef.current.noteLocalInteraction(full);
+      } else if (d.kind === "clear") {
+        // A soft clearing wave: a gentle ring exhaling from the
+        // hand point (the shake bloom's geometry at a whisper of
+        // its force), plus one wide zero-force broadcast so peers
+        // get the same soft bloom.
+        const interaction: Omit<FluidInteraction, "userId" | "timestamp"> = {
+          position: { x: clamp01(d.x), y: clamp01(d.y) },
+          force: { x: 0, y: 0 },
+          pressure: 0.5,
+          color,
+          radiusScale: 2.4,
+          source: "hand",
+        };
+        const full = sendRef.current(interaction);
+        const ring = 8;
+        for (let k = 0; k < ring; k++) {
+          const ang = (k / ring) * Math.PI * 2;
+          engine?.splatAt(
+            clamp01(d.x + Math.cos(ang) * 0.05),
+            clamp01(d.y + Math.sin(ang) * 0.05),
+            Math.cos(ang) * 60,
+            Math.sin(ang) * 60,
+            color,
+            0.9
+          );
+        }
+        engine?.splatAt(interaction.position.x, interaction.position.y, 0, 0, color, 2.4);
+        ghostRef.current.noteLocalInteraction(full);
+      }
+    };
+
+    // A recognized sign is a stimulus for the ghost, not an input
+    // on the fluid — it is forwarded ungated (the ghost is a local
+    // peer; a guest waving at their own ghostie harms nothing) and
+    // lands in its event journal, where deliberation reads it.
+    const onHandSign = (ev: Event) => {
+      const d = (ev as CustomEvent<HandSignDetail>).detail;
+      if (!d || d.source !== "hand") return;
+      ghostRef.current.noteHandSign(d.sign);
+    };
+
+    window.addEventListener(FABRIC_HAND_INPUT_EVENT, onHandInput as EventListener);
+    window.addEventListener(FABRIC_HAND_SIGN_EVENT, onHandSign as EventListener);
+    return () => {
+      window.removeEventListener(FABRIC_HAND_INPUT_EVENT, onHandInput as EventListener);
+      window.removeEventListener(FABRIC_HAND_SIGN_EVENT, onHandSign as EventListener);
+    };
   }, []);
 
   // Slice 24: Warm Welcome. The rewards feed dispatches
