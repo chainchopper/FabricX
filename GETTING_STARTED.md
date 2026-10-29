@@ -47,9 +47,9 @@ You'll need API keys from one or more providers:
 
 ### Configuration Steps
 
-1. **Open AI Settings**
+1. **Open Brain settings**
    ```
-   Settings (⚙️) → Click "🤖 AI Services" button
+   Settings (⚙️) → Click "Brain settings" button
    ```
 
 2. **Configure LLM (Language Model)**

@@ -1,3 +1,14 @@
+/**
+ * RETIRED — Slice 29. Do not mount.
+ *
+ * This FPS readout lived in the same top-right corner as the
+ * connection badge (top:42, right under it). Terrell's rule for
+ * that corner is now absolute: no FPS, ever — the corner belongs
+ * to the Essence. The real diagnostic surface remains the
+ * engine's ?diag=1 panel in LegacyFluid. This file is kept for
+ * reference (marked retired, not deleted); nothing imports it.
+ */
+
 import React, { useEffect, useRef, useState } from "react";
 import { Platform, View, Text } from "react-native";
 

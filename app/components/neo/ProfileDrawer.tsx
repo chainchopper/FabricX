@@ -22,8 +22,6 @@ export default function ProfileDrawer() {
           position: "absolute",
           top: 0, bottom: 0, left: 0, width,
           backgroundColor: "rgba(10,14,28,0.96)",
-          borderRightColor: "rgba(34,211,238,0.35)",
-          borderRightWidth: 1,
           paddingTop: 56,
           paddingHorizontal: 16,
         }}

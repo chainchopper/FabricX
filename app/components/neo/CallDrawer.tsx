@@ -141,13 +141,7 @@ export default function CallDrawer() {
           position: "absolute",
           top: 0, bottom: 0, left: 0, width,
           backgroundColor: "rgba(6,10,22,0.96)",
-          borderRightColor: "rgba(34,211,238,0.35)",
-          borderRightWidth: 1,
           paddingTop: 56,
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.4,
-          shadowRadius: 18,
-          shadowOffset: { width: 8, height: 0 },
         }}
       >
         {/* Header */}

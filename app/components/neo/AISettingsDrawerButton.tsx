@@ -39,7 +39,7 @@ export default function AISettingsDrawerButton() {
           textAlign: "center",
         }}
       >
-        🤖 AI Services
+        Brain settings
       </Text>
     </Pressable>
   );

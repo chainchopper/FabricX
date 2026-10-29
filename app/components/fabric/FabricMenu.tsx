@@ -606,6 +606,22 @@ export default function FabricMenu() {
   useEffect(() => {
     if (!menuOpen) setCardOverlay(null);
   }, [menuOpen]);
+  // Slice 29: the corner Essence's "ID card ›" door. The Essence
+  // lives in chrome, outside this sheet, so it asks by window
+  // event (fabric:open-own-ghost-card, dispatched by
+  // Essence.openGhostCard); the menu opens and lands on the same
+  // Slice 22 overlay the Ghostie Home's door opens — the Essence
+  // wires the door, this sheet remains the card's only home.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const onEssenceDoor = () => {
+      setMenuOpen(true);
+      openCardOverlay({ kind: "ghost", peerId: session.selfId }, "list");
+    };
+    window.addEventListener("fabric:open-own-ghost-card", onEssenceDoor);
+    return () =>
+      window.removeEventListener("fabric:open-own-ghost-card", onEssenceDoor);
+  }, [session.selfId]);
   const openCardOverlay = (
     next: NonNullable<CardOverlayState>,
     from: "list" | "home" | string
@@ -3365,7 +3381,7 @@ export default function FabricMenu() {
             style={{ paddingVertical: 6 }}
           >
             <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
-              AI Services — keys, endpoints, Meta preset ›
+              Brain settings — keys, endpoints, Meta preset ›
             </Text>
           </Pressable>
         </View>

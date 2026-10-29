@@ -7,10 +7,12 @@
  * device either can't host the model (no WebGPU — one honest
  * line), hasn't downloaded it (a button with the real size on
  * it), is downloading it (a real progress %), or is thinking
- * with it (ready). The model picker names the three MLC models
- * Conduit's production adapter offers, with their sizes; picking
- * one persists, and the download is always a separate explicit
- * press — choosing is never downloading.
+ * with it (ready). The model picker presents the three MLC models
+ * Conduit's production adapter offers under their ghostie names
+ * (Slice 29 — Ghostie 1B / 1.5B / 3B), each with its base named
+ * honestly in the subline beneath; picking one persists, and the
+ * download is always a separate explicit press — choosing is
+ * never downloading.
  *
  * Pressing Download IS the consent: it records the grant and
  * starts the one-time download (onDeviceBrain.startOnDeviceDownload
@@ -50,17 +52,17 @@ export default function OnDeviceBrainCard() {
       case "probing":
         return "Checking this device…";
       case "downloading":
-        return `Brain arriving… ${pct}% — ${snap.model.label}, downloading once. You can keep playing; nothing waits on it.`;
+        return `Brain arriving… ${pct}% — ${snap.model.displayName}, downloading once. You can keep playing; nothing waits on it.`;
       case "warming":
         return "Weights are in — the brain is warming up…";
       case "ready":
-        return `Ready — ${snap.model.label} is thinking on this device. Composing and your ghost's deliberation can use it, offline.`;
+        return `Ready — ${snap.model.displayName} is thinking on this device. Composing and your ghost's deliberation can use it, offline.`;
       case "error":
         return `The download hit a snag${snap.error ? ` — ${snap.error}` : ""}. Try again on a good connection.`;
       default:
         return snap.loadedModelId === snap.model.id
-          ? `${snap.model.label} is downloaded. It loads when a feature next asks for it.`
-          : `Not downloaded yet. ${snap.model.label} — ${snap.model.sizeNote}, once; after that it thinks here, offline, with no account.`;
+          ? `${snap.model.displayName} is downloaded. It loads when a feature next asks for it.`
+          : `Not downloaded yet. ${snap.model.displayName} — ${snap.model.sizeNote}, once; after that it thinks here, offline, with no account.`;
     }
   })();
 
@@ -119,11 +121,22 @@ export default function OnDeviceBrainCard() {
                   fontWeight: "700",
                 }}
               >
-                {m.label} · {m.sizeNote}
+                {m.displayName} · {m.sizeNote}
               </Text>
             </Pressable>
           );
         })}
+      </View>
+
+      {/* Slice 29: honest provenance for the picked model, and the
+          standing word on tuning — the bases run as picked tonight. */}
+      <View style={{ gap: 2 }}>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+          {snap.model.displayName} · {snap.model.baseNote}
+        </Text>
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+          Fanalogy's own tuning comes later — tonight these run as picked.
+        </Text>
       </View>
 
       {snap.state === "downloading" ? (
@@ -151,7 +164,7 @@ export default function OnDeviceBrainCard() {
           pointerEvents="auto"
           onPress={() => void startOnDeviceDownload()}
           accessibilityRole="button"
-          accessibilityLabel={`Download ${snap.model.label}, ${snap.model.sizeNote}, to this device`}
+          accessibilityLabel={`Download ${snap.model.displayName}, ${snap.model.sizeNote}, to this device`}
           style={({ pressed }) => ({
             alignSelf: "flex-start",
             paddingVertical: 8,
@@ -167,7 +180,7 @@ export default function OnDeviceBrainCard() {
           >
             {snap.state === "error"
               ? "Try the download again"
-              : `Download ${snap.model.label} — ${snap.model.sizeNote}, once`}
+              : `Download ${snap.model.displayName} — ${snap.model.sizeNote}, once`}
           </Text>
         </Pressable>
       ) : null}

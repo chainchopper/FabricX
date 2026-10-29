@@ -1,3 +1,16 @@
+/**
+ * RETIRED — Slice 29. Do not mount.
+ *
+ * The corner this badge occupied (top-right: "Local • 0", latency,
+ * "Auto retry in Ns • Tap to retry") is now the Essence
+ * (app/components/fabric/Essence.tsx): the device's fDNA Game-of-
+ * Life, alive. The Essence reads the same realtime/session stores
+ * and carries this file's auto-retry loop and re-announce behavior
+ * verbatim — only the presentation changed. This file is kept for
+ * reference and history, per the slice's instruction (marked
+ * retired, not deleted); nothing imports it.
+ */
+
 import React, { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text } from "react-native";
 import { getRealtimeStatus, subscribeRealtimeStatus, type RealtimeStatus } from "../../shared/utils/realtimeStatus";
