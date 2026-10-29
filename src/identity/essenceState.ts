@@ -62,19 +62,30 @@ export function essenceGlowAlpha(
   }
 }
 
-/** The standard mode's ONE plain connection line. */
+/**
+ * The standard mode's ONE plain connection line. Hotfix 2.6: the
+ * resolved session role rides along ("Connected · 3 here ·
+ * Hosting") — the corner is where he glances, and "am I hosting?"
+ * was the question the app used to leave unanswered.
+ */
 export function essenceConnectionLine(
   behavior: EssenceBehavior,
-  peers: number
+  peers: number,
+  role?: "host" | "guest" | null
 ): string {
-  switch (behavior) {
-    case "connected":
-      return `Connected · ${peers + 1} here`;
-    case "reconnecting":
-      return "Reconnecting…";
-    case "solo":
-      return peers > 0 ? `Local · ${peers + 1} here` : "Just you here";
-  }
+  const base = ((): string => {
+    switch (behavior) {
+      case "connected":
+        return `Connected · ${peers + 1} here`;
+      case "reconnecting":
+        return "Reconnecting…";
+      case "solo":
+        return peers > 0 ? `Local · ${peers + 1} here` : "Just you here";
+    }
+  })();
+  if (role === "host") return `${base} · Hosting`;
+  if (role === "guest") return `${base} · Guest`;
+  return base;
 }
 
 /**

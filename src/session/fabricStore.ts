@@ -211,8 +211,21 @@ export function decideGuestFollow(args: {
   fabricKey: string;
   lastKey: string | null;
   divergedLayerId: string | null;
+  /**
+   * Hotfix 2.6: the session fabric's stated host and this client's
+   * own id, when the caller has them. A client NEVER follows
+   * itself: if the fabric on the table is my own, the answer is
+   * "stay" regardless of what the role field says — the host's
+   * inertness is a property of this state machine, not of whichever
+   * resolution happened to label the chair.
+   */
+  fabricHostId?: string | null;
+  selfId?: string | null;
 }): GuestFollowDecision {
   if (args.role !== "guest") return "stay";
+  if (args.fabricHostId && args.selfId && args.fabricHostId === args.selfId) {
+    return "stay";
+  }
   if (!args.fabricLayerId) return "stay";
   if (args.fabricKey === args.lastKey) return "stay";
   if (args.divergedLayerId === args.fabricLayerId) return "stay";

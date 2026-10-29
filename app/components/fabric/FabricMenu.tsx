@@ -1767,6 +1767,20 @@ export default function FabricMenu() {
           <>
         {/* ---------------- FABRICS (Slice 19) ---------------- */}
         <SectionHeader>FABRICS</SectionHeader>
+        {/* Hotfix 2.6: the role, in plain words, where he looks —
+            the resolved session role (roleResolution via the
+            session store), never guessed here. */}
+        <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginBottom: spacing.xs }}>
+          {session.role === "host"
+            ? session.peers === 0
+              ? "Just you here — you’re hosting"
+              : "You’re hosting this session"
+            : session.role === "guest"
+              ? `Guest · ${displayNameFor(session.hostId, session.selfId)} is hosting`
+              : session.peers === 0
+                ? "Just you here — you’re hosting"
+                : "This room has no host yet"}
+        </Text>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
           {session.role === "host"
             ? "You lead this room: pick the fabric and everyone follows it. Edit a fabric's settings and guest rules from its card."
