@@ -8,27 +8,6 @@ import { useOverlays } from "../context/OverlayContext";
 import { drawerEvents } from "../../shared/utils/drawerEvents";
 import { eventBus } from "../../shared/utils/eventBus";
 import ConnectionToasts from "./ConnectionToasts";
-import FPSMeter from "./FPSMeter";
-
-/**
- * Diagnostics gate — same convention as LegacyFluid's Hotfix 1.5
- * telemetry panel: ?diag=1 in the URL or the fabric_diagnostics_v1
- * localStorage flag. The FPS meter is a diagnostic, not chrome: under
- * the F doctrine the resting screen carries no resident counters, so
- * it renders only in diag mode (the engine's own ?diag=1 panel in
- * LegacyFluid is untouched).
- */
-function diagEnabled(): boolean {
-  if (Platform.OS !== "web" || typeof window === "undefined") return false;
-  try {
-    if (new URLSearchParams(window.location.search).get("diag") === "1") {
-      return true;
-    }
-    return window.localStorage.getItem("fabric_diagnostics_v1") === "1";
-  } catch {
-    return false;
-  }
-}
 
 export default function GlobalFabricBackground() {
   const { close } = useOverlays();
@@ -72,7 +51,11 @@ export default function GlobalFabricBackground() {
             their tappability follows from their own props alone. This
             branch keeps only the canvas and non-interactive status. */}
         <ARStatus />
-        {diagEnabled() ? <FPSMeter /> : null}
+        {/* Slice 29: the FPS meter that rendered here under the
+            diag gate is RETIRED — the top-right corner belongs to
+            the Essence now, with no resident counters at any gate.
+            The engine's own ?diag=1 panel in LegacyFluid remains
+            the diagnostic surface. */}
         <ConnectionToasts />
       </View>
     );

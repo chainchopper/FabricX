@@ -95,13 +95,7 @@ export default function VisionAIDrawer() {
         style={{
           flex: 1,
           backgroundColor: "rgba(10,14,28,0.96)",
-          borderRightColor: "rgba(34,211,238,0.35)",
-          borderRightWidth: 1,
           paddingTop: 56,
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.4,
-          shadowRadius: 18,
-          shadowOffset: { width: 8, height: 0 },
         }}
       >
         {/* Header */}

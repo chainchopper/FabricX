@@ -81,7 +81,7 @@ export default function BrainChrome() {
             Teach this device its own brain?
           </Text>
           <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
-            {snap.model.label} — {snap.model.sizeNote}, once. After that
+            {snap.model.displayName} — {snap.model.baseNote} · {snap.model.sizeNote}, once. After that
             it thinks here, offline, no account: composing answers and
             your ghost&rsquo;s deliberation happen on this device, and
             nothing you say leaves it.

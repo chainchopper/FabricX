@@ -151,14 +151,8 @@ export default function LayerDrawer() {
           left: 0,
           width,
           backgroundColor: "rgba(6,10,22,0.96)",
-          borderRightColor: "rgba(34,211,238,0.35)",
-          borderRightWidth: 1,
           paddingTop: 56,
           paddingHorizontal: 16,
-          shadowColor: "#22d3ee",
-          shadowOpacity: 0.45,
-          shadowRadius: 22,
-          shadowOffset: { width: 8, height: 0 },
         }}
       >
         {/* Header with Back */}

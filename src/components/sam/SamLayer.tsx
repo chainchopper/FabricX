@@ -22,6 +22,16 @@ import {
   subscribeSamCamera,
   type SamCameraSnapshot,
 } from "../../sam/samCameraStore";
+import {
+  publishSegmentationSource,
+  seeChipDecision,
+  segmentationAvailable,
+  subscribeSegmentationAvailable,
+} from "../../sam/segmentationAvailability";
+import {
+  getBrainSnapshot,
+  subscribeOnDeviceBrain,
+} from "../../ai/onDeviceBrain";
 import { colors, radius, spacing } from "../../theme/tokens";
 
 /**
@@ -59,21 +69,30 @@ import { colors, radius, spacing } from "../../theme/tokens";
  * (see ExperienceContext), and a paused camera is what stillness
  * means here.
  *
- * STATUS, NOT MECHANISM-SPEAK (Hotfix 2.4): the layer's face is a
- * one-line chip at the top edge — "See · Camera live" / "See ·
- * Segmentation resting" / "See · Segmenting". How segmentation
- * works and the frame-privacy line live where reference copy
- * belongs: this layer's ID card and THIS LAYER in the menu. The
- * privacy behavior itself is unchanged and true in the code:
- * frames are sent ONLY on the explicit Segment tap — one frame, to
- * the resolved Meta endpoint (the user's own AI Services config, or
- * Fanalogy's build-time-locked cloud — the composer's shared
- * resolution, Cleanup 2). Nothing streams to the API, the frame is
- * captured to a local data URL, used for that one request, and
- * dropped; regions keep only box coordinates. With no cloud
- * resolved at all, the chip says "resting" — plainly, with no plea
- * to connect anything; the camera and the rest of the layer still
- * work.
+ * STATUS, NOT MECHANISM-SPEAK (Hotfix 2.4; silence rule, Slice
+ * 29): the layer's face at the top edge is SILENT by default —
+ * when the camera is live and a segmentation path is available,
+ * the chip renders nothing at all; the layer working is not news.
+ * Availability is the shared boolean in
+ * src/sam/segmentationAvailability.ts: the cloud path publishes
+ * its presence from the resolution below, the on-device tier from
+ * the brain snapshot, and Slice 30's Acts interpreter from its own
+ * router — one boolean every See surface reads. A one-line chip
+ * appears only for genuine need states — the camera denied/absent
+ * ("See · Camera blocked"), or no segmentation path anywhere
+ * ("See · Segmentation resting", plainly, with no plea to connect
+ * anything) — and stays dismissible to the small "See" pill, as
+ * before. How segmentation works and the frame-privacy line live
+ * where reference copy belongs: this layer's ID card and THIS
+ * LAYER in the menu. The privacy behavior itself is unchanged and
+ * true in the code: frames are sent ONLY on the explicit Segment
+ * tap — one frame, to the resolved Meta endpoint (the user's own
+ * AI Services config, or Fanalogy's build-time-locked cloud — the
+ * composer's shared resolution, Cleanup 2). Nothing streams to
+ * the API, the frame is captured to a local data URL, used for
+ * that one request, and dropped; regions keep only box
+ * coordinates. With no path resolved at all, the camera and the
+ * rest of the layer still work.
  *
  * Pointer events (PR #16 discipline): the overlay root is box-none,
  * the camera surface and its video element are "none" (the video
@@ -256,6 +275,23 @@ export default function SamLayer() {
   const [regions, setRegions] = useState<SamRegion[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [chipDismissed, setChipDismissed] = useState(false);
+  // Slice 29: the shared segmentation-availability boolean (the
+  // seam in src/sam/segmentationAvailability.ts). This layer
+  // publishes the cloud and on-device sources; Slice 30's Acts
+  // tier publishes its own. The chip below reads only this.
+  const [segAvailable, setSegAvailable] = useState<boolean>(() =>
+    segmentationAvailable()
+  );
+  useEffect(() => subscribeSegmentationAvailable(setSegAvailable), []);
+  useEffect(() => {
+    publishSegmentationSource(
+      "device",
+      getBrainSnapshot().state === "ready"
+    );
+    return subscribeOnDeviceBrain((snap) =>
+      publishSegmentationSource("device", snap.state === "ready")
+    );
+  }, []);
 
   // Displayed-frame geometry: the video is COVER-fit, so SAM's
   // normalized boxes map onto the displayed frame rect, which may
@@ -292,6 +328,8 @@ export default function SamLayer() {
       } else {
         setConfig(null);
       }
+      // The cloud path's presence joins the shared boolean.
+      publishSegmentationSource("cloud", !!resolved);
       setConfigLoaded(true);
     })();
     return () => {
@@ -371,21 +409,17 @@ export default function SamLayer() {
   const hue = getLocalIdentity()?.hue ?? 187;
   const outline = hueCss(hue);
 
-  // The chip's one line. Precedence: an in-flight Segment and a
-  // blocked camera outrank the resting state; resting (no cloud
-  // resolved) outranks the plain camera states — it is the fact a
-  // person in this layer actually needs.
-  const chipText = segmenting
-    ? "See · Segmenting"
-    : cam.status === "error"
-      ? "See · Camera blocked"
-      : configLoaded && !config
-        ? "See · Segmentation resting"
-        : cam.status === "live"
-          ? "See · Camera live"
-          : cam.status === "paused"
-            ? "See · Camera paused"
-            : "See · Camera starting";
+  // The chip's decision (Slice 29 silence rule, pure in
+  // segmentationAvailability.ts): nothing at all while the camera
+  // is live and any segmentation path is available; one plain line
+  // for the two genuine need states; the small "See" pill when a
+  // need state is dismissed.
+  const chip = seeChipDecision({
+    camStatus: cam.status,
+    segAvailable,
+    configLoaded,
+    dismissed: chipDismissed,
+  });
 
   return (
     <View
@@ -439,9 +473,11 @@ export default function SamLayer() {
           ))
         : null}
 
-      {/* Top edge column: the status chip, then the Segment tools.
-          Doctrine: nothing covers the work — one line of state at
-          the edge, and the tools stay a slim strip under it. */}
+      {/* Top edge column: the status chip (silent unless a need
+          state speaks — Slice 29), then the Segment tools.
+          Doctrine: nothing covers the work — at most one line of
+          state at the edge, and the tools stay a slim strip
+          under it. */}
       <View
         pointerEvents="box-none"
         style={{
@@ -452,7 +488,7 @@ export default function SamLayer() {
           alignItems: "center",
         }}
       >
-        {chipDismissed ? (
+        {chip.kind === "pill" ? (
           <Pressable
             pointerEvents="auto"
             onPress={() => setChipDismissed(false)}
@@ -471,7 +507,7 @@ export default function SamLayer() {
               See
             </Text>
           </Pressable>
-        ) : (
+        ) : chip.kind === "line" ? (
           <View
             pointerEvents="auto"
             style={{
@@ -487,7 +523,7 @@ export default function SamLayer() {
             }}
           >
             <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>
-              {chipText}
+              {chip.text}
             </Text>
             <Pressable
               pointerEvents="auto"
@@ -501,7 +537,7 @@ export default function SamLayer() {
               </Text>
             </Pressable>
           </View>
-        )}
+        ) : null}
 
         {cam.status === "error" && cam.error ? (
           <Text style={{ color: "#fca5a5", fontSize: 11, marginTop: 6 }}>

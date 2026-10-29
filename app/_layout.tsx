@@ -52,7 +52,7 @@ import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
 import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
 import ExperienceHUD from "./components/ExperienceHUD";
-import ConnectionBadge from "./components/ConnectionBadge";
+import Essence from "./components/fabric/Essence";
 
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
@@ -94,7 +94,8 @@ const FabricNavTheme = {
  * TAPPABILITY, BY CONSTRUCTION (the field failure this rebuild fixes):
  * everything interactive in Fabric's chrome — the F anchor, the menu,
  * the layer-control cluster (ExperienceHUD: verbs, composer, ghost),
- * and the connection badge — mounts HERE, as direct children of the
+ * and the essence (Slice 29: the living corner identity that
+ * replaced the connection badge) — mounts HERE, as direct children of the
  * root view. Their complete pointer-events ancestry is:
  *
  *   RootLayout's root <View> (no pointerEvents prop anywhere)
@@ -129,7 +130,11 @@ function ChromeLayer() {
           never waits on the brain. */}
       <BrainChrome />
       <ExperienceHUD />
-      <ConnectionBadge />
+      {/* Slice 29: the Essence — the device's fDNA, alive in the
+          corner the connection badge used to occupy (same mount,
+          same zIndex family, same data sources; the badge file is
+          retired, not deleted). */}
+      <Essence />
       <FabricAnchor />
       {/* Slice 10: the First Breath card — chrome state only (a
           first-run gate + a menu-requested palette replay). It
@@ -162,7 +167,7 @@ function ChromeLayer() {
  * a LAZILY imported chunk behind the experience renderer. The whole
  * page-load waterfall (providers, chunk fetch, engine init) had to
  * finish before the TLS + WebSocket handshake even BEGAN, and the
- * connection badge sat on its "Local • 0" default the entire time,
+ * corner sat on its "Local • 0" default the entire time,
  * reading as broken local mode (Terrell's "takes a bit to sync").
  *
  * The service is a singleton and connect() is idempotent, so
@@ -171,7 +176,7 @@ function ChromeLayer() {
  * it, and the canvas hook simply finds the socket already coming up
  * (its own connect() call shares the same in-flight attempt).
  *
- * The state mirror gives the badge an honest "Connecting…" from
+ * The state mirror gives the corner an honest "Connecting…" from
  * first paint when a server resolves, instead of the Local default.
  * It only ever writes the mode field of the realtime status (the
  * canvas hook owns the rest and derives mode from this same state,

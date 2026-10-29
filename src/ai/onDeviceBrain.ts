@@ -53,6 +53,14 @@ export interface BrainModelInfo {
   id: string;
   /** Product label. */
   label: string;
+  /**
+   * Slice 29: the name the picker presents — the models run under
+   * ghostie identity. DISPLAY ONLY: ids, keys and the persisted
+   * fabric_brain_model_v1 values are untouched.
+   */
+  displayName: string;
+  /** Honest provenance, shown as the picker's subline. */
+  baseNote: string;
   /** One-time download size, megabytes (weights, q4f16_1). */
   sizeMB: number;
   /** The size as the consent ask says it: "about 700 MB". */
@@ -63,18 +71,24 @@ export const BRAIN_MODELS: BrainModelInfo[] = [
   {
     id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",
     label: "Llama 3.2 1B",
+    displayName: "Ghostie 1B",
+    baseNote: "Llama 3.2 1B inside",
     sizeMB: 700,
     sizeNote: "about 700 MB",
   },
   {
     id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
     label: "Qwen 2.5 1.5B",
+    displayName: "Ghostie 1.5B",
+    baseNote: "Qwen 2.5 1.5B inside",
     sizeMB: 1024,
     sizeNote: "about 1 GB",
   },
   {
     id: "Llama-3.2-3B-Instruct-q4f16_1-MLC",
     label: "Llama 3.2 3B",
+    displayName: "Ghostie 3B",
+    baseNote: "Llama 3.2 3B inside",
     sizeMB: 1800,
     sizeNote: "about 1.8 GB",
   },
