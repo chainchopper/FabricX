@@ -21,10 +21,11 @@ pattern/recipe composers, the ghost brain's cloud tier, and SAM:
    (`fabric_ai_config_v1`), when enabled and carrying a key. A
    user's model always wins: it is their device and their choice.
 2. **Fanalogy's built-in cloud** — locked in at build time (below).
-3. **No cloud** — the in-browser default above. A request the
-   built-in interpreter can't shape is captioned honestly
-   ("That one's beyond the built-in interpreter"), never blamed on
-   a missing key.
+3. **No cloud** — the in-browser default above. A request no path
+   can shape is never captioned as an error or blamed on a missing
+   key: the ghost answers in-world with puzzlement (a curious
+   drift and a question-ripple), or the fabric ripples on its own
+   when no ghost can act — Hotfix 2.4's living fallback.
 
 ## The built-in cloud: build-time env vars
 

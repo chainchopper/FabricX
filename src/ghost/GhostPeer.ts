@@ -859,6 +859,86 @@ export class GhostPeer {
   }
 
   /**
+   * React to a request NO interpreter could shape (Hotfix 2.4, the
+   * living fallback). The honest answer to an unshapeable ask is
+   * not an error caption — it is the ghost being puzzled, in-world:
+   * a curious drift toward the asker and a soft question-ripple in
+   * its signature color (a low dot at the body, then a smaller one
+   * up and to the side — the ghost tilting its head). It does NOT
+   * pretend to perform the ask. Every splat goes through schedule()
+   * + emit(), so presence gates, the 16/10s hard budget, the crowd
+   * sub-budget, and session broadcast rules bind exactly as they do
+   * for reflex behavior. Returns true when the ghost performed the
+   * puzzlement; false when it cannot act (off, dismissing, gated) —
+   * the caller then answers with the fabric itself.
+   */
+  expressPuzzlement(): boolean {
+    if (this.destroyed || !this.enabled || this.dismissing) return false;
+    // Being asked is itself company: wake and timestamp the contact.
+    this.noteUserActivity();
+    if (!this.canAct()) return false;
+    const now = Date.now();
+    this.journal("puzzled by an unshapeable ask", now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.("puzzled: tilted its head at that one");
+    this.options.onSfx?.("sniff");
+    if (this.temperament === "sleepy") this.setTemperament("curious");
+
+    // Curious drift toward the asker: lean body + wander target
+    // toward the freshest contact's last point (the asker's hand is
+    // the best local answer to "where the asker is"). With no fresh
+    // contact — a voice ask from across the room — drift toward the
+    // canvas center, where the asker is looking.
+    let tx = 0.5;
+    let ty = 0.46;
+    let freshestAt = 0;
+    for (const c of this.contacts.values()) {
+      if (c.lastAt > freshestAt && c.points.length > 0) {
+        freshestAt = c.lastAt;
+        const p = c.points[c.points.length - 1];
+        tx = p.x;
+        ty = p.y;
+      }
+    }
+    if (now - freshestAt > 60_000) {
+      tx = 0.5;
+      ty = 0.46;
+    }
+    this.position.x = clamp01(this.position.x + (tx - this.position.x) * 0.22);
+    this.position.y = clamp01(this.position.y + (ty - this.position.y) * 0.22);
+    this.wanderTarget.x = clamp01(
+      this.wanderTarget.x + (tx - this.wanderTarget.x) * 0.3
+    );
+    this.wanderTarget.y = clamp01(
+      this.wanderTarget.y + (ty - this.wanderTarget.y) * 0.3
+    );
+
+    // The question-ripple: two soft splats, body then brow.
+    this.schedule(0, () => {
+      if (!this.canAct()) return;
+      this.emit({
+        position: { x: this.position.x, y: this.position.y },
+        force: { x: 0, y: -38 },
+        pressure: 0.3,
+        color: this.sigColor,
+      });
+    });
+    this.schedule(280, () => {
+      if (!this.canAct()) return;
+      this.emit({
+        position: {
+          x: clamp01(this.position.x + 0.045),
+          y: clamp01(this.position.y - 0.05),
+        },
+        force: { x: 8, y: -20 },
+        pressure: 0.22,
+        color: this.sigColor,
+      });
+    });
+    return true;
+  }
+
+  /**
    * Feed one HUMAN participant interaction into the brain — the local
    * user's strokes and every remote human peer's, so the ghost can
    * react to anyone in the room. `origin` says whose hand it was: the

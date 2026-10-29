@@ -937,6 +937,31 @@ export function LayerCardOverlay({
           ))}
         </View>
 
+        {exp.id === "sam-see" ? (
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+              paddingTop: spacing.sm,
+              gap: 4,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+              How See works
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+              SAM 3.1 names what the camera sees, through the model
+              resolved for this device. The camera is this layer's
+              background; the fluid draws over it.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+              A frame is sent only when you tap Segment — one frame,
+              dropped right after. Regions keep only their box
+              coordinates.
+            </Text>
+          </View>
+        ) : null}
+
         <View
           style={{
             borderTopWidth: 1,

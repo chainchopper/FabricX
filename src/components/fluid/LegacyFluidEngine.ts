@@ -271,6 +271,20 @@ export class LegacyFluidEngine {
   public localHue: number | null = null;
 
   /**
+   * Hotfix 2.4 (See layer compositing): when true, the default
+   * framebuffer renders as a transparent overlay — no opaque
+   * BACK_COLOR fill and no demo checkerboard — so the dye (whose
+   * alpha the display shader derives from its own brightness)
+   * composites over whatever is beneath the canvas. The See layer
+   * puts its camera feed there: camera as background, fluid as the
+   * effect drawn over it (Terrell's world model). Set by
+   * LegacyFluid from the active experience; false default preserves
+   * every prior behavior, and only the default-framebuffer path
+   * (target == null) is affected — offscreen passes are untouched.
+   */
+  public transparentBackdrop = false;
+
+  /**
    * Optional fatal-error observer (Hotfix 1.3). Called once when the
    * frame loop fails persistently and degrades (see update()), so the
    * React wrapper can show the user a notice instead of leaving a
@@ -708,12 +722,19 @@ export class LegacyFluidEngine {
       gl.disable(gl.BLEND);
     }
 
-    if (!this.config.TRANSPARENT) {
+    // Hotfix 2.4: over a camera backdrop, neither backdrop paint
+    // may run — the opaque fill would bury the picture and the
+    // checkerboard is a demo aesthetic, not a background. The
+    // drawing buffer (preserveDrawingBuffer: false) starts each
+    // frame transparent, and the blend setup above composites the
+    // dye's own alpha over what's beneath the canvas.
+    const overBackdrop = this.transparentBackdrop && target == null;
+    if (!this.config.TRANSPARENT && !overBackdrop) {
       this.colorProgram.bind();
       gl.uniform4f(this.colorProgram.uniforms.color!, this.config.BACK_COLOR.r / 255, this.config.BACK_COLOR.g / 255, this.config.BACK_COLOR.b / 255, 1);
       glBlit(this.gl, target);
     }
-    if (target == null && this.config.TRANSPARENT) {
+    if (target == null && this.config.TRANSPARENT && !overBackdrop) {
       this.checkerboardProgram.bind();
       gl.uniform1f(this.checkerboardProgram.uniforms.aspectRatio!, this.canvas.width / this.canvas.height);
       glBlit(this.gl, target);

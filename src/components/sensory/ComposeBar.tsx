@@ -35,6 +35,16 @@ import { useComposeVoice } from "./useComposeVoice";
  * interpretation is captioned as a built-in — never dressed up as
  * open-ended model intelligence.
  *
+ * Hotfix 2.4: an ask NO path could shape is no longer captioned as
+ * an error (the old "beyond the interpreter" dev captions are gone
+ * from user-facing copy entirely). The canvas answers with life
+ * instead — the
+ * ghost's puzzlement, or the fabric's own ripple — and the source
+ * event carries that moment ({ source: "puzzled", ghostName }), so
+ * this bar captions what actually happened in the world: "{Name}
+ * tilts its head at that one." Successful interpretations keep
+ * their honest credits below.
+ *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
  *
@@ -47,9 +57,15 @@ export default function ComposeBar() {
   const [prompt, setPrompt] = useState("");
   const [composing, setComposing] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
-  const [source, setSource] = useState<
-    "llm" | "builtin" | "ghost" | "beyond-builtin" | "beyond-model" | null
-  >(null);
+  const [source, setSource] = useState<"llm" | "builtin" | "ghost" | null>(
+    null
+  );
+  // Hotfix 2.4: the living fallback's caption state — the ghost's
+  // name when the ghost performed its puzzlement, null when the
+  // fabric itself rippled (no ghost able to act).
+  const [puzzled, setPuzzled] = useState<{ name: string | null } | null>(
+    null
+  );
   const composingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -59,16 +75,22 @@ export default function ComposeBar() {
       setComposing(false);
     };
     const onSource = (ev: Event) => {
-      const detail = (ev as CustomEvent<string>).detail;
-      setSource(
-        detail === "llm" ||
-          detail === "builtin" ||
-          detail === "ghost" ||
-          detail === "beyond-builtin" ||
-          detail === "beyond-model"
-          ? detail
-          : null
-      );
+      const detail = (
+        ev as CustomEvent<
+          string | { source?: string; ghostName?: string | null }
+        >
+      ).detail;
+      if (typeof detail === "string") {
+        setSource(
+          detail === "llm" || detail === "builtin" || detail === "ghost"
+            ? detail
+            : null
+        );
+        setPuzzled(null);
+      } else if (detail && detail.source === "puzzled") {
+        setSource(null);
+        setPuzzled({ name: detail.ghostName ?? null });
+      }
     };
     window.addEventListener(FABRIC_COMPOSE_STATE_EVENT, onState as EventListener);
     window.addEventListener(FABRIC_COMPOSE_SOURCE_EVENT, onSource as EventListener);
@@ -83,6 +105,7 @@ export default function ComposeBar() {
     const text = raw.trim();
     if (!text || composing) return;
     setSource(null);
+    setPuzzled(null);
     setComposing(true);
     window.dispatchEvent(new CustomEvent(FABRIC_COMPOSE_EVENT, { detail: text }));
     setPrompt("");
@@ -191,11 +214,14 @@ export default function ComposeBar() {
             ? "Interpreted on-device."
             : source === "ghost"
               ? "Answered by your ghost, from its live state."
-              : source === "beyond-builtin"
-                ? "That one's beyond the built-in interpreter."
-                : source === "beyond-model"
-                  ? "That one's beyond the cloud model too — try a feeling, a shape, or a rhythm."
-                  : "Interpreted by the cloud model."}
+              : "Interpreted by the cloud model."}
+        </Text>
+      ) : null}
+      {puzzled ? (
+        <Text style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
+          {puzzled.name
+            ? `${puzzled.name} tilts its head at that one.`
+            : "The fabric ripples — that one's still a mystery."}
         </Text>
       ) : null}
       {playing ? (
