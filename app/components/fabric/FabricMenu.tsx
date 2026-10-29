@@ -1063,6 +1063,10 @@ export default function FabricMenu() {
   // attack. Absent means Soundfont (the sampled grand is the
   // default voice; the synth is the fallback and the alternative).
   const isPiano = active?.id === "ar-piano";
+  // Hotfix 2.4: the See layer's one factual line in THIS LAYER
+  // (below) — how segmentation resolves + the frame promise, in
+  // Cleanup 2's posture: stated once, no demands.
+  const isSamSee = active?.id === "sam-see";
   const pianoVoice: "soundfont" | "synth" =
     (state.experienceConfig.specific as any)?.pianoVoice === "synth"
       ? "synth"
@@ -2653,6 +2657,17 @@ export default function FabricMenu() {
           </View>
         ) : active ? (
           <LayerControls />
+        ) : null}
+
+        {/* See layer (Hotfix 2.4): the mechanism + privacy lines
+            moved off the camera into reference copy — one factual
+            line here, the fuller version on the layer's ID card. */}
+        {isSamSee ? (
+          <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: spacing.sm }}>
+            See names what the camera sees with SAM 3.1, through the
+            model resolved for this device. A frame is sent only when
+            you tap Segment, and dropped right after.
+          </Text>
         ) : null}
 
         {/* Piano voice — Slice 11, piano layer only. Soundfont is

@@ -601,6 +601,14 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteUserActivity();
   }, []);
 
+  /** Slice 24: the Warm Welcome greeting (budget-spending). */
+  const warmWelcome = useCallback(
+    (verbId: GhostVerbAskId): boolean => {
+      return peerRef.current?.warmWelcome(verbId) ?? false;
+    },
+    []
+  );
+
   /** Slice 17: ask this ghost to perform its heartbeat. */
   const answerHeartbeat = useCallback((): number | null => {
     return peerRef.current?.answerHeartbeat() ?? null;
@@ -614,13 +622,15 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     []
   );
 
-  /** Slice 24: the Warm Welcome greeting (budget-spending). */
-  const warmWelcome = useCallback(
-    (verbId: GhostVerbAskId): boolean => {
-      return peerRef.current?.warmWelcome(verbId) ?? false;
-    },
-    []
-  );
+  /**
+   * Hotfix 2.4: the living fallback — when no interpreter can shape
+   * an ask, the ghost reacts in-world with puzzlement (a curious
+   * drift + a question-ripple, budget-counted). True when it
+   * performed; false when the ghost is off or cannot act.
+   */
+  const expressPuzzlement = useCallback((): boolean => {
+    return peerRef.current?.expressPuzzlement() ?? false;
+  }, []);
 
   /**
    * Slice 21: where another ghost was last sensed on this canvas
@@ -639,9 +649,10 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteLocalInteraction,
     noteRemoteInteraction,
     noteUserActivity,
+    warmWelcome,
     answerHeartbeat,
     answerVerb,
-    warmWelcome,
+    expressPuzzlement,
     otherGhostPosition,
   };
 }

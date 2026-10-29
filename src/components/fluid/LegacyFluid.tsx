@@ -761,6 +761,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     // Slice 6: same from-birth honesty for the identity hue (the
     // subscription above keeps it current from then on).
     engine.localHue = getIdentitySnapshot().self?.hue ?? null;
+    // Hotfix 2.4: same from-birth honesty for the See layer's
+    // compositing — entering the app ON See starts with the camera
+    // already beneath a transparent fluid (the watcher below keeps
+    // it current across switches; the canvas never remounts).
+    engine.transparentBackdrop = experienceRef.current?.id === "sam-see";
     engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       // Hotfix 1.9: engine stroke points opt into the funnel's
@@ -792,6 +797,18 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       engineRef.current = null;
     };
   }, []);
+
+  // Hotfix 2.4: the See layer's compositing follows the active
+  // experience — on See, the fluid renders transparent over the
+  // camera background; everywhere else it paints its own opaque
+  // backdrop exactly as before. A flag flip on the one persistent
+  // engine, never a remount.
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.transparentBackdrop =
+        state.activeExperience?.id === "sam-see";
+    }
+  }, [state.activeExperience?.id]);
 
   // Hotfix 1.5: poll the engine's telemetry while diagnostics mode
   // is on (see diagEnabled above). Zero cost when off — the effect
@@ -1083,17 +1100,33 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         const outcome = await composeWithShapesDetailed(prompt);
         const result = outcome.result;
         if (!result) {
-          // Cleanup 2: a request nobody could shape gets an honest
-          // caption, not silence — and never a plea for a key. The
-          // source event carries which path was walked so the bar
-          // can say "beyond the built-in interpreter" (on-device
-          // only) or "beyond the cloud model" (cloud tried too).
+          // Hotfix 2.4 (the living fallback): a request nobody could
+          // shape is answered by the fabric's LIFE, never by an
+          // error caption — the "beyond the interpreter" strings are
+          // gone from user-facing copy. The local ghost performs
+          // puzzlement through its own emit machinery (curious
+          // drift toward the asker + a question-ripple in its hue;
+          // budget-counted and presence-gated like any act, and it
+          // never pretends to perform the ask). When the ghost is
+          // off or cannot act, the fabric itself ripples once,
+          // gently, in the user's hue. The source event carries
+          // which happened (and the ghost's name) so the bar can
+          // caption the moment in-world. Successful interpretations
+          // keep their honest source credits, untouched above.
+          const puzzled = ghostRef.current.expressPuzzlement();
+          if (!puzzled) {
+            const hue = getIdentitySnapshot().self?.hue ?? 200;
+            engineRef.current?.splatAt(0.5, 0.47, 0, -42, hueToRgb(hue, 0.5), 0.8);
+            engineRef.current?.splatAt(0.5, 0.47, 26, -18, hueToRgb(hue, 0.3), 0.5);
+          }
           window.dispatchEvent(
             new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
-              detail:
-                outcome.path === "model"
-                  ? "beyond-model"
-                  : "beyond-builtin",
+              detail: {
+                source: "puzzled",
+                ghostName: puzzled
+                  ? (ghostRef.current.identity?.name ?? null)
+                  : null,
+              },
             })
           );
           publishState(null);
