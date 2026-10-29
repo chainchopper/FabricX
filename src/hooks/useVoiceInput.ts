@@ -1,5 +1,16 @@
 /**
  * useVoiceInput - React hook for voice input and speech recognition
+ *
+ * LEGACY SURFACE (Hotfix 2.5): the compose bar's voice path is
+ * useComposeVoice (src/components/sensory), and all capture lives
+ * in the shared core (src/services/voiceCapture.ts). This hook
+ * remains for VoiceInputButton and rides VoiceInputService —
+ * which is now an adapter over that same core — so it inherits
+ * the universal getUserMedia + MediaRecorder capture instead of
+ * duplicating the old SpeechRecognition-only wiring. New voice
+ * surfaces should build on useComposeVoice / voiceCapture, not
+ * on this hook.
+ *
  * Powered by Nirvana
  */
 

@@ -136,6 +136,18 @@ export const FABRIC_PET_GHOST_EVENT = "fabric:pet-ghost";
  */
 export const FABRIC_WARM_WELCOME_EVENT = "fabric:warm-welcome";
 
+/**
+ * Window event chrome -> canvas (Hotfix 2.5): the compose bar
+ * asked for the microphone and the browser said no. The canvas
+ * answers the way it answers any moment it can't help with —
+ * its ghost performs puzzlement (GhostPeer.expressPuzzlement:
+ * the curious ear-tilt drift + question-ripple in its hue,
+ * budget-counted like any act) when a ghost is present to hear
+ * the news. No listener (the fluid isn't the live canvas) or no
+ * ghost means the bar's caption carries the moment alone.
+ */
+export const FABRIC_VOICE_UNHEARD_EVENT = "fabric:voice-unheard";
+
 const state: GhostPublicState = {
   enabled: true,
   layerEnabled: true,
