@@ -44,6 +44,13 @@
  *   field for the AI Services row and the diag panel. This replaces
  *   the old 45s one-word mood-bias poll; setMoodBias survives as the
  *   steering seam deliberation itself uses.
+ * - Tools (Slice 23): every routed decision passes the ghost tool
+ *   registry's gate (ghostTools.ts) as the last step of the bias
+ *   chain — personality, then stamina, then the tool gate — and a
+ *   gated decision is published as its refusal, never applied.
+ *   The canvas also supplies the fabric-awareness read
+ *   (getFabricContext) the peer stamps into each scenario, and the
+ *   draw sink (onDrawRecipe) for the DRAW tool's performances.
  *
  * The caller (LegacyFluid) supplies the sinks: `inject` renders the
  * ghost on this client through the multi-user hook's injection seam,
@@ -64,6 +71,7 @@ import {
   ghostPeerIdFor,
   isGhostPeerId,
   type GhostIdentity,
+  type GhostVerbAskId,
 } from "./GhostPeer";
 import {
   applyPersonalityBias,
@@ -73,8 +81,11 @@ import {
   parseGhostPersonality,
   STAMINA_TIRED_BELOW,
   type GhostDecision,
+  type GhostFabricContext,
   type GhostScenario,
 } from "./GhostBrain";
+import { ghostToolRefusal } from "./ghostTools";
+import type { Recipe } from "../ai/RecipeCore";
 import { computeGhostVitals } from "./ghostVitals";
 import { getGhostBrainTier } from "./ghostBrainPref";
 import { getGhostPersonality } from "./ghostPersonalityPref";
@@ -119,6 +130,19 @@ export interface UseGhostPeerOptions {
   layerEnabled?: boolean;
   /** Semantic sound events from the brain (see useGhostSfx). */
   onSfx?: (kind: GhostSfxKind) => void;
+  /**
+   * Fabric awareness (Slice 23): the canvas's read of where the
+   * ghost is — active fabric, canvas kind, session role, host
+   * rules resolved for this participant. Read fresh at every
+   * snapshot; the scenario carries it to both brain tiers.
+   */
+  getFabricContext?: () => GhostFabricContext | null;
+  /**
+   * The DRAW tool's sink (Slice 23): render + ship a recipe the
+   * ghost chose to draw (LegacyFluid plays it locally and sends
+   * it on the recipe transport under the ghost's peer id).
+   */
+  onDrawRecipe?: (recipe: Recipe) => void;
 }
 
 const GHOST_NAMES = [
@@ -230,6 +254,10 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   humanPeersRef.current = options.humanPeers;
   const layerEnabledRef = useRef(options.layerEnabled !== false);
   layerEnabledRef.current = options.layerEnabled !== false;
+  const getFabricContextRef = useRef(options.getFabricContext);
+  getFabricContextRef.current = options.getFabricContext;
+  const onDrawRecipeRef = useRef(options.onDrawRecipe);
+  onDrawRecipeRef.current = options.onDrawRecipe;
 
   const persist = useCallback(
     (nextEnabled: boolean, id: GhostIdentityFull) => {
@@ -247,7 +275,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   // the ghost store so AI Services + diag show what actually decided.
   // ---------------------------------------------------------------
   const describeDecision = (d: GhostDecision): string =>
-    `decided: ${d.intent}${d.pattern_id ? ` · ${d.pattern_id}` : ""} · linger ${d.linger_s}s`;
+    `decided: ${d.intent}${d.pattern_id ? ` · ${d.pattern_id}` : ""}${d.draw_shape ? ` · ${d.draw_shape}` : ""} · linger ${d.linger_s}s`;
 
   const publishBrain = (status: GhostBrainStatus): void => {
     setGhostPublicState({ brain: status });
@@ -303,6 +331,38 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
             suffix: notes.length ? ` · ${notes.join(" · ")}` : "",
           };
         };
+        // Tool gate (Slice 23): the registry's final word, after
+        // the biases (chain: personality -> stamina -> tool gate).
+        // A decision whose tool this scenario's fabric forbids is
+        // NOT applied, and the refusal — not a fake "decided" — is
+        // what the brain line reports. On the table paths the
+        // brain itself never selects a forbidden tool, so this is
+        // the guarantee's second lock; on the Spark path it backs
+        // the validator's identical refusal.
+        const applyGated = (
+          decision: GhostDecision,
+          source: "spark" | "table",
+          tierLabel: string,
+          suffix: string
+        ): void => {
+          const refusal = ghostToolRefusal(decision.intent, scenario);
+          if (refusal) {
+            publishBrain({
+              source,
+              tierLabel,
+              lastText: refusal,
+              lastAt: Date.now(),
+            });
+            return;
+          }
+          peerRef.current?.applyBrainDecision(decision, source);
+          publishBrain({
+            source,
+            tierLabel,
+            lastText: describeDecision(decision) + suffix,
+            lastAt: Date.now(),
+          });
+        };
         // Personality (Slice 20): the primary's words for their
         // ghostie, read fresh each deliberation (at most 1/10s).
         // On the Spark tier they ride as context in the consult;
@@ -322,43 +382,44 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
             // (Cleanup 2) — never a complaint about a missing key.
             const raw = decideOnDevice(scenario).decision;
             const { decision, suffix } = withBiases(raw);
-            peerRef.current?.applyBrainDecision(decision, "table");
-            publishBrain({
-              source: "table",
-              tierLabel: "On-device brain",
-              lastText: describeDecision(decision) + suffix,
-              lastAt: Date.now(),
-            });
+            applyGated(decision, "table", "On-device brain", suffix);
             return;
           }
           const service = getLLMService(config);
+          // The validator inside the consult enforces the tool
+          // gate against this scenario; when THAT is why a reply
+          // died, it names the refusal here so the brain line can
+          // say what the fabric said.
+          let gateRefusal: string | null = null;
           const decision = await consultSparkBrain(
             scenario,
             (messages, opts) =>
               service.chat(messages, opts).then((r) => r.text),
             6_000,
             personality,
-            stamina
+            stamina,
+            (text) => {
+              gateRefusal = text;
+            }
           );
           if (decision) {
-            peerRef.current?.applyBrainDecision(decision, "spark");
-            publishBrain({
-              source: "spark",
-              tierLabel: "Spark",
-              lastText:
-                describeDecision(decision) +
-                (personality ? " · personality heard" : "") +
+            applyGated(
+              decision,
+              "spark",
+              "Spark",
+              (personality ? " · personality heard" : "") +
                 (stamina < STAMINA_TIRED_BELOW
                   ? ` · stamina ${stamina} — rest favored`
-                  : ""),
-              lastAt: Date.now(),
-            });
+                  : "")
+            );
           } else {
-            // Failed / invalid / timed out: nothing was applied.
+            // Failed / invalid / timed out: nothing was applied —
+            // and when the fabric's gate is what refused the reply,
+            // the line says that instead of shrugging.
             publishBrain({
               source: "spark",
               tierLabel: "Spark",
-              lastText: "no usable reply — reflexes only",
+              lastText: gateRefusal ?? "no usable reply — reflexes only",
               lastAt: Date.now(),
             });
           }
@@ -366,13 +427,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         }
         const raw = decideOnDevice(scenario).decision;
         const { decision, suffix } = withBiases(raw);
-        peerRef.current?.applyBrainDecision(decision, "table");
-        publishBrain({
-          source: "table",
-          tierLabel: "On-device table",
-          lastText: describeDecision(decision) + suffix,
-          lastAt: Date.now(),
-        });
+        applyGated(decision, "table", "On-device table", suffix);
       } catch {
         // Routing must never break the ghost; reflexes carry on.
       }
@@ -438,6 +493,10 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         },
         onDeliberate: (scenario) => {
           void routeRef.current(scenario);
+        },
+        getFabricContext: () => getFabricContextRef.current?.() ?? null,
+        onDrawRecipe: (recipe) => {
+          onDrawRecipeRef.current?.(recipe);
         },
       });
       peer.setEnabled(en && layerEnabledRef.current);
@@ -547,6 +606,14 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     return peerRef.current?.answerHeartbeat() ?? null;
   }, []);
 
+  /** Slice 23: ask this ghost to perform a named verb ("say-it"). */
+  const answerVerb = useCallback(
+    (verbId: GhostVerbAskId): GhostVerbAskId | null => {
+      return peerRef.current?.answerVerb(verbId) ?? null;
+    },
+    []
+  );
+
   /**
    * Slice 21: where another ghost was last sensed on this canvas
    * (the profile card's pet aim). Null when unseen or stale.
@@ -565,6 +632,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteRemoteInteraction,
     noteUserActivity,
     answerHeartbeat,
+    answerVerb,
     otherGhostPosition,
   };
 }

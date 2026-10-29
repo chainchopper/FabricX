@@ -1372,14 +1372,21 @@ export function useFluidMultiUser(roomId: string) {
    * re-validated by every receiver, so this side sends exactly
    * what the composer/store validated.
    */
-  const sendRecipe = useCallback(
-    (recipe: Recipe) => {
+  const sendRecipeAs = useCallback(
+    (recipe: Recipe, fromId: string) => {
       // Slice 19: a recipe is drawing — the draw rule gates it
       // under the mode gate, like every other send.
       if (!canSendKindRef.current("draw")) return;
-      postRef.current({ type: "fabric-recipe", from: userId, recipe });
+      postRef.current({ type: "fabric-recipe", from: fromId, recipe });
     },
-    [userId]
+    []
+  );
+
+  const sendRecipe = useCallback(
+    (recipe: Recipe) => {
+      sendRecipeAs(recipe, userId);
+    },
+    [userId, sendRecipeAs]
   );
 
   // Hotfix 1.9: per-sender sequence + the stroke batcher. The
@@ -1590,6 +1597,13 @@ export function useFluidMultiUser(roomId: string) {
     sendNote,
     /** Slice 15: one-message recipe send (session-gated like sendNote). */
     sendRecipe,
+    /**
+     * Slice 23: the same gated recipe send under an explicit
+     * sender id — the ghost's DRAW tool ships its performances
+     * as ghost:<ownerId>, exactly as ghost interactions already
+     * ride sendInteraction under the ghost's id.
+     */
+    sendRecipeAs,
     injectRemoteInteraction,
     humanPeers,
     /** Human userIds heard from in this room (Slice 5, pass-control). */

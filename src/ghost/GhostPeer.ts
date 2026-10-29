@@ -71,6 +71,18 @@
  * nothing, and no decision can override the invariants in this file.
  * setMoodBias remains as the soft steering seam deliberation uses.
  *
+ * Tools (Slice 23): deliberation can now also answer with the DRAW
+ * tool — the ghost builds a one-step Recipe in its own hue and
+ * hands it to the host's draw sink (the recipe transport, under
+ * the ghost's own peer id), priced against the same emit budget
+ * as any performance and spaced by a draw cooldown. The peer
+ * re-checks the fabric's draw rule at performance time, so no
+ * caller can talk it into drawing where the fabric forbids it.
+ * And an asked verb is a tool too: answerVerb performs heart /
+ * cheer / tickle on the primary's word, through the same verb
+ * clock and session degrade as its deliberated verbs. The
+ * registry these tools are declared in is ghostTools.ts.
+ *
  * Powered by Nirvana
  */
 
@@ -87,10 +99,15 @@ import type { GhostPresence } from "./ghostStore";
 import type { GhostSfxKind } from "./useGhostSfx";
 import type {
   GhostDecision,
+  GhostFabricContext,
   GhostScenario,
   GhostScenarioOther,
 } from "./GhostBrain";
-import { seedTraitsForTemperament } from "./GhostBrain";
+import {
+  sanitizeFabricContext,
+  seedTraitsForTemperament,
+} from "./GhostBrain";
+import { validateRecipe, type Recipe } from "../ai/RecipeCore";
 import {
   DEFAULT_GHOST_SHARED_SETTINGS,
   type GhostSharedSettings,
@@ -122,6 +139,51 @@ export function isGhostHeartbeatRequest(
   if (!/\b(heartbeat|heart\s+beat)\b/.test(text)) return false;
   if (ghostName && text.includes(ghostName.toLowerCase())) return true;
   return /\bghost\b/.test(text) || /\byour\b/.test(text);
+}
+
+/** Verbs the primary can ask their ghost to perform by name. */
+export type GhostVerbAskId = "heart" | "cheer" | "tickle";
+
+const GHOST_VERB_ASK_PATTERNS: { id: GhostVerbAskId; re: RegExp }[] = [
+  { id: "tickle", re: /\btickle\b/ },
+  { id: "cheer", re: /\bcheer\b/ },
+  { id: "heart", re: /\bheart\b/ },
+];
+
+/**
+ * Slice 23 routing ("say-it"): is this request asking THIS ghost
+ * to perform a named verb — "tickle, Boop", "Boop, cheer for me",
+ * "ghost, give me a heart"? Both halves are required: the ask
+ * must ADDRESS the ghost (by name, "ghost"/"ghostie", or the
+ * possessive "your" the heartbeat route already honors) AND name
+ * the verb. A bare "tickle" or an unaddressed "make a heart"
+ * belongs to the generic interpreter, exactly as before.
+ *
+ * Heartbeat phrases are excluded up front: "your heart beat" is
+ * the heartbeat route's (Slice 17), never a heart-verb ask — the
+ * two routers are order-independent by construction.
+ *
+ * When several verbs are named, the first one mentioned wins.
+ */
+export function ghostVerbAsk(
+  prompt: string,
+  ghostName?: string | null
+): GhostVerbAskId | null {
+  const text = (prompt || "").toLowerCase();
+  if (/\bheartbeat\b/.test(text) || /\bheart\s+beat\b/.test(text)) {
+    return null;
+  }
+  const addressed =
+    (ghostName ? text.includes(ghostName.toLowerCase()) : false) ||
+    /\bghost(ie)?\b/.test(text) ||
+    /\byour\b/.test(text);
+  if (!addressed) return null;
+  let best: { id: GhostVerbAskId; at: number } | null = null;
+  for (const { id, re } of GHOST_VERB_ASK_PATTERNS) {
+    const at = text.search(re);
+    if (at >= 0 && (!best || at < best.at)) best = { id, at };
+  }
+  return best ? best.id : null;
 }
 
 export type GhostMode = "solo" | "session";
@@ -190,6 +252,23 @@ export interface GhostPeerOptions {
    * Fire-and-forget — the reflex brain never waits on the answer.
    */
   onDeliberate?: (scenario: GhostScenario) => void;
+  /**
+   * Fabric awareness (Slice 23): the host's read of where the ghost
+   * is — active fabric/layer, canvas kind, session role, and the
+   * host rules as they apply to this participant. Consulted at
+   * snapshot time (buildScenario) and again at draw time (the
+   * peer-side gate). Absent, the scenario carries no fabric context
+   * and the peer draws under no fabric authority (solo semantics).
+   */
+  getFabricContext?: () => GhostFabricContext | null;
+  /**
+   * The DRAW tool's sink (Slice 23): a recipe the ghost chose to
+   * draw, built and validated by the peer. The host renders it
+   * locally and ships it on the recipe transport under the ghost's
+   * own peer id — the peer owns the decision and the budget charge,
+   * the host owns the wires.
+   */
+  onDrawRecipe?: (recipe: Recipe) => void;
 }
 
 export const MAX_GHOSTS_PER_ROOM = 4;
@@ -229,6 +308,15 @@ const STARTLE_RADIUS = 0.26;
  * the dirty gate is what keeps an idle room from burning cloud calls.
  */
 const DELIBERATION_MIN_MS = 10_000;
+/**
+ * The DRAW tool's price and pace (Slice 23). A drawn shape is one
+ * performance — priced at 6 emit slots against the same 16/10s
+ * budget every splat pays (a play pattern is 8, a heartbeat
+ * phrase 12) — and the cooldown keeps a quiet room's doodles
+ * occasional rather than metronomic.
+ */
+const DRAW_BUDGET_COST = 6;
+const DRAW_MIN_INTERVAL_MS = 45_000;
 
 /** Deterministic PRNG so ghost behavior is reproducible, never chaotic. */
 function mulberry32(seed: number): () => number {
@@ -407,6 +495,9 @@ export class GhostPeer {
   } | null = null;
   /** nap/idle directives silence autonomous drift + antics until here. */
   private brainQuietUntil = 0;
+  /** DRAW tool state (Slice 23): last performance + count (seed salt). */
+  private lastDrawAt = 0;
+  private drawCount = 0;
   /** Scenario journal, in the dataset's event vocabulary. */
   private eventJournal: { label: string; at: number }[] = [];
   private verbsSeenLog: { id: string; at: number }[] = [];
@@ -739,6 +830,32 @@ export class GhostPeer {
       });
     }
     return bpm;
+  }
+
+  /**
+   * Answer a direct verb request ("tickle, Boop") by performing
+   * the verb as the ghost's own act (Slice 23, the verb-perform
+   * tool). This is not the VerbBar macro and not the generic
+   * interpreter: the ghost itself performs, through the same
+   * machinery as its deliberated verbs — performVerbAct's verb
+   * clock and session degrade, emit()'s budgets, presence gates.
+   * Returns the verb performed, or null when the ghost cannot act.
+   */
+  answerVerb(verbId: GhostVerbAskId): GhostVerbAskId | null {
+    if (this.destroyed || !this.enabled || this.dismissing) return null;
+    // Being asked is itself company: wake and timestamp the contact.
+    this.noteUserActivity();
+    if (!this.canAct()) return null;
+    const now = Date.now();
+    this.journal(`answered: ${verbId} on request`, now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(`answered: ${verbId} on request`);
+    if (verbId === "heart") {
+      this.brainHeart(0.75);
+    } else {
+      this.performVerbAct(verbId === "cheer" ? CHEER : TICKLE, 0.75);
+    }
+    return verbId;
   }
 
   /**
@@ -1568,6 +1685,13 @@ export class GhostPeer {
    * other ghosts' names or moods, so other_ghosts entries say
    * "another ghost" / "unknown" rather than inventing them — only
    * their count and last observed action are real.
+   *
+   * Slice 23: the snapshot also carries the fabric context when
+   * the host supplies one (getFabricContext) — the active fabric,
+   * its canvas kind, this participant's role, and the host rules
+   * resolved for this participant. It is sanitized on the way in
+   * and attached verbatim; a host that supplies nothing gets a
+   * legacy (dataset-shaped) scenario, unchanged.
    */
   buildScenario(now = Date.now()): GhostScenario {
     const recentEvents = this.eventJournal
@@ -1593,6 +1717,7 @@ export class GhostPeer {
         });
       }
     });
+    const fabric = this.currentFabricContext();
     return {
       temperament: this.temperament,
       seconds_since_human_touch: Math.round((now - this.lastActivityAt) / 100) / 10,
@@ -1613,7 +1738,24 @@ export class GhostPeer {
         hue: Math.round(this.options.identity.hue),
         seed_traits: seedTraitsForTemperament(this.temperament),
       },
+      ...(fabric ? { fabric } : {}),
     };
+  }
+
+  /**
+   * The host-supplied fabric context, sanitized — or null when the
+   * host supplies none (or a garbled one). Read fresh at snapshot
+   * time and at draw time: the fabric can change under the ghost,
+   * and both the scenario and the peer-side draw gate must see
+   * the law as it stands NOW.
+   */
+  private currentFabricContext(): GhostFabricContext | null {
+    try {
+      const raw = this.options.getFabricContext?.();
+      return raw ? sanitizeFabricContext(raw) : null;
+    } catch {
+      return null;
+    }
   }
 
   private roomEnergyTrend(now: number): "rising" | "falling" | "steady" {
@@ -1664,6 +1806,9 @@ export class GhostPeer {
       case "play":
         this.performPlayPattern(decision.pattern_id, decision.intensity);
         break;
+      case "draw":
+        this.performDraw(decision);
+        break;
       case "mirror":
         // Amplify the reflex mirror/response path for the linger.
         this.setMoodBias("mirror", decision.linger_s * 1000);
@@ -1697,6 +1842,19 @@ export class GhostPeer {
   }
 
   private brainHeart(intensity: number): void {
+    this.performVerbAct(HEART, intensity);
+  }
+
+  /**
+   * Perform a verb as the ghost's own act, under the shared verb
+   * clock: solo/crowd with a cold clock, the REAL verb goes out;
+   * in session mode (or on a hot clock) it degrades to a soft
+   * burst at the body — room-wide verbs stay petting-only in
+   * session. brainHeart established this discipline for
+   * deliberated hearts; asked verbs (answerVerb, Slice 23)
+   * inherit it unchanged.
+   */
+  private performVerbAct(verb: SensoryVerb, intensity: number): void {
     const now = Date.now();
     if (
       this.mode !== "session" &&
@@ -1705,7 +1863,7 @@ export class GhostPeer {
       // Solo/crowd: the real verb path, under the shared verb clock.
       this.lastVerbAt = now;
       this.schedule(200, () => {
-        if (this.canAct()) this.emitVerb(HEART);
+        if (this.canAct()) this.emitVerb(verb);
       });
       return;
     }
@@ -1725,6 +1883,70 @@ export class GhostPeer {
         });
       }
     });
+  }
+
+  /**
+   * The DRAW tool's performance (Slice 23). The ghost draws ONE
+   * shape at its body, in its own hue, as a one-step Recipe —
+   * validated here, then handed to the host's draw sink, which
+   * renders it on this canvas and ships it on the recipe
+   * transport under the ghost's peer id. Three gates stand
+   * before the sink, in order:
+   *
+   *   1. The fabric gate, peer-side: whatever the caller believed,
+   *      the fabric's CURRENT rules decide — a fabric that refuses
+   *      drawing for the ghost's side gets no drawing, and the
+   *      refusal is journaled (the scenario picks it up as a
+   *      recent event, so the brain can see its own restraint).
+   *   2. The draw cooldown: doodles are occasional.
+   *   3. The emit budget: the draw is CHARGED like a performance
+   *      (DRAW_BUDGET_COST slots), so a burst of draw decisions
+   *      can no more flood the room than a burst of play can.
+   */
+  private performDraw(decision: GhostDecision): void {
+    if (!this.canAct()) return;
+    const shape = decision.draw_shape;
+    if (!shape) return;
+    const now = Date.now();
+    const fabric = this.currentFabricContext();
+    if (fabric && !fabric.rules.draw) {
+      this.journal("wanted to draw — fabric forbids it", now);
+      return;
+    }
+    if (now - this.lastDrawAt < DRAW_MIN_INTERVAL_MS) return;
+    if (!this.chargePerformanceBudget(DRAW_BUDGET_COST)) {
+      this.journal("wanted to draw — budget spent", now);
+      return;
+    }
+    this.lastDrawAt = now;
+    this.drawCount += 1;
+    const recipe = validateRecipe(
+      {
+        version: 2,
+        name: `${this.options.ghostName ?? "Ghost"} drew a ${shape}`,
+        seed: (this.options.identity.seed ^ (this.drawCount * 0x9e3779b9)) >>> 0,
+        steps: [
+          {
+            shape,
+            cx: this.position.x,
+            cy: this.position.y,
+            scale: Math.min(
+              0.5,
+              Math.max(0.05, 0.1 + 0.22 * decision.intensity)
+            ),
+            hue: Math.round(this.options.identity.hue),
+            durationMs: 2600,
+            style: shape === "burst" ? "burst" : "draw",
+          },
+        ],
+      },
+      "builtin"
+    );
+    if (!recipe) return; // Inputs are clamped; stay total anyway.
+    this.journal(`drew a ${shape}`, now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(`drew a ${shape}`);
+    this.options.onDrawRecipe?.(recipe);
   }
 
   private performPlayPattern(
@@ -1859,6 +2081,31 @@ export class GhostPeer {
       ...verbInteraction(verb),
       position: { x: this.position.x, y: this.position.y },
     });
+  }
+
+  /**
+   * Charge a non-splat performance (Slice 23: a draw) against the
+   * SAME budgets emit() enforces — the global 16/10s window, the
+   * crowd sub-budget, and the 30-minute vitals journal — without
+   * emitting anything. Returns false when the charge does not
+   * fit, in which case nothing is charged and the performance
+   * does not happen: a tool is an act, never a bypass.
+   */
+  private chargePerformanceBudget(cost: number): boolean {
+    const now = Date.now();
+    this.emitTimes = this.emitTimes.filter((t) => now - t < EMIT_WINDOW_MS);
+    if (this.emitTimes.length + cost > EMIT_BUDGET) return false;
+    if (this.inCrowd()) {
+      this.crowdEmitTimes = this.crowdEmitTimes.filter(
+        (t) => now - t < EMIT_WINDOW_MS
+      );
+      if (this.crowdEmitTimes.length + cost > CROWD_EMIT_BUDGET) return false;
+      for (let k = 0; k < cost; k++) this.crowdEmitTimes.push(now);
+    }
+    for (let k = 0; k < cost; k++) this.emitTimes.push(now);
+    this.emitHistory = this.emitHistory.filter((t) => now - t < 30 * 60_000);
+    for (let k = 0; k < cost; k++) this.emitHistory.push(now);
+    return true;
   }
 
   /**

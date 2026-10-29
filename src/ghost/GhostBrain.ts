@@ -49,6 +49,23 @@
  * legible keyword biases over the table on-device — always within
  * those invariants. See the Personality section below.
  *
+ * Fabric awareness + tools (Slice 23): the scenario snapshot now
+ * also carries what the ghost's client legitimately knows about
+ * WHERE it is — the active fabric/layer, its canvas kind, the
+ * session role, and the host's rules as they apply to this
+ * participant (GhostFabricContext). One deliberation intent is a
+ * TOOL call: "draw" — the ghost expresses itself by drawing a
+ * shape from the Recipe vocabulary at its body. Drawing is gated
+ * by the fabric, in both tiers, at the validator itself: the
+ * table only selects it where the fabric allows the ghost's side
+ * to draw, and a Spark "draw" decision under a fabric that
+ * refuses it is rejected with the refusal surfaced to the brain
+ * line. The dataset scenarios carry no fabric context at all, so
+ * nothing about the original battery changes — drawing lives
+ * entirely in the new-flag scenarios. The router's chain stays:
+ * personality bias -> stamina bias -> tool gate (see
+ * ghostTools.ts, the registry these tools are declared in).
+ *
  * Pure module: no imports, no storage, no timers of its own, so the
  * node check can exercise the table, the validator, and the Spark
  * path (with a mocked chat function) outside the app.
@@ -64,7 +81,7 @@ export type GhostBrainTemperament =
   | "sassy"
   | "affectionate";
 
-/** Intents the ghost can actually perform (dataset vocabulary). */
+/** Intents the ghost can actually perform (dataset vocabulary + draw). */
 export const GHOST_INTENTS = [
   "mirror",
   "sniff",
@@ -74,8 +91,25 @@ export const GHOST_INTENTS = [
   "nap",
   "idle",
   "heart",
+  "draw",
 ] as const;
 export type GhostIntent = (typeof GHOST_INTENTS)[number];
+
+/**
+ * Shapes the DRAW tool can draw — the Recipe vocabulary, mirrored
+ * (RecipeCore.RECIPE_SHAPES; this module stays import-free like
+ * the rest of the brain, so the list is kept in step by hand and
+ * the tools check asserts the two never drift apart).
+ */
+export const GHOST_DRAW_SHAPES = [
+  "ring",
+  "spiral",
+  "line",
+  "arc",
+  "burst",
+  "heart",
+] as const;
+export type GhostDrawShape = (typeof GHOST_DRAW_SHAPES)[number];
 
 /** Pattern ids the ghost's play repertoire implements. */
 export const GHOST_PATTERN_IDS = [
@@ -101,6 +135,104 @@ export interface GhostScenarioOther {
   last_action: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Fabric awareness (Slice 23)                                         */
+/* ------------------------------------------------------------------ */
+/*
+ * Where the ghost IS, as its own client legitimately knows it:
+ * the active fabric/layer, that fabric's canvas kind, this
+ * participant's session role, and the host's rules AS THEY APPLY
+ * to this participant — a guest reads the host's stated rules, a
+ * host is never bound by their own guest rules, and solo / an
+ * open room allow everything. The rules are resolved to plain
+ * booleans at snapshot time (GhostPeer's context supplier, in
+ * LegacyFluid, reads the same session + fabric stores the send
+ * funnel enforces with), so both brain tiers — and the validator
+ * itself — read one honest answer. Nothing here is guessed: a
+ * client that cannot supply the context attaches nothing, and a
+ * scenario without fabric context is a legacy scenario (the whole
+ * dataset is legacy) where no fabric authority exists to refuse
+ * anything.
+ */
+
+export type GhostCanvasKind = "fluid" | "stage3d" | "camera" | "unknown";
+
+export interface GhostFabricRules {
+  draw: boolean;
+  verbs: boolean;
+  notes: boolean;
+}
+
+export interface GhostFabricContext {
+  /** Active fabric/layer id, as this client knows it. */
+  layer_id: string;
+  canvas: GhostCanvasKind;
+  /** This participant's chair: an open room, the host, or a guest. */
+  role: "open" | "host" | "guest";
+  /** True when a hosted session is in force (role is host/guest). */
+  in_session: boolean;
+  /** Host rules resolved for THIS participant (see header note). */
+  rules: GhostFabricRules;
+}
+
+const GHOST_CANVAS_KINDS: readonly string[] = [
+  "fluid",
+  "stage3d",
+  "camera",
+  "unknown",
+];
+
+/**
+ * Clamp an unknown value to a GhostFabricContext, or null when it
+ * is not one. Rules default to permissive on a per-key basis —
+ * the same fallback discipline as the fabric store's sanitizer:
+ * a garbled rules payload must never silently mute a ghost.
+ */
+export function sanitizeFabricContext(raw: unknown): GhostFabricContext | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec.layer_id !== "string" || rec.layer_id.length === 0) {
+    return null;
+  }
+  const canvas: GhostCanvasKind =
+    typeof rec.canvas === "string" && GHOST_CANVAS_KINDS.includes(rec.canvas)
+      ? (rec.canvas as GhostCanvasKind)
+      : "unknown";
+  const role: GhostFabricContext["role"] =
+    rec.role === "host" || rec.role === "guest" ? rec.role : "open";
+  const rulesIn =
+    rec.rules && typeof rec.rules === "object" && !Array.isArray(rec.rules)
+      ? (rec.rules as Record<string, unknown>)
+      : {};
+  const rule = (v: unknown): boolean => (typeof v === "boolean" ? v : true);
+  return {
+    layer_id: rec.layer_id.slice(0, 64),
+    canvas,
+    role,
+    in_session: typeof rec.in_session === "boolean" ? rec.in_session : role !== "open",
+    rules: {
+      draw: rule(rulesIn.draw),
+      verbs: rule(rulesIn.verbs),
+      notes: rule(rulesIn.notes),
+    },
+  };
+}
+
+/**
+ * May the ghost's side DRAW on the fabric this scenario sits on?
+ * The one gate both tiers and the validator share. No fabric
+ * context = no fabric authority in the picture (legacy scenario,
+ * solo by construction) = allowed.
+ */
+export function fabricAllowsDraw(scenario: GhostScenario): boolean {
+  if (!scenario.fabric) return true;
+  return scenario.fabric.rules.draw;
+}
+
+/** The refusal the brain line shows when the gate refuses a draw. */
+export const GHOST_DRAW_REFUSAL_TEXT =
+  "wanted to draw — this fabric doesn't allow it";
+
 /** Scenario snapshot — the dataset's input schema, verbatim. */
 export interface GhostScenario {
   temperament: GhostBrainTemperament;
@@ -116,6 +248,12 @@ export interface GhostScenario {
     hue: number;
     seed_traits: string[];
   };
+  /**
+   * Slice 23: where the ghost is (see GhostFabricContext). Absent
+   * on every dataset scenario — the draw tool and the fabric
+   * blocks key on its presence, so legacy behavior is untouched.
+   */
+  fabric?: GhostFabricContext;
 }
 
 /** Decision — the dataset's output schema, verbatim. */
@@ -123,6 +261,8 @@ export interface GhostDecision {
   mood_shift: GhostBrainTemperament | null;
   intent: GhostIntent;
   pattern_id: GhostPatternId | null;
+  /** Slice 23: the DRAW tool's shape; null unless intent is "draw". */
+  draw_shape: GhostDrawShape | null;
   intensity: number;
   linger_s: number;
 }
@@ -159,13 +299,25 @@ const clamp = (v: number, lo: number, hi: number): number =>
  *   - intent must be one the ghost can perform;
  *   - pattern_id must be a known pattern; a pattern on a non-"play"
  *     intent is dropped (set null), not fatal;
+ *   - intent "draw" REQUIRES a known draw_shape — a shapeless draw
+ *     is not a decision — and a draw_shape on any other intent is
+ *     dropped (set null), not fatal;
+ *   - THE TOOL GATE (Slice 23): when the scenario is supplied and
+ *     its fabric refuses drawing for the ghost's side, a "draw"
+ *     decision is refused outright (null) — the validator is where
+ *     a Spark reply meets the fabric's law, before any routing.
+ *     Callers that need to SAY so use ghostDrawGateRefusal() to
+ *     name the refusal for the brain line;
  *   - intensity defaults to 0.5 and clamps to [0.05, 0.9];
  *   - linger_s defaults to 5 and clamps to [0.5, 30];
  *   - mood_shift must be null or a real temperament.
  * Both brains' outputs pass through here before GhostPeer applies
  * anything, so the table and Spark share one safety gate.
  */
-export function validateGhostDecision(raw: unknown): GhostDecision | null {
+export function validateGhostDecision(
+  raw: unknown,
+  scenario?: GhostScenario
+): GhostDecision | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const d = raw as Record<string, unknown>;
 
@@ -187,6 +339,18 @@ export function validateGhostDecision(raw: unknown): GhostDecision | null {
     }
     patternId = d.pattern_id as GhostPatternId;
     if (intent !== "play") patternId = null;
+  }
+
+  let drawShape: GhostDrawShape | null = null;
+  if (intent === "draw") {
+    if (
+      typeof d.draw_shape !== "string" ||
+      !(GHOST_DRAW_SHAPES as readonly string[]).includes(d.draw_shape)
+    ) {
+      return null;
+    }
+    drawShape = d.draw_shape as GhostDrawShape;
+    if (scenario && !fabricAllowsDraw(scenario)) return null;
   }
 
   let moodShift: GhostBrainTemperament | null = null;
@@ -220,9 +384,36 @@ export function validateGhostDecision(raw: unknown): GhostDecision | null {
     mood_shift: moodShift,
     intent: intent as GhostIntent,
     pattern_id: patternId,
+    draw_shape: drawShape,
     intensity,
     linger_s: linger,
   };
+}
+
+/**
+ * Name the gate's refusal, when a raw decision died by it: the
+ * value IS a well-formed draw decision, but the scenario's fabric
+ * refuses drawing for the ghost's side. Returns the brain-line
+ * refusal text, or null when the refusal rule does not apply
+ * (the value is invalid for some other reason, or drawing is
+ * allowed and validation failed elsewhere). Lets the Spark path
+ * say WHY a reply changed nothing instead of shrugging.
+ */
+export function ghostDrawGateRefusal(
+  raw: unknown,
+  scenario?: GhostScenario
+): string | null {
+  if (!scenario || fabricAllowsDraw(scenario)) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const d = raw as Record<string, unknown>;
+  if (d.intent !== "draw") return null;
+  if (
+    typeof d.draw_shape !== "string" ||
+    !(GHOST_DRAW_SHAPES as readonly string[]).includes(d.draw_shape)
+  ) {
+    return null;
+  }
+  return GHOST_DRAW_REFUSAL_TEXT;
 }
 
 /**
@@ -266,6 +457,7 @@ const dec = (
   mood_shift: null,
   intent,
   pattern_id,
+  draw_shape: null,
   intensity,
   linger_s,
 });
@@ -396,15 +588,101 @@ export const GHOST_DECISION_TABLE: GhostTableRule[] = [
   },
 ];
 
+/* ------------------------------------------------------------------ */
+/* The DRAW tool's on-device rules (Slice 23)                          */
+/* ------------------------------------------------------------------ */
+/*
+ * When does the on-device ghost choose to draw? Deliberately
+ * narrow, and entirely inside territory the dataset never
+ * covered — every condition below requires the scenario to carry
+ * fabric context, which no dataset scenario has, so the battery
+ * above cannot move:
+ *
+ *   - the fabric allows the ghost's side to draw (the gate —
+ *     checked first, before any taste);
+ *   - nobody is petting it and nothing loud just landed (petting
+ *     and startle have their own answers, in the table);
+ *   - the room is quiet and not heating up (energy trend not
+ *     rising): drawing is what the ghost does with a lull;
+ *   - the quiet has lasted into the temperament's DOODLE WINDOW —
+ *     long enough to be sure the room is resting, early enough
+ *     that the ghost hasn't settled into its long-quiet rhythm —
+ *     and the temperament is one that doodles: playful traces
+ *     spirals alone and bursts with company; curious rings a
+ *     thought alone, arcs toward company; affectionate leaves a
+ *     heart — sooner with company, later when alone, for whoever
+ *     comes back. Sleepy rests instead. Sassy can't be bothered.
+ *
+ * The windows also keep the brain line honest: outside them the
+ * table answers as it always has, and GhostPeer's own draw
+ * cooldown (45s) spaces the performances that do happen.
+ */
+export function drawDecisionFor(
+  scenario: GhostScenario
+): { decision: GhostDecision; ruleId: string } | null {
+  if (!scenario.fabric) return null;
+  if (!fabricAllowsDraw(scenario)) return null;
+  if (scenario.pets_in_last_5s > 0) return null;
+  if (scenario.nearby_splat_intensity >= 0.7) return null;
+  if (scenario.room_energy_trend === "rising") return null;
+  const quiet = scenario.seconds_since_human_touch;
+  const company = scenario.other_ghosts.length > 0;
+  let shape: GhostDrawShape | null = null;
+  let intensity = 0.55;
+  switch (scenario.temperament) {
+    case "playful":
+      if (quiet >= 30 && quiet < 75) {
+        shape = company ? "burst" : "spiral";
+        intensity = 0.65;
+      }
+      break;
+    case "curious":
+      if (quiet >= 45 && quiet < 90) {
+        shape = company ? "arc" : "ring";
+      }
+      break;
+    case "affectionate":
+      if (company ? quiet >= 20 && quiet < 60 : quiet >= 60 && quiet < 105) {
+        shape = "heart";
+        intensity = 0.6;
+      }
+      break;
+    default:
+      return null;
+  }
+  if (!shape) return null;
+  const decision = validateGhostDecision(
+    {
+      mood_shift: null,
+      intent: "draw",
+      pattern_id: null,
+      draw_shape: shape,
+      intensity,
+      linger_s: 6,
+    },
+    scenario
+  );
+  if (!decision) return null;
+  return { decision, ruleId: `draw-${shape}` };
+}
+
 /**
- * The on-device brain: first matching rule decides. The output is
- * run through the same validator as a Spark reply, so both tiers
- * share one safety gate. Never throws.
+ * The on-device brain: the draw overlay answers first when its
+ * narrow window is open (fabric scenarios only); otherwise the
+ * first matching table rule decides. The output is run through
+ * the same validator as a Spark reply, so both tiers share one
+ * safety gate. Never throws.
  */
 export function decideOnDevice(scenario: GhostScenario): {
   decision: GhostDecision;
   ruleId: string;
 } {
+  try {
+    const draw = drawDecisionFor(scenario);
+    if (draw) return draw;
+  } catch {
+    // The overlay must never take the table down with it.
+  }
   for (const rule of GHOST_DECISION_TABLE) {
     try {
       if (rule.when(scenario)) {
@@ -416,7 +694,7 @@ export function decideOnDevice(scenario: GhostScenario): {
     }
   }
   return {
-    decision: { mood_shift: null, intent: "drift", pattern_id: null, intensity: 0.25, linger_s: 5 },
+    decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, intensity: 0.25, linger_s: 5 },
     ruleId: "fallback-drift",
   };
 }
@@ -641,7 +919,9 @@ export function applyPersonalityBias(
  * intents (play, heart, mirror, sniff) give way to rest as the
  * reading falls. The ghost rests because it is tired, and it
  * is tired because it worked — the card's Stamina bar and this
- * bias are two views of the one truth.
+ * bias are two views of the one truth. Slice 23: drawing is a
+ * performing intent here too — drained rests instead of drawing;
+ * merely low draws smaller.
  */
 
 /** Below this reading the ghost counts as tired (bias + Spark note). */
@@ -669,10 +949,12 @@ export function applyStaminaBias(
       next.intent === "play" ||
       next.intent === "heart" ||
       next.intent === "mirror" ||
-      next.intent === "sniff"
+      next.intent === "sniff" ||
+      next.intent === "draw"
     ) {
       next.intent = "nap";
       next.pattern_id = null;
+      next.draw_shape = null;
       next.intensity = clamp(Math.min(next.intensity, 0.2), 0.05, 0.9);
       next.linger_s = clamp(Math.max(next.linger_s, 16), 0.5, 30);
       steeredBy.push("stamina drained: rests instead of performing");
@@ -690,6 +972,13 @@ export function applyStaminaBias(
     } else if (next.intent === "heart" || next.intent === "mirror") {
       next.intensity = clamp(next.intensity * 0.8, 0.05, 0.9);
       steeredBy.push("stamina low: gives back a little less");
+    } else if (next.intent === "draw") {
+      // Drawing is performing too (Slice 23): a tired ghost that
+      // still chooses to draw draws smaller — intensity is the
+      // shape's scale on the peer side. Drained (above) it rests
+      // instead, like every other performance.
+      next.intensity = clamp(next.intensity * 0.8, 0.05, 0.9);
+      steeredBy.push("stamina low: draws smaller");
     }
   }
   return { decision: next, steeredBy };
@@ -728,7 +1017,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Mango", hue: 35, seed_traits: ["bouncy", "giggly"] },
     },
-    decision: { mood_shift: null, intent: "startle", pattern_id: null, intensity: 0.8, linger_s: 1.5 },
+    decision: { mood_shift: null, intent: "startle", pattern_id: null, draw_shape: null, intensity: 0.8, linger_s: 1.5 },
   },
   {
     scenario: {
@@ -742,7 +1031,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Biscuit", hue: 335, seed_traits: ["cuddly", "loyal"] },
     },
-    decision: { mood_shift: null, intent: "heart", pattern_id: null, intensity: 0.75, linger_s: 7 },
+    decision: { mood_shift: null, intent: "heart", pattern_id: null, draw_shape: null, intensity: 0.75, linger_s: 7 },
   },
   {
     scenario: {
@@ -756,16 +1045,41 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "falling",
       ghost_identity: { name: "Pesto", hue: 135, seed_traits: ["drowsy", "dim glow"] },
     },
-    decision: { mood_shift: null, intent: "nap", pattern_id: null, intensity: 0.15, linger_s: 24 },
+    decision: { mood_shift: null, intent: "nap", pattern_id: null, draw_shape: null, intensity: 0.15, linger_s: 24 },
   },
 ];
 
 const SPARK_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost that lives on a shared touch canvas. The ghost never speaks; it expresses itself only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Given a scenario snapshot, reply with ONLY one JSON decision object — no prose, no code fences:",
-  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  "pattern_id is only for intent \"play\". mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
+  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
+  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
 ].join("\n");
+
+/**
+ * The fabric note (Slice 23): where the ghost is, in plain words,
+ * when the scenario carries fabric context. The rules line states
+ * what is in force for the ghost's OWN side — already resolved
+ * for its role — so the model deliberates WITH the fabric's law
+ * in view instead of discovering the validator's refusal after
+ * the fact (the refusal still stands if it tries).
+ */
+export function describeFabricForSpark(scenario: GhostScenario): string | null {
+  const f = scenario.fabric;
+  if (!f) return null;
+  const chair =
+    f.role === "host"
+      ? "its primary is hosting this session"
+      : f.role === "guest"
+        ? "its primary is a guest in someone else's session"
+        : "there is no hosted session — the room is open";
+  const yn = (b: boolean): string => (b ? "allowed" : "NOT allowed");
+  return (
+    `The ghost is on the "${f.layer_id}" fabric (${f.canvas} canvas); ${chair}. ` +
+    `Rules in force for the ghost's side on this fabric: drawing ${yn(f.rules.draw)}, ` +
+    `verbs ${yn(f.rules.verbs)}, notes ${yn(f.rules.notes)}.`
+  );
+}
 
 /**
  * Build the few-shot message list for one live scenario. When the
@@ -791,6 +1105,13 @@ export function buildSparkMessages(
         `The ghost's primary describes its personality in their own words: "${personalityText}". ` +
         "Let that description color the decision — how readily it approaches others, how energetic or calm it is, how warmly it responds — within the decision contract.",
     });
+  }
+  // Fabric awareness (Slice 23): where the ghost is and what the
+  // fabric allows its side, as a plain-words system note — the
+  // same facts the on-device path reads directly off the scenario.
+  const fabricNote = describeFabricForSpark(scenario);
+  if (fabricNote) {
+    messages.push({ role: "system", content: fabricNote });
   }
   // Stamina (Slice 22): the same fact the on-device bias acts on,
   // as context here — a tired ghost's cloud brain hears that it
@@ -827,17 +1148,23 @@ export function buildSparkMessages(
 /**
  * Consult the cloud brain. Returns a validated decision, or null
  * when the chat fails, times out, or replies with anything that
- * does not validate — null means "change nothing". The timeout is a
- * race: a late reply is dropped, never applied after the fact.
- * maxTokens is generous because reasoning models think before they
- * answer (the composer learned the same lesson).
+ * does not validate — null means "change nothing". Validation is
+ * scenario-aware (Slice 23): a "draw" reply under a fabric that
+ * refuses drawing for the ghost's side does not validate; when
+ * that specific refusal is why the reply died, `onGateRefusal`
+ * hears the brain-line text so the router can say so instead of
+ * shrugging "no usable reply". The timeout is a race: a late
+ * reply is dropped, never applied after the fact. maxTokens is
+ * generous because reasoning models think before they answer
+ * (the composer learned the same lesson).
  */
 export async function consultSparkBrain(
   scenario: GhostScenario,
   chat: GhostBrainChatFn,
   timeoutMs = 6_000,
   personality?: string,
-  stamina?: number
+  stamina?: number,
+  onGateRefusal?: (text: string) => void
 ): Promise<GhostDecision | null> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -852,7 +1179,13 @@ export async function consultSparkBrain(
       timeout,
     ]);
     if (typeof reply !== "string") return null;
-    return validateGhostDecision(extractDecisionJson(reply));
+    const extracted = extractDecisionJson(reply);
+    const decision = validateGhostDecision(extracted, scenario);
+    if (!decision && onGateRefusal) {
+      const refusal = ghostDrawGateRefusal(extracted, scenario);
+      if (refusal) onGateRefusal(refusal);
+    }
+    return decision;
   } catch {
     return null;
   } finally {
