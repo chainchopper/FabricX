@@ -17,8 +17,13 @@
  * deliberation layer (GhostBrain.ts). The ghost's reflexes always
  * run on-device regardless; every ~10s of changed context the
  * ghost deliberates, and the tier picks the brain:
- * - "on-device": the distilled decision table decides locally. No
- *   network, instant, offline.
+ * - "on-device": the ghost thinks here. Since Slice 27 that means
+ *   this device's own downloaded model (WebLLM over WebGPU,
+ *   src/ai/onDeviceBrain.ts) deliberates when it is ready —
+ *   through the same validator and hard invariants as the cloud
+ *   consult — and the distilled decision table is the instant
+ *   floor underneath it, deciding whenever the model is absent
+ *   or answers nothing usable. No network, offline either way.
  * - "spark-cloud": the scenario is posted to the resolved cloud
  *   model through the same loader the composer uses (the user's
  *   saved model, else Fanalogy's build-time-locked cloud — see

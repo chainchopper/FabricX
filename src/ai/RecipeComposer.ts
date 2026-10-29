@@ -33,7 +33,10 @@
 import { getLLMService, type LLMConfig } from "../services/LLMService";
 import {
   composePattern,
+  deviceChat,
+  isDeviceBrainReady,
   loadLLMConfig,
+  noteDeviceBrainWanted,
   parsePatternJson,
   resolveLLMConfig,
   validatePattern,
@@ -134,8 +137,14 @@ export async function composeRecipe(
       }
       if (recipe) return recipe;
     } catch {
-      // LLM unreachable/misconfigured: degrade to built-ins below.
+      // LLM unreachable/misconfigured: degrade to the tiers below.
     }
+  }
+
+  // Slice 27: this device's own model draws next, when ready.
+  if (isDeviceBrainReady()) {
+    const deviceRecipe = await composeRecipeWithDevice(prompt);
+    if (deviceRecipe) return deviceRecipe;
   }
 
   return matchBuiltinRecipe(prompt);
@@ -170,22 +179,25 @@ const PERFORMANCE_SYSTEM_PROMPT = [
   'Request "show me a galaxy" -> {"kind":"recipe","recipe":{"version":2,"name":"Galaxy","seed":907,"steps":[{"shape":"spiral","cx":0.5,"cy":0.5,"scale":0.38,"hue":265,"durationMs":5200,"style":"draw"}],"pulse":{"bpm":38,"grouping":[1],"cycles":5,"intensity":0.7,"intensityCurve":"swell"}}}',
 ].join("\n");
 
-function parsePerformance(raw: unknown): ComposedResult | null {
+function parsePerformance(
+  raw: unknown,
+  source: "llm" | "device" = "llm"
+): ComposedResult | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
   if (obj.kind === "recipe") {
-    const recipe = validateRecipe(obj.recipe, "llm");
+    const recipe = validateRecipe(obj.recipe, source);
     return recipe ? { kind: "recipe", recipe } : null;
   }
   if (obj.kind === "pattern") {
-    const pattern = validatePattern(obj.pattern, "llm");
+    const pattern = validatePattern(obj.pattern, source);
     return pattern ? { kind: "pattern", pattern } : null;
   }
   // Tolerate a direct recipe or pattern object when the model omits
   // the wrapper; validation, not the wrapper, is the contract.
-  const recipe = validateRecipe(obj, "llm");
+  const recipe = validateRecipe(obj, source);
   if (recipe) return { kind: "recipe", recipe };
-  const pattern = validatePattern(obj, "llm");
+  const pattern = validatePattern(obj, source);
   return pattern ? { kind: "pattern", pattern } : null;
 }
 
@@ -231,13 +243,124 @@ async function composePerformanceWithModel(
  *   Fanalogy's built-in cloud), the model invents a pattern or a
  *   pulsed recipe from the full vocabulary (strictly validated,
  *   one repair);
- * - with no cloud (or after a failed model attempt), the generative
+ * - with no cloud answer, this device's own downloaded model
+ *   (Slice 27, WebLLM over WebGPU) invents next when it is ready —
+ *   same validation, a tightened prompt, and an honest "device"
+ *   source credit;
+ * - with no model at all (or after failed model attempts), the generative
  *   built-in performance templates answer performance families
  *   (heartbeat, breathing, rain, waves, gallop, sparkle, tide, galaxy);
  * - drawing prompts then take the Slice 15 recipe path and all other
  *   prompts the original Slice 4 pattern path, preserving their own
  *   built-in fallbacks.
  */
+/**
+ * The on-device tier's performance prompt (Slice 27): the cloud
+ * performance schema, tightened for a small local model — the
+ * JSON demand first, the vocabulary compressed, and the few-shot
+ * trimmed to the two strongest examples (heartbeat for pulse,
+ * galaxy for a single expressive shape). Free-form asks still get
+ * the full invention brief, in fewer words.
+ */
+const DEVICE_PERFORMANCE_SYSTEM_PROMPT = [
+  "You invent sensory performances for Fabric, a shared touch canvas.",
+  "INVENT one that expresses the request. Reply with ONLY one JSON object, no prose, no code fences, in one of these forms:",
+  '{"kind":"recipe","recipe":{"version":2,"name":string,"seed":integer,"steps":[recipe-step],"pulse":pulse}}',
+  '{"kind":"pattern","pattern":{"name":string,"steps":[pattern-step]}}',
+  "Recipe step: {shape: ring|spiral|line|arc|burst|heart, cx:0..1, cy:0..1, scale:0.05..0.5, hue:0..360, durationMs:400..6000, style: draw|pulse|burst}. At most 6 steps.",
+  "Optional pulse: {bpm:30..180, grouping:[clusters of 1..4 strikes], cycles:1..16, intensity:0..1, intensityCurve: steady|swell|fade|sine|lub-dub}. Use pulse when rhythm IS the request.",
+  "Pattern step: {atMs:0..16000, kind:verb|splat|haptic, intensity:0..1} plus verbId heart|cheer|tickle, or x,y,radius,hue, or hapticId tap|double-tap|heartbeat|wave|buzz.",
+  "Examples:",
+  'Request "lemme see your heartbeat" -> {"kind":"recipe","recipe":{"version":2,"name":"Heartbeat","seed":4102,"steps":[{"shape":"heart","cx":0.5,"cy":0.48,"scale":0.3,"hue":345,"durationMs":2400,"style":"pulse"}],"pulse":{"bpm":78,"grouping":[2,1],"cycles":6,"intensity":0.9,"intensityCurve":"lub-dub"}}}',
+  'Request "show me a galaxy" -> {"kind":"recipe","recipe":{"version":2,"name":"Galaxy","seed":907,"steps":[{"shape":"spiral","cx":0.5,"cy":0.5,"scale":0.38,"hue":265,"durationMs":5200,"style":"draw"}],"pulse":{"bpm":38,"grouping":[1],"cycles":5,"intensity":0.7,"intensityCurve":"swell"}}}',
+].join("\n");
+
+/**
+ * Compose a performance with this device's own model. Only
+ * called when the engine is already ready — never starts or
+ * waits on a download. One repair retry, then null.
+ */
+async function composePerformanceWithDevice(
+  prompt: string
+): Promise<ComposedResult | null> {
+  try {
+    const first = await deviceChat(
+      [
+        { role: "system", content: DEVICE_PERFORMANCE_SYSTEM_PROMPT },
+        { role: "user", content: `Interpret and perform: ${prompt}` },
+      ],
+      { temperature: 0.4, maxTokens: 640 }
+    );
+    let result = parsePerformance(parsePatternJson(first ?? ""), "device");
+    if (!result) {
+      const repair = await deviceChat(
+        [
+          { role: "system", content: DEVICE_PERFORMANCE_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content:
+              `Interpret and perform: ${prompt}\n` +
+              "Your previous reply was not a valid performance JSON object. Reply with ONLY the JSON object, exactly matching one of the two schemas.",
+          },
+        ],
+        { temperature: 0.25, maxTokens: 640 }
+      );
+      result = parsePerformance(parsePatternJson(repair ?? ""), "device");
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The on-device tier's drawing prompt: the cloud recipe schema,
+ * tightened the same way (JSON first, examples trimmed to the
+ * heart — the shape that must never be approximated).
+ */
+const DEVICE_RECIPE_SYSTEM_PROMPT = [
+  "You draw with smoke for Fabric, a shared touch canvas.",
+  "Reply with ONLY one JSON object. No prose, no code fences:",
+  '{"name": string, "seed": integer, "steps": [step, ...]}',
+  'Step: {"shape": ring|spiral|line|arc|burst|heart, "cx": 0..1, "cy": 0..1, "scale": 0.05..0.5, "hue": 0..360, "durationMs": int 400..6000, "style": "draw"|"pulse"|"burst"}',
+  "At most 4 steps, in order. Prefer 1-3 steps that ARE the request. A heart asked for is a heart step — never approximate a shape with another.",
+  'Example: "draw a heart" -> {"name":"Heart","seed":1234,"steps":[{"shape":"heart","cx":0.5,"cy":0.48,"scale":0.3,"hue":345,"durationMs":2600,"style":"draw"}]}',
+].join("\n");
+
+/** Compose a recipe with this device's own model (ready-only). */
+async function composeRecipeWithDevice(
+  prompt: string
+): Promise<Recipe | null> {
+  try {
+    const first = await deviceChat(
+      [
+        { role: "system", content: DEVICE_RECIPE_SYSTEM_PROMPT },
+        { role: "user", content: `Draw: ${prompt}` },
+      ],
+      { temperature: 0.3, maxTokens: 512 }
+    );
+    let recipe = validateRecipe(parsePatternJson(first ?? ""), "device");
+    if (!recipe) {
+      const repair = await deviceChat(
+        [
+          { role: "system", content: DEVICE_RECIPE_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content:
+              `Draw: ${prompt}\n` +
+              "Your previous reply was not valid recipe JSON. Reply with ONLY the JSON object, exactly matching the schema.",
+          },
+        ],
+        { temperature: 0.2, maxTokens: 512 }
+      );
+      recipe = validateRecipe(parsePatternJson(repair ?? ""), "device");
+    }
+    return recipe;
+  } catch {
+    return null;
+  }
+}
+
 export async function composeWithShapes(
   userPrompt: string
 ): Promise<ComposedResult | null> {
@@ -245,13 +368,17 @@ export async function composeWithShapes(
 }
 
 /** Which path a compose attempt walked (reported for the record). */
-export type ComposePath = "model" | "builtin";
+export type ComposePath = "model" | "device" | "builtin";
 
 export interface ComposeOutcome {
   result: ComposedResult | null;
   /**
-   * "model" when a cloud model was resolved (and tried first);
-   * "builtin" when the in-browser interpreter was the only path.
+   * The top tier a compose attempt walked: "model" when a cloud
+   * model was resolved (and tried first); "device" when no cloud
+   * resolved but this device's own downloaded model was ready
+   * (and tried); "builtin" when the in-browser interpreter was
+   * the only path. The result's own `source` always names who
+   * actually authored it — that is what the compose bar credits.
    * When result is null, Hotfix 2.4's living fallback answers
    * instead of any failure caption — the ghost's puzzlement or the
    * fabric's ripple — so the path is telemetry now, not wording.
@@ -270,10 +397,23 @@ export async function composeWithShapesDetailed(
   if (!prompt) return { result: null, path: "builtin" };
 
   const { config } = await resolveLLMConfig();
-  const path: ComposePath = config ? "model" : "builtin";
+  let path: ComposePath = config ? "model" : "builtin";
   if (config) {
     const invented = await composePerformanceWithModel(prompt, config);
     if (invented) return { result: invented, path };
+  }
+
+  // Slice 27: no cloud answer (or no cloud at all) — this device's
+  // own model invents next, when it is ready. When it is not ready
+  // and no cloud resolved, the want is noted once (the consent ask
+  // may rise in chrome) and the built-ins answer as always; no
+  // request ever waits on a download.
+  if (isDeviceBrainReady()) {
+    const deviceInvented = await composePerformanceWithDevice(prompt);
+    if (deviceInvented) return { result: deviceInvented, path: "device" };
+    if (!config) path = "device";
+  } else if (!config) {
+    noteDeviceBrainWanted();
   }
 
   const performance = matchBuiltinPerformance(prompt);

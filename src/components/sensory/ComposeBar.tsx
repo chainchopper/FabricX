@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, Text, TextInput, View } from "react-native";
+import { Animated, Platform, Pressable, Text, TextInput, View } from "react-native";
 import {
   FABRIC_COMPOSE_EVENT,
   FABRIC_COMPOSE_STATE_EVENT,
@@ -45,6 +45,15 @@ import { useComposeVoice } from "./useComposeVoice";
  * tilts its head at that one." Successful interpretations keep
  * their honest credits below.
  *
+ * Hotfix 2.5: the mic finally asks. Voice capture no longer
+ * depends on SpeechRecognition existing (Firefox never shipped
+ * it, so the button there could never even prompt) — the hook
+ * falls back to getUserMedia + MediaRecorder capture with
+ * transcription through the resolved endpoint, the mic button
+ * pulses while live, and a transcription in flight captions
+ * itself ("Heard you — turning it into words…"). A browser
+ * refusal is answered in-world, ghost puzzlement included.
+ *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
  *
@@ -57,9 +66,9 @@ export default function ComposeBar() {
   const [prompt, setPrompt] = useState("");
   const [composing, setComposing] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
-  const [source, setSource] = useState<"llm" | "builtin" | "ghost" | null>(
-    null
-  );
+  const [source, setSource] = useState<
+    "llm" | "builtin" | "ghost" | "device" | null
+  >(null);
   // Hotfix 2.4: the living fallback's caption state — the ghost's
   // name when the ghost performed its puzzlement, null when the
   // fabric itself rippled (no ghost able to act).
@@ -82,7 +91,10 @@ export default function ComposeBar() {
       ).detail;
       if (typeof detail === "string") {
         setSource(
-          detail === "llm" || detail === "builtin" || detail === "ghost"
+          detail === "llm" ||
+            detail === "builtin" ||
+            detail === "ghost" ||
+            detail === "device"
             ? detail
             : null
         );
@@ -118,6 +130,34 @@ export default function ComposeBar() {
   const submit = () => submitText(prompt);
   const voice = useComposeVoice(submitText);
 
+  // Hotfix 2.5: while the mic is live the button breathes — a
+  // voice state you can SEE, not a caption you have to read.
+  // (Universal capture means this now happens in Firefox too:
+  // getUserMedia asks, the button pulses, the bar listens.)
+  const micPulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!voice.listening) {
+      micPulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(micPulse, {
+          toValue: 0.45,
+          duration: 560,
+          useNativeDriver: true,
+        }),
+        Animated.timing(micPulse, {
+          toValue: 1,
+          duration: 560,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [voice.listening, micPulse]);
+
   const stop = () => {
     window.dispatchEvent(new CustomEvent(FABRIC_COMPOSE_STOP_EVENT));
   };
@@ -146,7 +186,9 @@ export default function ComposeBar() {
             justifyContent: "center",
           })}
         >
-          <Text style={{ fontSize: 17 }}>{voice.listening ? "●" : "🎤"}</Text>
+          <Animated.View style={{ opacity: micPulse }}>
+            <Text style={{ fontSize: 17 }}>{voice.listening ? "●" : "🎤"}</Text>
+          </Animated.View>
         </Pressable>
         <TextInput
           pointerEvents="auto"
@@ -194,7 +236,7 @@ export default function ComposeBar() {
           </Text>
         </Pressable>
       </View>
-      {voice.listening || voice.interim || voice.message ? (
+      {voice.listening || voice.busy || voice.interim || voice.message ? (
         <Text
           style={{
             color: voice.message ? "#fca5a5" : "#93c5fd",
@@ -205,16 +247,20 @@ export default function ComposeBar() {
           {voice.message ??
             (voice.interim
               ? `Hearing: ${voice.interim}`
-              : "Listening… speak your request")}
+              : voice.busy
+                ? "Heard you — turning it into words…"
+                : "Listening… speak your request")}
         </Text>
       ) : null}
       {source ? (
         <Text style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
           {source === "builtin"
             ? "Interpreted on-device."
-            : source === "ghost"
-              ? "Answered by your ghost, from its live state."
-              : "Interpreted by the cloud model."}
+            : source === "device"
+              ? "Interpreted on this device."
+              : source === "ghost"
+                ? "Answered by your ghost, from its live state."
+                : "Interpreted by the cloud model."}
         </Text>
       ) : null}
       {puzzled ? (

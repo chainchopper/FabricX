@@ -147,7 +147,7 @@ function normalizeEntry(raw: unknown): SavedComposition | null {
   if (e.kind === "recipe") {
     const rawRecipe = e.recipe as Record<string, unknown> | null;
     if (!rawRecipe || typeof rawRecipe !== "object") return null;
-    const source = rawRecipe.source === "builtin" ? "builtin" : "llm";
+    const source = rawRecipe.source === "builtin" ? "builtin" : rawRecipe.source === "device" ? "device" : "llm";
     const recipe = validateRecipe(rawRecipe, source);
     if (!recipe) return null;
     return {
@@ -161,7 +161,7 @@ function normalizeEntry(raw: unknown): SavedComposition | null {
   }
   const rawPattern = e.pattern as Record<string, unknown> | null;
   if (!rawPattern || typeof rawPattern !== "object") return null;
-  const source = rawPattern.source === "builtin" ? "builtin" : "llm";
+  const source = rawPattern.source === "builtin" ? "builtin" : rawPattern.source === "device" ? "device" : "llm";
   const pattern = validatePattern(rawPattern, source);
   if (!pattern) return null;
   return {
@@ -224,7 +224,7 @@ export async function saveComposition(input: {
   await ensureCompositionsLoaded();
   const pattern = validatePattern(
     input.pattern,
-    input.pattern?.source === "builtin" ? "builtin" : "llm"
+    input.pattern?.source === "builtin" ? "builtin" : input.pattern?.source === "device" ? "device" : "llm"
   );
   if (!pattern) return null;
   const prompt = (input.prompt || "").trim().slice(0, 280);
@@ -259,7 +259,7 @@ export async function saveRecipeComposition(input: {
   await ensureCompositionsLoaded();
   const recipe = validateRecipe(
     input.recipe,
-    input.recipe?.source === "builtin" ? "builtin" : "llm"
+    input.recipe?.source === "builtin" ? "builtin" : input.recipe?.source === "device" ? "device" : "llm"
   );
   if (!recipe) return null;
   const prompt = (input.prompt || "").trim().slice(0, 280);

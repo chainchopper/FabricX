@@ -1192,3 +1192,88 @@ export async function consultSparkBrain(
     if (timer) clearTimeout(timer);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* On-device model brain (Slice 27)                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The on-device tier's system prompt: the Spark deliberation
+ * contract, tightened for a small local model — same schema, same
+ * draw-gate law, fewer words, the JSON demand first. Everything
+ * after it (the primary's Personality note, the fabric note, the
+ * stamina note, the three few-shot pairs, the live scenario) is
+ * built by buildSparkMessages verbatim: the device model
+ * deliberates over the SAME context the cloud tier sees.
+ */
+const DEVICE_GHOST_SYSTEM_PROMPT = [
+  "You are the deliberation brain of a small ambient ghost on a shared touch canvas. The ghost never speaks; it acts only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
+  "Reply with ONLY one JSON object — no prose, no code fences:",
+  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
+  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
+].join("\n");
+
+/**
+ * The device consult's message list: buildSparkMessages with the
+ * tightened system prompt swapped in. Few-shot pairs, Personality,
+ * fabric and stamina notes ride unchanged — one contract, two
+ * brains.
+ */
+export function buildDeviceMessages(
+  scenario: GhostScenario,
+  personality?: string,
+  stamina?: number
+): GhostBrainChatMessage[] {
+  const messages = buildSparkMessages(scenario, personality, stamina);
+  if (messages.length && messages[0].role === "system") {
+    messages[0] = { role: "system", content: DEVICE_GHOST_SYSTEM_PROMPT };
+  }
+  return messages;
+}
+
+/**
+ * Consult this device's own model (WebLLM over WebGPU, reached
+ * through the injected chat fn). The mirror of consultSparkBrain:
+ * same scenario, same validator, same draw-gate refusal reporting,
+ * same timeout discipline — a late or invalid reply changes
+ * nothing, and the caller falls back to the distilled table,
+ * which remains the instant floor. Differences are the small
+ * model's budget: 256 max tokens (a decision is ~60), low
+ * temperature, and an 8s timeout — local inference on a 1B is
+ * slower than the cloud, and deliberation is asynchronous, so
+ * the ghost's reflexes never wait on either figure.
+ */
+export async function consultDeviceBrain(
+  scenario: GhostScenario,
+  chat: GhostBrainChatFn,
+  timeoutMs = 8_000,
+  personality?: string,
+  stamina?: number,
+  onGateRefusal?: (text: string) => void
+): Promise<GhostDecision | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    const reply = await Promise.race([
+      chat(buildDeviceMessages(scenario, personality, stamina), {
+        maxTokens: 256,
+        temperature: 0.2,
+      }),
+      timeout,
+    ]);
+    if (typeof reply !== "string") return null;
+    const extracted = extractDecisionJson(reply);
+    const decision = validateGhostDecision(extracted, scenario);
+    if (!decision && onGateRefusal) {
+      const refusal = ghostDrawGateRefusal(extracted, scenario);
+      if (refusal) onGateRefusal(refusal);
+    }
+    return decision;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}

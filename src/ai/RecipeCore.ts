@@ -135,7 +135,12 @@ export interface Recipe {
   pulse?: RecipePulse;
   /** Derived: max of the step total and the pulse performance. */
   durationMs: number;
-  source: "llm" | "builtin";
+  /**
+   * Who authored it: "llm" a cloud model, "device" this device's
+   * own downloaded model (Slice 27), "builtin" the in-browser
+   * interpreter. The compose bar credits each honestly.
+   */
+  source: "llm" | "builtin" | "device";
 }
 
 // ---------------------------------------------------------------------------

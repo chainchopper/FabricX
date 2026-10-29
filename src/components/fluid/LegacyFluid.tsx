@@ -59,6 +59,7 @@ import {
   setGhostPublicState,
   getGhostPublicState,
   FABRIC_PET_GHOST_EVENT,
+  FABRIC_VOICE_UNHEARD_EVENT,
   FABRIC_WARM_WELCOME_EVENT,
 } from "../../ghost/ghostStore";
 import {
@@ -955,6 +956,21 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     return () => window.removeEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
   }, []);
 
+  // Hotfix 2.5: the browser refused the compose bar's microphone.
+  // The moment gets the same living answer as an unshapeable ask
+  // (Hotfix 2.4) — the ghost's puzzlement, its curious ear-tilt —
+  // when a ghost is present to perform it. expressPuzzlement is
+  // presence-gated and budget-counted like any act; with no ghost
+  // out, the bar's caption carries the moment alone.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onVoiceUnheard = () => {
+      ghostRef.current.expressPuzzlement();
+    };
+    window.addEventListener(FABRIC_VOICE_UNHEARD_EVENT, onVoiceUnheard);
+    return () => window.removeEventListener(FABRIC_VOICE_UNHEARD_EVENT, onVoiceUnheard);
+  }, []);
+
   // ---- Pattern composer (Slice 4) --------------------------------------
   // The HUD's ComposeBar dispatches FABRIC_COMPOSE_EVENT with a
   // plain-language prompt. Composition lives here because this
@@ -1175,7 +1191,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       if (!raw || typeof raw !== "object") return;
       const recipe = validateRecipe(
         raw,
-        raw.source === "builtin" ? "builtin" : "llm"
+        raw.source === "builtin"
+          ? "builtin"
+          : raw.source === "device"
+            ? "device"
+            : "llm"
       );
       if (!recipe) return;
       playRecipeRef.current(recipe, {

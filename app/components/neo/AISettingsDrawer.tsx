@@ -29,6 +29,7 @@ import {
   getBuiltinCloudConfig,
   hasBuiltinCloud,
 } from "../../../src/ai/PatternComposer";
+import OnDeviceBrainCard from "../fabric/OnDeviceBrainCard";
 
 
 const STORAGE_KEY = "fabric_ai_config_v1";
@@ -455,6 +456,15 @@ export default function AISettingsDrawer() {
                   </View>
                 );
               })()}
+
+              {/* Slice 27: the real on-device tier — a WebLLM model
+                  that runs in this browser over WebGPU. Its state,
+                  its model picker and its one explicit Download
+                  live in the shared card (the same one Your Ghostie
+                  carries — one brain, one surface). It sits ABOVE
+                  the cloud fields on purpose: the device is the
+                  default story, the cloud below is the opt-in. */}
+              <OnDeviceBrainCard />
 
               {/* Enable Toggle */}
               <Pressable

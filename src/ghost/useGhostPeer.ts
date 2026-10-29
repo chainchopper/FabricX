@@ -29,9 +29,13 @@
  * - Brain routing (Ghost Brain build): the peer's deliberation hook
  *   fires with a scenario snapshot whenever context meaningfully
  *   changed (10s floor); this hook routes it by the user's tier
- *   preference (fabric_ghost_brain_v1). On-device (default): the
- *   distilled decision table in GhostBrain.ts decides locally — no
- *   network. Spark-cloud (opt-in): the scenario goes to the AI
+ *   preference (fabric_ghost_brain_v1). On-device (default): when
+ *   this device has downloaded its own model (Slice 27, WebLLM
+ *   over WebGPU) the model deliberates through the same validator
+ *   as the cloud consult; the distilled decision table in
+ *   GhostBrain.ts is the instant floor underneath it and decides
+ *   whenever the model is absent or answers nothing usable — no
+ *   network either way. Spark-cloud (opt-in): the scenario goes to the AI
  *   Services configured model through the composer's own loader
  *   (loadLLMConfig + LLMService); the reply is validated against the
  *   dataset decision contract, and an invalid/failed/slow reply
@@ -76,6 +80,7 @@ import {
 import {
   applyPersonalityBias,
   applyStaminaBias,
+  consultDeviceBrain,
   consultSparkBrain,
   decideOnDevice,
   parseGhostPersonality,
@@ -84,6 +89,11 @@ import {
   type GhostFabricContext,
   type GhostScenario,
 } from "./GhostBrain";
+import {
+  isOnDeviceBrainReady,
+  noteBrainWanted,
+  onDeviceChat,
+} from "../ai/onDeviceBrain";
 import { ghostToolRefusal } from "./ghostTools";
 import type { Recipe } from "../ai/RecipeCore";
 import { computeGhostVitals } from "./ghostVitals";
@@ -341,7 +351,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         // the validator's identical refusal.
         const applyGated = (
           decision: GhostDecision,
-          source: "spark" | "table",
+          source: "spark" | "table" | "device",
           tierLabel: string,
           suffix: string
         ): void => {
@@ -424,6 +434,61 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
             });
           }
           return;
+        }
+        // Slice 27: the on-device tier grows its real brain. When
+        // this device has downloaded its own model (WebLLM over
+        // WebGPU) and it is ready, the model deliberates with the
+        // same scenario, the same validator and the same hard
+        // invariants as the Spark consult — Personality and stamina
+        // ride as context, exactly as on the cloud tier. The
+        // distilled table remains the instant floor: it decides
+        // whenever the model is absent, still downloading, or
+        // returns nothing usable, so a deliberation is never left
+        // unanswered and reflexes never wait. When the model is
+        // not here at all, the want is noted — a deliberation is a
+        // feature wanting the brain, and the one-time consent ask
+        // may rise in chrome.
+        if (isOnDeviceBrainReady()) {
+          let deviceGateRefusal: string | null = null;
+          const deviceDecision = await consultDeviceBrain(
+            scenario,
+            (messages, opts) =>
+              onDeviceChat(messages, opts).then((t) => t ?? ""),
+            8_000,
+            personality,
+            stamina,
+            (text) => {
+              deviceGateRefusal = text;
+            }
+          );
+          if (deviceDecision) {
+            applyGated(
+              deviceDecision,
+              "device",
+              "On-device model",
+              (personality ? " · personality heard" : "") +
+                (stamina < STAMINA_TIRED_BELOW
+                  ? ` · stamina ${stamina} — rest favored`
+                  : "")
+            );
+            return;
+          }
+          if (deviceGateRefusal) {
+            // The fabric's gate refused the model's reply — the
+            // line says that, and (unlike a plain failure) the
+            // table does not silently override the fabric's law
+            // with a second opinion this round.
+            publishBrain({
+              source: "device",
+              tierLabel: "On-device model",
+              lastText: deviceGateRefusal,
+              lastAt: Date.now(),
+            });
+            return;
+          }
+          // No usable reply: fall through to the table floor.
+        } else {
+          noteBrainWanted();
         }
         const raw = decideOnDevice(scenario).decision;
         const { decision, suffix } = withBiases(raw);

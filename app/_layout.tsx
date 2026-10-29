@@ -47,6 +47,7 @@ import FabricAnchor from "./components/fabric/FabricAnchor";
 import FabricMenu from "./components/fabric/FabricMenu";
 import FabricSessionFollower from "./components/fabric/FabricSessionFollower";
 import RewardsFeed from "./components/fabric/RewardsFeed";
+import BrainChrome from "./components/fabric/BrainChrome";
 import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
 import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
@@ -121,6 +122,12 @@ function ChromeLayer() {
       {/* Slice 24: the rewards feed + the badge-earned toast.
           Headless; renders nothing and never touches the canvas. */}
       <RewardsFeed />
+      {/* Slice 27: the on-device brain's chrome — the one-time
+          consent ask and the slim download-progress chip. Renders
+          nothing at all unless the ask is up or a download is in
+          flight; the chip is pointerEvents="none" and the canvas
+          never waits on the brain. */}
+      <BrainChrome />
       <ExperienceHUD />
       <ConnectionBadge />
       <FabricAnchor />
