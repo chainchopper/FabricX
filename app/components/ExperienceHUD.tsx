@@ -4,7 +4,6 @@ import { useExperience } from "../context/ExperienceContext";
 import { useAR } from "../context/ARContext";
 import { useMIDI } from "../../src/hooks/useMIDI";
 import { getAudioReactive } from "../../src/shared/utils/audioReactive";
-import VerbBar from "../../src/components/sensory/VerbBar";
 import ComposeBar from "../../src/components/sensory/ComposeBar";
 import { useFabricChrome } from "./fabric/FabricChromeContext";
 import PianoKeyboard from "./PianoKeyboard";
@@ -33,7 +32,7 @@ import {
  * same corner. Now the collapsed state is exactly ONE cluster, bottom
  * center, holding only the loaded layer's own controls:
  *
- *   layer label + live status · Heart / Cheer / Tickle · Compose
+ *   layer label + live status · Compose
  *
  * (The ghost pill that once closed the list was retired in
  * Cleanup 2 — the ghostie's surface is its ID card / Ghostie Home,
@@ -44,10 +43,15 @@ import {
  * (FabricChromeContext) and stops receiving touches while faded, so
  * the canvas is the only thing on screen — touch anywhere restores.
  *
- * All wiring is unchanged: VerbBar / ComposeBar still talk to the
- * single persistent canvas through their window events (and so do
- * the ghost's menu controls, which dispatch the very events the
- * retired chip used to send from here).
+ * All wiring is unchanged: ComposeBar still talks to the single
+ * persistent canvas through its window events. Verbs arrive through
+ * the same FABRIC_VERB_EVENT they always did underneath — but since
+ * Hotfix 2.8 they are dispatched by the ask bar's ghost route, by
+ * held hand signs, and by profile-card hearts, never by a button
+ * row here: Terrell's Oct 28 call stands — preset verb buttons are
+ * "boring macros"; in Fabric you ASK for a verb, sign it, or send
+ * it to a person, and the ghost performs its own. The VerbBar
+ * component is retired (src/components/sensory/VerbBar.tsx).
  *
  * Mount point (the tappability fix): this cluster is rendered by
  * _layout's ChromeLayer as a direct child of the root view — NOT from
@@ -127,7 +131,15 @@ export default function ExperienceHUD() {
       <View
         pointerEvents="box-none"
         style={{
-          backgroundColor: colors.panel,
+          // Hotfix 2.8 (piano transparency): on the piano layer this
+          // cluster carries the keys themselves, so it floats over
+          // the instrument on the translucent glass token — the
+          // fluid and the camera show through around the keys
+          // instead of a near-opaque slab sitting on the piano. The
+          // keys' own paint stays near-opaque (PianoKeyboard): they
+          // are the playable surface and must read at a glance. Every
+          // other layer keeps the standard panel.
+          backgroundColor: isARPiano ? colors.panelGlass : colors.panel,
           borderColor: colors.line,
           borderWidth: 1,
           borderRadius: radius.sheet,
@@ -232,8 +244,15 @@ export default function ExperienceHUD() {
           </Pressable>
         ) : null}
 
-        {/* Sensory verbs: send a Heart / Cheer / Tickle peers can feel. */}
-        <VerbBar />
+        {/* The sensory-verb button row (Heart / Cheer / Tickle)
+            used to sit here. Hotfix 2.8 removed it — the row was a
+            stale macro bar: verbs are asked for in the compose bar
+            below ("tickle, Boop" — the ghost performs it; a bare
+            "cheer" composes as a verb-step performance), signed
+            (✌ / 👍 with Hands on), or sent to a person from their
+            profile card. Every one of those rides the same
+            FABRIC_VERB_EVENT funnel this row fed, so no capability
+            left with it. VerbBar.tsx is retired, not deleted. */}
         {/* Pattern composer (Slice 4): describe a feeling, Spark composes
             a pattern the whole session plays. */}
         <ComposeBar />

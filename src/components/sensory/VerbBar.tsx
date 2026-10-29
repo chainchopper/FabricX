@@ -1,3 +1,22 @@
+/**
+ * RETIRED — Hotfix 2.8. Do not mount.
+ *
+ * This was the Heart / Cheer / Tickle button row in ExperienceHUD's
+ * bottom cluster (its only mount). Terrell's field report, Oct 29:
+ * "that ui with heart cheer and tickle on it is stale as we don't
+ * use that anymore" — his Oct 28 direction was that preset verb
+ * buttons are "boring macros." Verbs in Fabric happen by ASKING
+ * (the compose bar: "tickle, Boop" is performed by the ghost
+ * itself; a bare "cheer" composes as a verb-step performance), by
+ * hand SIGNS (Slice 28: ✌ cheer, 👍 heart), and from a person's
+ * profile card ("Send a heart") — and every one of those paths
+ * dispatches the same FABRIC_VERB_EVENT this bar dispatched, into
+ * the same LegacyFluid listener, through the same session gates.
+ * Only the canned row is gone; no capability left with it. This
+ * file is kept for reference and history, per house rule (marked
+ * retired, not deleted); nothing imports it.
+ */
+
 import React from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { FABRIC_VERB_EVENT, SENSORY_VERBS, type SensoryVerb } from "../../sensory/verbs";

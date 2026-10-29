@@ -20,6 +20,15 @@ export const colors = {
   ink: "#05080A",
   /** Floating chrome panels over the canvas. */
   panel: "rgba(10,16,20,0.82)",
+  /**
+   * Translucent panel for chrome that floats over an instrument
+   * (Hotfix 2.8: the piano layer's HUD cluster carries the keys, so
+   * the panel behind them goes glass — the fluid shows through
+   * around the instrument instead of a slab sitting on it). Text
+   * rides the same colors as `panel`; the instrument's own paint
+   * stays near-opaque for legibility.
+   */
+  panelGlass: "rgba(10,16,20,0.5)",
   /** Drawer / sheet surfaces (near-opaque; sheets carry the one blur). */
   sheet: "rgba(8,12,15,0.96)",
   /** Hairline border on panels and rows. */
