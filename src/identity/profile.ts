@@ -27,13 +27,23 @@
  *   never a fake label. The rewards store itself is a later
  *   slice; senders report what exists (usually nothing yet).
  *
- * Pure and dependency-light (fdna only) so the node check
- * exercises it directly.
+ * Slice 22 extends the same wire with the ghostie's ID-card
+ * facts (GhostCardExtras): the primary's published permissions
+ * (ghostPermissions.ts), the Personality text ONLY when its
+ * primary made it public, and the sender-computed vitals
+ * readings (ghostVitals.ts). Same discipline throughout: every
+ * field optional, sanitized on arrival, absent means unknown —
+ * never invented.
+ *
+ * Pure and dependency-light (fdna + the ghost modules' pure
+ * cores) so the node check exercises it directly.
  *
  * Powered by Nirvana
  */
 
 import { deriveFdnaTag } from "./fdna";
+import { sanitizePersonalityText } from "../ghost/GhostBrain";
+import type { GhostPermissions } from "../ghost/ghostPermissions";
 
 /* ------------------------------------------------------------------ */
 /* The secure tag                                                      */
@@ -69,11 +79,75 @@ export interface PeerProfileExtras {
   /** Secure tag (one-way fDNA fingerprint of the sender's ghost seed). */
   tag?: string;
   /** The sender's ghostie, as its primary lets the room know it. */
-  ghost?: { name: string; temperament?: string };
+  ghost?: { name: string; temperament?: string; hue?: number };
   /** Earned badge ids (public by design; the store stays home). */
   badges?: string[];
   /** Equipped ghostie trail style id (rewards design), if any. */
   trail?: string;
+  /** The ghostie's ID-card facts (Slice 22) — see GhostCardExtras. */
+  ghostCard?: GhostCardExtras;
+}
+
+/**
+ * The ghostie's published ID-card facts (Slice 22). Everything
+ * here is something the ghostie's PRIMARY chose to publish (the
+ * fabric_ghost_permissions_v1 switches) or a reading the sender's
+ * own device computed from its ghost's real state:
+ *
+ * - shareable / tradeable: the primary's flags, displayed as set.
+ *   Tradeable is a flag only — trading opens with the marketplace.
+ * - personalityPublic + personality: the Personality text rides
+ *   ONLY when the primary made it public; a private personality
+ *   never appears in the payload at all (the check asserts the
+ *   string's absence, not just a flag).
+ * - vitals: Health/Stamina/Vigor as the sender computed them
+ *   (ghostVitals.ts), clamped 0–100. Absent means "not computed
+ *   yet" — a receiving card says the readings arrive with the
+ *   ghostie's next announce and never invents numbers.
+ */
+export interface GhostCardExtras {
+  shareable?: boolean;
+  tradeable?: boolean;
+  personalityPublic?: boolean;
+  personality?: string;
+  vitals?: { h: number; s: number; v: number };
+}
+
+const clampVital = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v)
+    ? Math.round(Math.min(100, Math.max(0, v)))
+    : null;
+
+/**
+ * Validate a ghostCard arriving on the wire, field by field —
+ * same untrusted-input discipline as the rest of the extras.
+ * The personality text is honored ONLY alongside a true
+ * personalityPublic (a payload claiming the text while denying
+ * the permission is treated as private), and passes through the
+ * brain's own sanitizer (280-char cap).
+ */
+export function sanitizeGhostCard(raw: unknown): GhostCardExtras | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const src = raw as Record<string, unknown>;
+  const out: GhostCardExtras = {};
+  if (typeof src.shareable === "boolean") out.shareable = src.shareable;
+  if (typeof src.tradeable === "boolean") out.tradeable = src.tradeable;
+  if (typeof src.personalityPublic === "boolean") {
+    out.personalityPublic = src.personalityPublic;
+  }
+  if (out.personalityPublic === true) {
+    const text = sanitizePersonalityText(src.personality);
+    if (text) out.personality = text;
+  }
+  const vitals = src.vitals;
+  if (vitals && typeof vitals === "object") {
+    const vr = vitals as Record<string, unknown>;
+    const h = clampVital(vr.h);
+    const s = clampVital(vr.s);
+    const v = clampVital(vr.v);
+    if (h !== null && s !== null && v !== null) out.vitals = { h, s, v };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Temperaments a ghost can actually have (GhostPeer's set). */
@@ -127,6 +201,14 @@ export function sanitizePeerExtras(raw: unknown): PeerProfileExtras {
       ) {
         out.ghost.temperament = g.temperament;
       }
+      if (
+        typeof g.hue === "number" &&
+        Number.isFinite(g.hue) &&
+        g.hue >= 0 &&
+        g.hue < 360
+      ) {
+        out.ghost.hue = Math.round(g.hue);
+      }
     }
   }
   const badges = sanitizeBadgeIds(src.badges);
@@ -134,12 +216,18 @@ export function sanitizePeerExtras(raw: unknown): PeerProfileExtras {
   if (typeof src.trail === "string" && BADGE_ID_PATTERN.test(src.trail)) {
     out.trail = src.trail;
   }
+  const ghostCard = sanitizeGhostCard(src.ghostCard);
+  if (ghostCard) out.ghostCard = ghostCard;
   return out;
 }
 
 export function hasPeerExtras(extras: PeerProfileExtras): boolean {
   return Boolean(
-    extras.tag || extras.ghost || extras.badges?.length || extras.trail
+    extras.tag ||
+      extras.ghost ||
+      extras.badges?.length ||
+      extras.trail ||
+      extras.ghostCard
   );
 }
 
@@ -151,8 +239,20 @@ export interface AnnounceExtrasInputs {
   identitySeed: number;
   ghostName: string | null;
   temperament: string | null;
+  /** The ghost's OWN hue (Slice 22) — its portrait color on cards. */
+  ghostHue?: number | null;
   badges: readonly string[];
   trail: string | null;
+  /**
+   * The ghostie's card facts (Slice 22): the primary's published
+   * permissions, their Personality text (included ONLY when they
+   * made it public), and this device's computed vitals readings.
+   */
+  ghostCard?: {
+    permissions: GhostPermissions;
+    personality: string;
+    vitals: { h: number; s: number; v: number } | null;
+  } | null;
 }
 
 /**
@@ -174,11 +274,40 @@ export function buildAnnounceExtras(
     if (input.temperament && GHOST_TEMPERAMENTS.has(input.temperament)) {
       extras.ghost.temperament = input.temperament;
     }
+    if (
+      typeof input.ghostHue === "number" &&
+      Number.isFinite(input.ghostHue) &&
+      input.ghostHue >= 0 &&
+      input.ghostHue < 360
+    ) {
+      extras.ghost.hue = Math.round(input.ghostHue);
+    }
   }
   const badges = sanitizeBadgeIds([...input.badges]);
   if (badges.length > 0) extras.badges = badges;
   if (input.trail && BADGE_ID_PATTERN.test(input.trail)) {
     extras.trail = input.trail;
+  }
+  if (input.ghostCard) {
+    const { permissions, personality, vitals } = input.ghostCard;
+    const card: GhostCardExtras = {
+      shareable: permissions.shareable === true,
+      tradeable: permissions.tradeable === true,
+      personalityPublic: permissions.personalityPublic === true,
+    };
+    // The Personality text is published ONLY under its switch —
+    // a private personality's words never enter the payload.
+    if (card.personalityPublic) {
+      const text = sanitizePersonalityText(personality);
+      if (text) card.personality = text;
+    }
+    if (vitals) {
+      const h = clampVital(vitals.h);
+      const s = clampVital(vitals.s);
+      const v = clampVital(vitals.v);
+      if (h !== null && s !== null && v !== null) card.vitals = { h, s, v };
+    }
+    extras.ghostCard = card;
   }
   return extras;
 }
@@ -288,6 +417,17 @@ export function trailLabel(id: string): string {
  * plus the viewer's local session context (the fabric line and
  * the role line are the VIEWER's knowledge, never wire claims).
  */
+/** The ghostie's published card facts, normalized for rendering (Slice 22). */
+export interface GhostCardData {
+  shareable: boolean;
+  tradeable: boolean;
+  personalityPublic: boolean;
+  /** The Personality text — present ONLY when published. */
+  personality: string | null;
+  /** Sender-computed readings; null until their ghostie's announce carries them. */
+  vitals: { h: number; s: number; v: number } | null;
+}
+
 export interface ProfileCardData {
   peerId: string;
   isSelf: boolean;
@@ -296,7 +436,9 @@ export interface ProfileCardData {
   /** Announced signature hue; null when it hasn't landed yet. */
   hue: number | null;
   tag: string | null;
-  ghost: { name: string; temperament: string | null } | null;
+  ghost: { name: string; temperament: string | null; hue: number | null } | null;
+  /** The ghostie's ID-card facts (Slice 22); null when none announced. */
+  ghostCard: GhostCardData | null;
   /** Where this person is, as the viewer's session state knows it. */
   fabricLine: string;
   /** Host / driving / guest / here — viewer-side session knowledge. */
@@ -330,6 +472,19 @@ export function buildProfileCardData(args: {
       ? {
           name: extras.ghost.name,
           temperament: extras.ghost.temperament ?? null,
+          hue: extras.ghost.hue ?? null,
+        }
+      : null,
+    ghostCard: extras.ghostCard
+      ? {
+          shareable: extras.ghostCard.shareable === true,
+          tradeable: extras.ghostCard.tradeable === true,
+          personalityPublic: extras.ghostCard.personalityPublic === true,
+          personality:
+            extras.ghostCard.personalityPublic === true
+              ? (extras.ghostCard.personality ?? null)
+              : null,
+          vitals: extras.ghostCard.vitals ?? null,
         }
       : null,
     fabricLine: args.fabricLine,

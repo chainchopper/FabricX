@@ -67,12 +67,15 @@ import {
 } from "./GhostPeer";
 import {
   applyPersonalityBias,
+  applyStaminaBias,
   consultSparkBrain,
   decideOnDevice,
   parseGhostPersonality,
+  STAMINA_TIRED_BELOW,
   type GhostDecision,
   type GhostScenario,
 } from "./GhostBrain";
+import { computeGhostVitals } from "./ghostVitals";
 import { getGhostBrainTier } from "./ghostBrainPref";
 import { getGhostPersonality } from "./ghostPersonalityPref";
 import { subscribeGhostSharedSettings } from "./ghostSharedPref";
@@ -250,11 +253,56 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     setGhostPublicState({ brain: status });
   };
 
+  // Vitals (Slice 22): the card's readings, computed from the
+  // peer's live journals and published to the ghost store. Deduped
+  // by value — a reading that hasn't moved doesn't re-render the
+  // room. Refreshed on an interval, at birth, and at every
+  // deliberation (the moments the inputs actually change).
+  const vitalsKeyRef = useRef("");
+  const publishVitals = useCallback((): void => {
+    const peer = peerRef.current;
+    if (!peer) return;
+    try {
+      const v = computeGhostVitals(peer.getVitalsSnapshot());
+      const key = `${v.health}|${v.stamina}|${v.vigor}|${v.why.health}|${v.why.stamina}|${v.why.vigor}`;
+      if (key === vitalsKeyRef.current) return;
+      vitalsKeyRef.current = key;
+      setGhostPublicState({ vitals: v });
+    } catch {
+      // Vitals must never hurt the ghost; the card reads "not yet".
+    }
+  }, []);
+  const publishVitalsRef = useRef(publishVitals);
+  publishVitalsRef.current = publishVitals;
+  const vitalsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const routeDeliberation = useCallback(
     async (scenario: GhostScenario): Promise<void> => {
       const peer = peerRef.current;
       if (!peer || !enabledRef.current) return;
       try {
+        // Stamina (Slice 22): the ghost's energy reading, computed
+        // from the same snapshot the card shows. On the table paths
+        // it biases the decision toward rest when drained (named
+        // in the brain line, like Personality); on the Spark path
+        // it rides as plain-words context. A bias, never a budget.
+        publishVitalsRef.current();
+        const stamina = computeGhostVitals(peer.getVitalsSnapshot()).stamina;
+        const withBiases = (raw: GhostDecision) => {
+          const p = applyPersonalityBias(raw, scenario, traits);
+          const st = applyStaminaBias(p.decision, stamina);
+          const notes: string[] = [];
+          if (p.steeredBy.length) {
+            notes.push(`personality: ${p.steeredBy.join("; ")}`);
+          }
+          if (st.steeredBy.length) {
+            notes.push(`stamina: ${st.steeredBy.join("; ")}`);
+          }
+          return {
+            decision: st.decision,
+            suffix: notes.length ? ` · ${notes.join(" · ")}` : "",
+          };
+        };
         // Personality (Slice 20): the primary's words for their
         // ghostie, read fresh each deliberation (at most 1/10s).
         // On the Spark tier they ride as context in the consult;
@@ -273,20 +321,12 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
             // published state is simply the on-device brain at work
             // (Cleanup 2) — never a complaint about a missing key.
             const raw = decideOnDevice(scenario).decision;
-            const { decision, steeredBy } = applyPersonalityBias(
-              raw,
-              scenario,
-              traits
-            );
+            const { decision, suffix } = withBiases(raw);
             peerRef.current?.applyBrainDecision(decision, "table");
             publishBrain({
               source: "table",
               tierLabel: "On-device brain",
-              lastText:
-                describeDecision(decision) +
-                (steeredBy.length
-                  ? ` · personality: ${steeredBy.join("; ")}`
-                  : ""),
+              lastText: describeDecision(decision) + suffix,
               lastAt: Date.now(),
             });
             return;
@@ -297,7 +337,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
             (messages, opts) =>
               service.chat(messages, opts).then((r) => r.text),
             6_000,
-            personality
+            personality,
+            stamina
           );
           if (decision) {
             peerRef.current?.applyBrainDecision(decision, "spark");
@@ -306,7 +347,10 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
               tierLabel: "Spark",
               lastText:
                 describeDecision(decision) +
-                (personality ? " · personality heard" : ""),
+                (personality ? " · personality heard" : "") +
+                (stamina < STAMINA_TIRED_BELOW
+                  ? ` · stamina ${stamina} — rest favored`
+                  : ""),
               lastAt: Date.now(),
             });
           } else {
@@ -321,20 +365,12 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
           return;
         }
         const raw = decideOnDevice(scenario).decision;
-        const { decision, steeredBy } = applyPersonalityBias(
-          raw,
-          scenario,
-          traits
-        );
+        const { decision, suffix } = withBiases(raw);
         peerRef.current?.applyBrainDecision(decision, "table");
         publishBrain({
           source: "table",
           tierLabel: "On-device table",
-          lastText:
-            describeDecision(decision) +
-            (steeredBy.length
-              ? ` · personality: ${steeredBy.join("; ")}`
-              : ""),
+          lastText: describeDecision(decision) + suffix,
           lastAt: Date.now(),
         });
       } catch {
@@ -371,7 +407,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
       setIdentity(id);
       setEnabled(en);
       if (!pref?.identity) persist(en, id);
-      setGhostPublicState({ enabled: en, ghostName: id.name });
+      setGhostPublicState({ enabled: en, ghostName: id.name, ghostHue: id.hue });
 
       const peer = new GhostPeer({
         peerId: ghostPeerIdFor(options.ownerId),
@@ -411,9 +447,21 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
       peer.setHumansPresent(humanPeersRef.current > 0);
       setGhostPublicState({ temperament: peer.getTemperament() });
       peerRef.current = peer;
+      // Vitals (Slice 22): first reading at birth, then a slow
+      // refresh — the inputs drift (rest accrues, journals age)
+      // even when nothing deliberates.
+      publishVitalsRef.current();
+      vitalsTimerRef.current = setInterval(
+        () => publishVitalsRef.current(),
+        5_000
+      );
     })();
     return () => {
       cancelled = true;
+      if (vitalsTimerRef.current) {
+        clearInterval(vitalsTimerRef.current);
+        vitalsTimerRef.current = null;
+      }
       peerRef.current?.destroy();
       peerRef.current = null;
     };

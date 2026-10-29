@@ -44,6 +44,16 @@
  *    defaults are all on, so an untouched ghostie behaves exactly
  *    as it always has.
  *
+ * Slice 22 extends the Home: its header IS the ghostie's ID
+ * card (tap → the full card overlay in IdCards.tsx: portrait,
+ * VITALS with their one-line WHYs, published permissions), the
+ * Personality panel gains the PUBLIC switch for the words, and
+ * a "{NAME}'S ID CARD" section carries Shareable / Tradeable.
+ * Those three live in fabric_ghost_permissions_v1 and default
+ * OFF — publication is opt-in, the opposite posture from the
+ * shared settings above, because they govern what leaves the
+ * device.
+ *
  * Terminology: the human is the ghostie's PRIMARY. Never "owner".
  * The Personality field is never called anything else.
  *
@@ -94,7 +104,18 @@ import {
   updateGhostSharedSettings,
   useGhostSharedSettings,
 } from "../../../src/ghost/ghostSharedPref";
+import {
+  updateGhostPermissions,
+  useGhostPermissions,
+} from "../../../src/ghost/ghostPermissionsPref";
 import { GHOST_PREF_KEY } from "../../../src/ghost/useGhostPeer";
+import {
+  ensureLocalProfileExtras,
+  refreshLocalGhostCardInputs,
+  subscribeLocalProfileExtras,
+} from "../../../src/identity/profileStore";
+import { trailLabel } from "../../../src/identity/profile";
+import { GhostiePortrait } from "./IdCards";
 import { getJSON } from "../../utils/storage";
 
 const GRID_STEP_MS = 300;
@@ -171,10 +192,28 @@ function brainAge(lastAt: number | null, now: number): string {
   return `${Math.floor(s / 60)}m ago`;
 }
 
-export default function GhostieHome({ onBack }: { onBack: () => void }) {
+export default function GhostieHome({
+  onBack,
+  onOpenGhostieCard,
+}: {
+  onBack: () => void;
+  /**
+   * Slice 22: the Home's header IS the ghostie's ID card — tapping
+   * it opens the full card overlay (portrait, permissions, vitals).
+   */
+  onOpenGhostieCard?: () => void;
+}) {
   const identity = useIdentitySnapshot();
   const self = identity.self;
   const shared = useGhostSharedSettings();
+  const permissions = useGhostPermissions();
+
+  // The ghostie's equipped trail (rewards state, local extras).
+  const [trail, setTrail] = useState<string | null>(null);
+  useEffect(() => {
+    ensureLocalProfileExtras();
+    return subscribeLocalProfileExtras((extras) => setTrail(extras.trail));
+  }, []);
 
   const [ghost, setGhost] = useState<GhostPublicState>(() =>
     getGhostPublicState()
@@ -310,7 +349,11 @@ export default function GhostieHome({ onBack }: { onBack: () => void }) {
   }, []);
   const savePersonality = () => {
     if (!personalityLoaded) return;
-    void setGhostPersonality(personalityDraft);
+    void setGhostPersonality(personalityDraft).then(() => {
+      // Slice 22: a public personality reaches the room's cards
+      // with the next announce, not the next app load.
+      refreshLocalGhostCardInputs();
+    });
   };
   const reading = useMemo(
     () => parseGhostPersonality(personalityDraft),
@@ -357,6 +400,75 @@ export default function GhostieHome({ onBack }: { onBack: () => void }) {
         </Text>
       ) : (
         <>
+          {/* ---------- Slice 22: the header IS the ID card ---------- */}
+          <Pressable
+            pointerEvents="auto"
+            onPress={onOpenGhostieCard}
+            disabled={!onOpenGhostieCard}
+            accessibilityRole={onOpenGhostieCard ? "button" : undefined}
+            accessibilityLabel={
+              onOpenGhostieCard
+                ? `Open ${ghostName}'s ID card`
+                : undefined
+            }
+            style={({ pressed }) => ({
+              borderWidth: 1,
+              borderColor: colors.ghostLine,
+              borderRadius: radius.card,
+              padding: spacing.sm,
+              marginBottom: spacing.md,
+              backgroundColor: pressed ? colors.ghostDim : "transparent",
+            })}
+          >
+            <View style={{ flexDirection: "row", gap: spacing.sm }}>
+              <View style={{ width: 112 }}>
+                <GhostiePortrait
+                  compact
+                  hue={ghost.ghostHue}
+                  temperament={ghost.temperament}
+                  presence={ghost.presence}
+                  trail={trail}
+                />
+              </View>
+              <View style={{ flex: 1, justifyContent: "center" }}>
+                <Text style={{ color: colors.text, fontSize: typeScale.label, fontWeight: "700" }}>
+                  {ghostName}
+                  {ghost.temperament ? (
+                    <Text style={{ color: colors.ghost, fontSize: typeScale.body }}>
+                      {"  ·  "}
+                      {ghost.temperament}
+                    </Text>
+                  ) : null}
+                </Text>
+                <Text style={{ color: colors.ghost, fontSize: typeScale.caption, marginTop: 2 }}>
+                  {tag ?? "…"}
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+                  {ghost.vitals
+                    ? `Health ${ghost.vitals.health} · Stamina ${ghost.vitals.stamina} · Vigor ${ghost.vitals.vigor}`
+                    : `Vitals wake with ${ghostName}`}
+                </Text>
+                {trail ? (
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}>
+                    Wearing: {trailLabel(trail)}
+                  </Text>
+                ) : null}
+                {onOpenGhostieCard ? (
+                  <Text
+                    style={{
+                      color: colors.ghost,
+                      fontSize: typeScale.caption,
+                      fontWeight: "700",
+                      marginTop: 6,
+                    }}
+                  >
+                    ID card ›
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </Pressable>
+
           {/* ---------- fDNA, alive and large ---------- */}
           <View
             style={{
@@ -681,7 +793,63 @@ export default function GhostieHome({ onBack }: { onBack: () => void }) {
             >
               {personalityDraft.length}/{PERSONALITY_MAX_CHARS}
             </Text>
+            {/* Slice 22: the personality's PUBLIC switch lives beside
+                the words it governs. Off (the default) the text never
+                leaves this device and cards say "Personality:
+                private". On, the words ride the announce and appear
+                on {ghostName}'s ID card. */}
+            <View style={{ marginTop: spacing.sm, marginBottom: -spacing.sm }}>
+              <HomeToggleRow
+                label="Personality on the ID card"
+                caption={`On: these words show on ${ghostName}'s card and ride its announce for the room to read. Off: they stay on this device and steer silently — cards say "Personality: private".`}
+                value={permissions.personalityPublic}
+                onPress={() =>
+                  updateGhostPermissions({
+                    personalityPublic: !permissions.personalityPublic,
+                  })
+                }
+              />
+            </View>
           </View>
+
+          {/* ---------- Slice 22: the ID card's permissions ---------- */}
+          <Text
+            style={{
+              color: colors.ghost,
+              fontSize: typeScale.caption,
+              fontWeight: "700",
+              letterSpacing: 1.5,
+              marginBottom: spacing.sm,
+            }}
+          >
+            {ghostName.toUpperCase()}’S ID CARD
+          </Text>
+          <HomeToggleRow
+            label="Shareable"
+            caption={`On: others may feature ${ghostName}'s full card — portrait, vitals, the works. Off: the room sees the name-tag card only.`}
+            value={permissions.shareable}
+            onPress={() =>
+              updateGhostPermissions({ shareable: !permissions.shareable })
+            }
+          />
+          <HomeToggleRow
+            label="Tradeable"
+            caption={`Flags ${ghostName} as tradeable on its card. Trading opens with the marketplace — this flag is real today; moving a ghostie between primaries is not built yet.`}
+            value={permissions.tradeable}
+            onPress={() =>
+              updateGhostPermissions({ tradeable: !permissions.tradeable })
+            }
+          />
+          <Text
+            style={{
+              color: colors.textDim,
+              fontSize: typeScale.caption,
+              marginBottom: spacing.md,
+            }}
+          >
+            These ride {ghostName}'s announce the moment you flip them —
+            the room's view of the card updates live.
+          </Text>
 
           {/* ---------- how {name} is with others ---------- */}
           <Text

@@ -52,6 +52,7 @@ import {
   type BadgeGlyph,
   type ProfileCardData,
 } from "../../../src/identity/profile";
+import { GhostiePortrait } from "./IdCards";
 
 /** Drawn badge marks — plain Views, no emoji (UI doctrine). */
 function BadgeGlyphMark({
@@ -144,12 +145,19 @@ export default function ProfileCard({
   data,
   ghostPresenceLine,
   actions,
+  onOpenGhostie,
 }: {
   data: ProfileCardData;
   /** Own ghost only: its live presence, from the ghost store. */
   ghostPresenceLine?: string | null;
   /** Other people's cards only: quick actions + their gate note. */
   actions?: ProfileCardActions | null;
+  /**
+   * Slice 22: the ghostie block is itself a door — it opens the
+   * ghostie's own ID card (portrait, permissions, published
+   * vitals). Optional; without it the block renders as before.
+   */
+  onOpenGhostie?: () => void;
 }) {
   const displayName = data.name || shortPeerId(data.peerId);
   return (
@@ -205,18 +213,35 @@ export default function ProfileCard({
         {data.fabricLine}
       </Text>
 
-      {/* Their ghostie */}
+      {/* Their ghostie — Slice 22: the block is a door to the
+          ghostie's own ID card (its portrait, permissions, and
+          published vitals live there). */}
       {data.ghost ? (
-        <View
-          style={{
+        <Pressable
+          pointerEvents="auto"
+          onPress={onOpenGhostie}
+          disabled={!onOpenGhostie}
+          accessibilityRole={onOpenGhostie ? "button" : undefined}
+          accessibilityLabel={
+            onOpenGhostie ? `Open ${data.ghost.name}'s ID card` : undefined
+          }
+          style={({ pressed }) => ({
             borderWidth: 1,
             borderColor: colors.ghostLine,
             borderRadius: radius.card,
             padding: spacing.sm,
             gap: 2,
-          }}
+            backgroundColor: pressed ? colors.ghostDim : "transparent",
+          })}
         >
-          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+          <GhostiePortrait
+            compact
+            hue={data.ghost.hue}
+            temperament={data.ghost.temperament}
+            presence={null}
+            trail={data.trail}
+          />
+          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600", marginTop: spacing.xs }}>
             Ghostie — {data.ghost.name}
             {data.ghost.temperament ? (
               <Text style={{ color: colors.ghost }}>
@@ -233,6 +258,18 @@ export default function ProfileCard({
           {data.trail ? (
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
               Wearing: {trailLabel(data.trail)}
+            </Text>
+          ) : null}
+          {data.ghostCard?.vitals ? (
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              Health {data.ghostCard.vitals.h} · Stamina {data.ghostCard.vitals.s} · Vigor {data.ghostCard.vitals.v}
+            </Text>
+          ) : null}
+          {data.ghostCard ? (
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              Shareable {data.ghostCard.shareable ? "on" : "off"} · Tradeable{" "}
+              {data.ghostCard.tradeable ? "on" : "off"} · Personality{" "}
+              {data.ghostCard.personalityPublic ? "public" : "private"}
             </Text>
           ) : null}
           {data.tag ? (
@@ -259,7 +296,19 @@ export default function ProfileCard({
               </Text>
             </View>
           ) : null}
-        </View>
+          {onOpenGhostie ? (
+            <Text
+              style={{
+                color: colors.ghost,
+                fontSize: typeScale.caption,
+                fontWeight: "700",
+                textAlign: "right",
+              }}
+            >
+              ID card ›
+            </Text>
+          ) : null}
+        </Pressable>
       ) : data.tag ? (
         <View
           style={{

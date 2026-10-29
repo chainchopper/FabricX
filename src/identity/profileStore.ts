@@ -29,6 +29,12 @@ import {
   type PeerProfileExtras,
 } from "./profile";
 import { subscribeGhostState } from "../ghost/ghostStore";
+import {
+  DEFAULT_GHOST_PERMISSIONS,
+  type GhostPermissions,
+} from "../ghost/ghostPermissions";
+import { subscribeGhostPermissions } from "../ghost/ghostPermissionsPref";
+import { getGhostPersonality } from "../ghost/ghostPersonalityPref";
 
 /** The ghost record's key (canonical export: useGhostPeer.GHOST_PREF_KEY). */
 const GHOST_PREF_KEY = "fabric_ghost_v1";
@@ -44,6 +50,20 @@ export interface LocalProfileExtras {
   ghostSeed: number | null;
   badges: string[];
   trail: string | null;
+  /**
+   * The ghostie's card permissions (Slice 22), live from
+   * ghostPermissionsPref — they decide what the announce may
+   * publish about the ghostie.
+   */
+  permissions: GhostPermissions;
+  /**
+   * The primary's Personality text. It enters the announce ONLY
+   * under permissions.personalityPublic (profile.ts enforces);
+   * here it is simply the current text, refreshed on load, on
+   * permission changes, and via refreshLocalGhostCardInputs()
+   * after the Home saves an edit.
+   */
+  personality: string;
   loaded: boolean;
 }
 
@@ -51,6 +71,8 @@ let local: LocalProfileExtras = {
   ghostSeed: null,
   badges: [],
   trail: null,
+  permissions: { ...DEFAULT_GHOST_PERMISSIONS },
+  personality: "",
   loaded: false,
 };
 let loadStarted = false;
@@ -117,17 +139,41 @@ export function ensureLocalProfileExtras(): void {
   if (loadStarted) return;
   loadStarted = true;
   void (async () => {
-    const [ghostSeed, rewards] = await Promise.all([
+    const [ghostSeed, rewards, personality] = await Promise.all([
       readGhostSeed(),
       readRewards(),
+      getGhostPersonality().catch(() => ""),
     ]);
     publishLocal({
+      ...local,
       ghostSeed,
       badges: rewards.badges,
       trail: rewards.trail,
+      personality,
       loaded: true,
     });
   })();
+  // Slice 22: permissions are live — a flip in the Ghostie Home
+  // republishes the local extras (and the transport re-announces
+  // on the republish), and the Personality text is re-read at the
+  // same moment so a just-saved edit rides along.
+  subscribeGhostPermissions((permissions) => {
+    if (
+      permissions.shareable === local.permissions.shareable &&
+      permissions.tradeable === local.permissions.tradeable &&
+      permissions.personalityPublic === local.permissions.personalityPublic
+    ) {
+      return;
+    }
+    publishLocal({ ...local, permissions });
+    void getGhostPersonality()
+      .then((text) => {
+        if (text !== local.personality) {
+          publishLocal({ ...local, personality: text });
+        }
+      })
+      .catch(() => undefined);
+  });
   // Fresh-install race: the ghost record is born when the canvas
   // first runs the ghost, which can be after this load. When a
   // ghost name first publishes and we still hold no seed, read
@@ -143,6 +189,23 @@ export function ensureLocalProfileExtras(): void {
       }
     });
   });
+}
+
+/**
+ * Re-read the Personality text into the local extras (Slice 22).
+ * Called by the Ghostie Home right after it saves an edit, so a
+ * public personality reaches the room's cards with the next
+ * announce instead of the next app load.
+ */
+export function refreshLocalGhostCardInputs(): void {
+  ensureLocalProfileExtras();
+  void getGhostPersonality()
+    .then((text) => {
+      if (text !== local.personality) {
+        publishLocal({ ...local, personality: text });
+      }
+    })
+    .catch(() => undefined);
 }
 
 export function getLocalProfileExtras(): LocalProfileExtras {
@@ -198,12 +261,26 @@ function emitPeers(): void {
 }
 
 function extrasEqual(a: PeerProfileExtras, b: PeerProfileExtras): boolean {
+  const gc = (e: PeerProfileExtras) =>
+    e.ghostCard
+      ? [
+          e.ghostCard.shareable ? 1 : 0,
+          e.ghostCard.tradeable ? 1 : 0,
+          e.ghostCard.personalityPublic ? 1 : 0,
+          e.ghostCard.personality ?? "",
+          e.ghostCard.vitals
+            ? `${e.ghostCard.vitals.h}/${e.ghostCard.vitals.s}/${e.ghostCard.vitals.v}`
+            : "",
+        ].join("|")
+      : "";
   return (
     a.tag === b.tag &&
     a.trail === b.trail &&
     a.ghost?.name === b.ghost?.name &&
     a.ghost?.temperament === b.ghost?.temperament &&
-    (a.badges ?? []).join(",") === (b.badges ?? []).join(",")
+    a.ghost?.hue === b.ghost?.hue &&
+    (a.badges ?? []).join(",") === (b.badges ?? []).join(",") &&
+    gc(a) === gc(b)
   );
 }
 

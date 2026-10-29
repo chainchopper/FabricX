@@ -629,6 +629,73 @@ export function applyPersonalityBias(
 }
 
 /* ------------------------------------------------------------------ */
+/* Stamina (Slice 22)                                                  */
+/* ------------------------------------------------------------------ */
+/*
+ * The ghost's energy reading (ghostVitals.ts) feeds back into
+ * deliberation through the SAME legible-bias discipline as
+ * Personality: a bias over an already-valid decision, named in
+ * the brain line, inside the validator's ranges. It is not a
+ * budget and touches no invariant: reflex intents (startle)
+ * pass through untouched at any reading, while PERFORMING
+ * intents (play, heart, mirror, sniff) give way to rest as the
+ * reading falls. The ghost rests because it is tired, and it
+ * is tired because it worked — the card's Stamina bar and this
+ * bias are two views of the one truth.
+ */
+
+/** Below this reading the ghost counts as tired (bias + Spark note). */
+export const STAMINA_TIRED_BELOW = 40;
+
+/**
+ * Nudge a decision by the ghost's stamina reading. Pure and
+ * total, like applyPersonalityBias: outputs stay inside the
+ * validator's ranges, and a healthy reading (≥ STAMINA_TIRED_BELOW)
+ * returns the decision untouched.
+ */
+export function applyStaminaBias(
+  decision: GhostDecision,
+  stamina: number
+): { decision: GhostDecision; steeredBy: string[] } {
+  const steeredBy: string[] = [];
+  if (typeof stamina !== "number" || !Number.isFinite(stamina)) {
+    return { decision, steeredBy };
+  }
+  const s = clamp(stamina, 0, 100);
+  if (s >= STAMINA_TIRED_BELOW) return { decision, steeredBy };
+  const next: GhostDecision = { ...decision };
+  if (s <= 20) {
+    if (
+      next.intent === "play" ||
+      next.intent === "heart" ||
+      next.intent === "mirror" ||
+      next.intent === "sniff"
+    ) {
+      next.intent = "nap";
+      next.pattern_id = null;
+      next.intensity = clamp(Math.min(next.intensity, 0.2), 0.05, 0.9);
+      next.linger_s = clamp(Math.max(next.linger_s, 16), 0.5, 30);
+      steeredBy.push("stamina drained: rests instead of performing");
+    } else if (next.intent === "drift") {
+      next.linger_s = clamp(next.linger_s * 1.4, 0.5, 30);
+      steeredBy.push("stamina drained: drifts slower, rests longer");
+    }
+  } else {
+    if (next.intent === "play") {
+      next.intent = "drift";
+      next.pattern_id = null;
+      next.intensity = clamp(next.intensity * 0.7, 0.05, 0.9);
+      next.linger_s = clamp(next.linger_s * 0.75, 0.5, 30);
+      steeredBy.push("stamina low: play softened to a drift");
+    } else if (next.intent === "heart" || next.intent === "mirror") {
+      next.intensity = clamp(next.intensity * 0.8, 0.05, 0.9);
+      steeredBy.push("stamina low: gives back a little less");
+    }
+  }
+  return { decision: next, steeredBy };
+}
+
+/* ------------------------------------------------------------------ */
 /* Spark-cloud brain                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -710,7 +777,8 @@ const SPARK_SYSTEM_PROMPT = [
  */
 export function buildSparkMessages(
   scenario: GhostScenario,
-  personality?: string
+  personality?: string,
+  stamina?: number
 ): GhostBrainChatMessage[] {
   const messages: GhostBrainChatMessage[] = [
     { role: "system", content: SPARK_SYSTEM_PROMPT },
@@ -722,6 +790,21 @@ export function buildSparkMessages(
       content:
         `The ghost's primary describes its personality in their own words: "${personalityText}". ` +
         "Let that description color the decision — how readily it approaches others, how energetic or calm it is, how warmly it responds — within the decision contract.",
+    });
+  }
+  // Stamina (Slice 22): the same fact the on-device bias acts on,
+  // as context here — a tired ghost's cloud brain hears that it
+  // is tired, in plain words, and favors rest within the contract.
+  if (
+    typeof stamina === "number" &&
+    Number.isFinite(stamina) &&
+    stamina < STAMINA_TIRED_BELOW
+  ) {
+    messages.push({
+      role: "system",
+      content:
+        `The ghost's stamina reads ${Math.round(stamina)}/100 — it is tired from working. ` +
+        "Favor restful intents (nap, idle, a gentle drift) over play, within the decision contract.",
     });
   }
   for (const ex of GHOST_BRAIN_FEW_SHOT) {
@@ -753,7 +836,8 @@ export async function consultSparkBrain(
   scenario: GhostScenario,
   chat: GhostBrainChatFn,
   timeoutMs = 6_000,
-  personality?: string
+  personality?: string,
+  stamina?: number
 ): Promise<GhostDecision | null> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -761,7 +845,7 @@ export async function consultSparkBrain(
       timer = setTimeout(() => resolve(null), timeoutMs);
     });
     const reply = await Promise.race([
-      chat(buildSparkMessages(scenario, personality), {
+      chat(buildSparkMessages(scenario, personality, stamina), {
         maxTokens: 1024,
         temperature: 0.4,
       }),
