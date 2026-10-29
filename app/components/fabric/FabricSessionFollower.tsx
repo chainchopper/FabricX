@@ -33,7 +33,12 @@
 import React, { useEffect, useRef } from "react";
 import { useExperience } from "../../context/ExperienceContext";
 import { useToast } from "../Toast";
-import { getSessionPublicState } from "../../../src/session/sessionStore";
+import {
+  getSessionPublicState,
+  subscribeSessionState,
+} from "../../../src/session/sessionStore";
+import { displayNameFor } from "../../../src/identity/identityStore";
+import { hostChangeNotice } from "../../../src/session/roleResolution";
 import type { ExperienceConfig } from "../../../src/types/experience";
 import {
   decideGuestFollow,
@@ -114,13 +119,19 @@ export default function FabricSessionFollower() {
     const onFabric = (fab: SessionFabricState) => {
       const key = fabricStateKey(fab);
       const first = lastKeyRef.current === null;
+      const pub = getSessionPublicState();
       const decision = decideGuestFollow({
-        role: getSessionPublicState().role,
+        role: pub.role,
         activeLayerId: activeRef.current,
         fabricLayerId: fab.layerId,
         fabricKey: key,
         lastKey: lastKeyRef.current,
         divergedLayerId: getFabricDivergence(),
+        // Hotfix 2.6: the self guard — a fabric whose stated host
+        // is THIS client is never followed, whatever the role
+        // field says (see decideGuestFollow).
+        fabricHostId: fab.hostId,
+        selfId: pub.selfId,
       });
       lastKeyRef.current = key;
       // Host-arrival bookkeeping (Slice 20): the note marks layers
@@ -129,8 +140,17 @@ export default function FabricSessionFollower() {
       // them. Anything that is not a live guest on a live session
       // fabric clears the note: solo, hosting, or a session whose
       // fabric is gone means every fabric here was opened by hand.
-      const role = getSessionPublicState().role;
+      const role = pub.role;
       if (role !== "guest" || !fab.layerId) noteHostArrivedFabric(null);
+      // Hotfix 2.6: the follower is INERT on the host's own client
+      // by construction. A host's chair performs no follow effect —
+      // no toast, no switch, no divergence bookkeeping — whatever
+      // the published fabric says (including this host's own
+      // fabric-change heartbeat coming back around). Role
+      // resolution (src/session/roleResolution) decides who hosts;
+      // this guard makes the follower's half of that contract
+      // independent of the label it was handed.
+      if (role === "host") return;
       // A guest who lands already ON the session fabric (invite
       // link) has nothing to announce — the first sighting of the
       // state that merely confirms where they already are is not
@@ -161,6 +181,42 @@ export default function FabricSessionFollower() {
       }
     };
     return subscribeSessionFabric(onFabric);
+  }, []);
+
+  return null;
+}
+
+/**
+ * HostChangeNotifier — Hotfix 2.6 ("Who's hosting?").
+ *
+ * Role resolution used to change silently: a claim could be lost
+ * to seniority, a host could depart, and nobody was told — the app
+ * just started treating you as a guest (or stopped). This headless
+ * watcher owns the one plain notice for a host change, on the same
+ * toast channel as the follower's: "You're hosting now." when the
+ * room lands on you, "{Name} is hosting now." when it lands on
+ * someone else. The wording decision is the pure hostChangeNotice
+ * in roleResolution (the first observed host is a baseline, never
+ * a notice). It renders nothing and follows nothing — it only
+ * speaks, once per actual change.
+ */
+export function HostChangeNotifier() {
+  const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  const prevHostRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    return subscribeSessionState((s) => {
+      const notice = hostChangeNotice({
+        prevHostId: prevHostRef.current,
+        nextHostId: s.hostId,
+        selfId: s.selfId,
+        hostName: displayNameFor(s.hostId, s.selfId),
+      });
+      prevHostRef.current = s.hostId;
+      if (notice) toastRef.current.show(notice);
+    });
   }, []);
 
   return null;

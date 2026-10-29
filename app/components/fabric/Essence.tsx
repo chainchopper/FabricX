@@ -352,7 +352,13 @@ export default function Essence() {
   const tagSeed = ghostSeed ?? seed;
   const tag = typeof tagSeed === "number" ? deriveFdnaTag(tagSeed) : null;
   const brainLine = essenceBrainLine(ghost.brain?.source ?? null, tier);
-  const connLine = essenceConnectionLine(behavior, peers);
+  const connLine = essenceConnectionLine(
+    behavior,
+    peers,
+    // Hotfix 2.6: the resolved role (session store) rides the
+    // connection line — "Connected · 3 here · Hosting".
+    session.role === "host" ? "host" : session.role === "guest" ? "guest" : null
+  );
   const vitals = ghost.vitals
     ? [
         { label: "Health", value: ghost.vitals.health },

@@ -45,7 +45,9 @@ import {
 } from "./components/fabric/FabricChromeContext";
 import FabricAnchor from "./components/fabric/FabricAnchor";
 import FabricMenu from "./components/fabric/FabricMenu";
-import FabricSessionFollower from "./components/fabric/FabricSessionFollower";
+import FabricSessionFollower, {
+  HostChangeNotifier,
+} from "./components/fabric/FabricSessionFollower";
 import RewardsFeed from "./components/fabric/RewardsFeed";
 import BrainChrome from "./components/fabric/BrainChrome";
 import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
@@ -120,6 +122,10 @@ function ChromeLayer() {
           the host's fabric changes and toasts them. Headless;
           renders nothing and never touches the canvas. */}
       <FabricSessionFollower />
+      {/* Hotfix 2.6: the host-change notice — "You're hosting
+          now." / "{Name} is hosting now.", once per actual change.
+          Headless; renders nothing and never touches the canvas. */}
+      <HostChangeNotifier />
       {/* Slice 24: the rewards feed + the badge-earned toast.
           Headless; renders nothing and never touches the canvas. */}
       <RewardsFeed />

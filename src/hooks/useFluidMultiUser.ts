@@ -11,6 +11,10 @@ import {
   type SessionMode,
 } from "../session/sessionStore";
 import {
+  resolveSessionRole,
+  type SessionRoleResolution,
+} from "../session/roleResolution";
+import {
   DEFAULT_FABRIC_RULES,
   fabricGate,
   fabricRulesKey,
@@ -93,6 +97,16 @@ type TransportMsg =
       driverId: string | null;
       /** When the host's claim began — seniority if two hosts race. */
       since: number;
+      /**
+       * Hotfix 2.6: how this session arose — a deliberate "claim"
+       * (menu intent, the default when absent: older builds) or a
+       * "succession" statement (the deterministic resolution in
+       * roleResolution made the sender host of an unclaimed room;
+       * its `since` is the sender's room-join time). Succession
+       * statements never displace a claim and never outrank an
+       * earlier joiner — see the adoption branch.
+       */
+      via?: "claim" | "succession";
     }
   | { type: "session-request"; from?: string }
   | { type: "session-clear"; from: string; hostId: string }
@@ -113,6 +127,13 @@ type TransportMsg =
       from: string;
       name: string;
       hue: number;
+      /**
+       * Hotfix 2.6: when the sender joined THIS room (their own
+       * clock, announced — shared data so every chair resolves the
+       * same succession winner; see roleResolution). Optional:
+       * older builds don't send it and rank by first-seen instead.
+       */
+      joinedAt?: number;
       tag?: string;
       ghost?: { name: string; temperament?: string };
       badges?: string[];
@@ -265,6 +286,37 @@ export function useFluidMultiUser(roomId: string) {
   /** Last time the current remote host was heard from (liveness). */
   const remoteSeenRef = useRef(0);
 
+  // Hotfix 2.6: join times — the succession input for role
+  // resolution (src/session/roleResolution). Mine is when this
+  // client entered THIS room (re-stamped by the room-binding
+  // effect below whenever the room changes) and rides my identity
+  // card (peer-announce `joinedAt`); peers' are learned from their
+  // cards, with local first-seen as the fallback for peers who
+  // never announce one (older builds). Join entries die with
+  // presence (freshBcPeers prunes both maps together).
+  const selfJoinedAtRef = useRef(Date.now());
+  const peerJoinRef = useRef<Map<string, number>>(new Map());
+  const [joinVersion, setJoinVersion] = useState(0);
+  const notePeerJoin = useCallback((id: string, announced?: number) => {
+    const now = Date.now();
+    const sane =
+      typeof announced === "number" &&
+      Number.isFinite(announced) &&
+      announced > 0 &&
+      announced <= now + 60_000
+        ? announced
+        : undefined;
+    const prev = peerJoinRef.current.get(id);
+    // An announced join time is authoritative (latest card wins —
+    // a rejoin re-stamps it); without one, keep the earliest
+    // first-seen: seniority is about when you ARRIVED.
+    const next = sane ?? prev ?? now;
+    if (prev !== next) {
+      peerJoinRef.current.set(id, next);
+      setJoinVersion((v) => v + 1);
+    }
+  }, []);
+
   // Slice 19 session fabric state. Two directions, one store
   // (src/session/fabricStore), same split as the session itself:
   // - hostFabric: the chrome's record of MY fabric + guest rules
@@ -289,6 +341,9 @@ export function useFluidMultiUser(roomId: string) {
     if (isGhostId(id)) return;
     const isNew = !bcPeersRef.current.has(id);
     bcPeersRef.current.set(id, Date.now());
+    // Hotfix 2.6: first contact is also the join-time fallback —
+    // a peer who never announces a joinedAt ranks by first-seen.
+    notePeerJoin(id);
     if (isNew) {
       const ids = Array.from(bcPeersRef.current.keys());
       setBcPeerIds(ids);
@@ -298,7 +353,7 @@ export function useFluidMultiUser(roomId: string) {
       // and colors land with the first strokes, not seconds later.
       announceIdentityRef.current();
     }
-  }, [userId]);
+  }, [userId, notePeerJoin]);
 
   const freshBcPeers = useCallback((): { count: number; ids: string[] } => {
     const now = Date.now();
@@ -308,6 +363,10 @@ export function useFluidMultiUser(roomId: string) {
         ids.push(id);
       } else {
         bcPeersRef.current.delete(id);
+        // Hotfix 2.6: join entries die with presence — a peer who
+        // returns later rejoins at their new join time, they do
+        // not inherit seniority from a dead presence.
+        peerJoinRef.current.delete(id);
       }
     });
     return { count: ids.length, ids };
@@ -318,12 +377,35 @@ export function useFluidMultiUser(roomId: string) {
   // BroadcastChannel uses the tracked human peer set above.
   const humanPeers = webrtc.active ? webrtc.peersCount : bcPeerIds.length;
 
-  // The effective session from this client's chair: my own claim wins
-  // (I am the host), else a live remote host's announced session, else
-  // the room is open. canSend / inputEnabled are the enforcement
-  // outputs — sendInteraction and LegacyFluid read them, never raw
-  // mode, so the rule lives in exactly one place (computeCanSend).
+  // The effective session from this client's chair. ROLE is no
+  // longer read straight off the claim traffic — Hotfix 2.6 routes
+  // it through resolveSessionRole (src/session/roleResolution),
+  // the deterministic claim + presence resolution: my claim wins;
+  // a remote claim wins only while its claimant is present in the
+  // live presence set (bcPeerIds — the same set the status layer
+  // reads, pruned on the same TTL); otherwise the earliest present
+  // joiner hosts by succession, so a solo user is host immediately
+  // and a departed host is succeeded, never just mourned into an
+  // "open" room. MODE still comes from the claim/announce layer
+  // exactly as Slice 5 built it — succession hosts a room nobody
+  // claimed, in collab, because nobody chose anything else.
+  // canSend / inputEnabled remain the enforcement outputs —
+  // sendInteraction and LegacyFluid read them, never raw mode, so
+  // the rule lives in exactly one place (computeCanSend).
   const session = useMemo(() => {
+    const resolution: SessionRoleResolution = resolveSessionRole({
+      selfId: userId,
+      selfJoinedAt: selfJoinedAtRef.current,
+      hasClaim: !!hostClaim,
+      remoteHostId: remoteSession?.hostId ?? null,
+      present: bcPeerIds.map((id) => ({
+        id,
+        // A peer whose join time is unknown (never announced, no
+        // first-seen recorded) ranks behind every known join —
+        // nobody is crowned on a guess.
+        joinedAt: peerJoinRef.current.get(id) ?? Number.MAX_SAFE_INTEGER,
+      })),
+    });
     if (hostClaim) {
       const driverId = hostClaim.driverId ?? userId;
       return {
@@ -333,9 +415,10 @@ export function useFluidMultiUser(roomId: string) {
         driverId: hostClaim.mode === "control" ? driverId : null,
         canSend: computeCanSend(hostClaim.mode, userId, driverId, userId),
         inputEnabled: true, // the host's own input is never disabled
+        source: resolution.source,
       };
     }
-    if (remoteSession) {
+    if (remoteSession && resolution.source === "remote-claim") {
       const driverId = remoteSession.driverId ?? remoteSession.hostId;
       return {
         role: "guest" as const,
@@ -352,6 +435,33 @@ export function useFluidMultiUser(roomId: string) {
         // mode); every other guest keeps local input — in mirror it
         // simply never leaves the device, because canSend is false.
         inputEnabled: remoteSession.mode !== "view",
+        source: resolution.source,
+      };
+    }
+    if (resolution.role === "host") {
+      // Succession (incl. solo): I host a room nobody claimed.
+      return {
+        role: "host" as const,
+        mode: "collab" as SessionMode,
+        hostId: userId as string | null,
+        driverId: null as string | null,
+        canSend: true,
+        inputEnabled: true,
+        source: resolution.source,
+      };
+    }
+    if (resolution.role === "guest") {
+      // Succession to a present peer who has not announced a
+      // session (or whose claim just lapsed): they host; the room
+      // is collab until somebody actually claims a mode.
+      return {
+        role: "guest" as const,
+        mode: "collab" as SessionMode,
+        hostId: resolution.hostId,
+        driverId: null as string | null,
+        canSend: true,
+        inputEnabled: true,
+        source: resolution.source,
       };
     }
     return {
@@ -361,8 +471,12 @@ export function useFluidMultiUser(roomId: string) {
       driverId: null as string | null,
       canSend: true,
       inputEnabled: true,
+      source: resolution.source,
     };
-  }, [hostClaim, remoteSession, userId]);
+    // joinVersion: a peer's announced joinedAt can change the
+    // succession winner without the presence set itself changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostClaim, remoteSession, userId, bcPeerIds, joinVersion]);
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
@@ -520,6 +634,9 @@ export function useFluidMultiUser(roomId: string) {
       from: userId,
       name: id.name,
       hue: id.hue,
+      // Hotfix 2.6: my room-join time — shared data, so every
+      // chair resolves the same succession winner (roleResolution).
+      joinedAt: selfJoinedAtRef.current,
       ...extras,
     });
   }, [userId]);
@@ -626,18 +743,56 @@ export function useFluidMultiUser(roomId: string) {
       hostId: userId,
       driverId: claim.driverId ?? userId,
       since: claim.since,
+      via: "claim",
     });
   }, [userId]);
   const announceRef = useRef(announceClaim);
   announceRef.current = announceClaim;
 
+  /**
+   * Hotfix 2.6: state this client's SUCCESSION hosting to the room
+   * (no-op unless role resolution currently makes me host of an
+   * unclaimed room). It is a session-announce in collab with
+   * `via: "succession"` and `since` = my room-join time, so guests
+   * adopt it through the same path as a claim — while the via tag
+   * guarantees it can never displace a real claim or outrank an
+   * earlier joiner on any chair (see the adoption branch). This is
+   * what lets a succession host's fabric statement be law for
+   * guests (their acceptance check names the resolved host) and
+   * what makes "the host left" heal into "the senior guest hosts"
+   * on every screen at once.
+   */
+  const announceSuccession = useCallback(() => {
+    if (hostClaimRef.current) return;
+    const s = sessionRef.current;
+    if (s.role !== "host" || s.hostId !== userId) return;
+    postRef.current({
+      type: "session-announce",
+      from: userId,
+      mode: "collab",
+      hostId: userId,
+      driverId: userId,
+      since: selfJoinedAtRef.current,
+      via: "succession",
+    });
+  }, [userId]);
+  const announceSuccessionRef = useRef(announceSuccession);
+  announceSuccessionRef.current = announceSuccession;
+
   // Slice 19: state this host's fabric to the room (no-op unless
-  // this client holds a claim here AND the chrome has recorded a
-  // fabric). Sent on change, with retries, and on the host
-  // heartbeat — guests who miss one copy converge on the next.
+  // this client is the room's host — by claim, or by Hotfix 2.6
+  // succession — AND the chrome has recorded a fabric). Sent on
+  // change, with retries, and on the host heartbeat — guests who
+  // miss one copy converge on the next.
   const broadcastFabric = useCallback(() => {
     const hf = hostFabricRef.current;
-    if (!hf || !hostClaimRef.current) return;
+    if (!hf) return;
+    if (
+      !hostClaimRef.current &&
+      !(sessionRef.current.role === "host" && sessionRef.current.hostId === userId)
+    ) {
+      return;
+    }
     postRef.current({
       type: "fabric-change",
       from: userId,
@@ -657,7 +812,14 @@ export function useFluidMultiUser(roomId: string) {
   // move. Steady state is the heartbeat's job (below).
   useEffect(() => subscribeHostFabric(setHostFabric), []);
   useEffect(() => {
-    if (!hostClaim || !hostFabric) return;
+    // Hotfix 2.6: a succession host's fabric record broadcasts on
+    // the same change path as a claimant's — hosting is hosting,
+    // however the chair was earned. (broadcastFabric itself
+    // re-checks the resolved role, so this widening can only ever
+    // send for the room's actual host.)
+    const hosting =
+      !!hostClaim || (session.role === "host" && session.hostId === userId);
+    if (!hosting || !hostFabric) return;
     broadcastFabricRef.current();
     const t1 = window.setTimeout(() => broadcastFabricRef.current(), 350);
     const t2 = window.setTimeout(() => broadcastFabricRef.current(), 1100);
@@ -665,7 +827,7 @@ export function useFluidMultiUser(roomId: string) {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
-  }, [hostClaim, hostFabric]);
+  }, [hostClaim, hostFabric, session, userId]);
 
   // Single entry point for accepting a remote interaction, used by every
   // transport AND by local injectors (see injectRemoteInteraction below),
@@ -778,6 +940,9 @@ export function useFluidMultiUser(roomId: string) {
         if (typeof msg.from !== "string" || msg.from === userId) return;
         if (typeof msg.hue !== "number") return;
         noteBcPeer(msg.from);
+        // Hotfix 2.6: learn their room-join time for succession
+        // (validated inside notePeerJoin; absent on older builds).
+        notePeerJoin(msg.from, msg.joinedAt);
         setPeerIdentity(msg.from, {
           name: typeof msg.name === "string" ? msg.name : "",
           hue: msg.hue,
@@ -871,7 +1036,21 @@ export function useFluidMultiUser(roomId: string) {
         if (msg.from === userId || msg.hostId === userId) return;
         if (typeof msg.hostId !== "string" || typeof msg.since !== "number") return;
         const myClaim = hostClaimRef.current;
-        if (myClaim) {
+        if (msg.via === "succession") {
+          // Hotfix 2.6: a succession statement is NOT a claim. It
+          // never displaces a claim (a deliberate host outranks a
+          // default one on every chair), and it never outranks an
+          // earlier joiner: for a succession host, `since` is the
+          // sender's room-join time, so a sender who joined after
+          // me — or lost the id tiebreak at the same instant — is
+          // not my host; my own statement teaches them instead.
+          if (myClaim) return;
+          const myJoin = selfJoinedAtRef.current;
+          if (msg.since > myJoin) return;
+          if (msg.since === myJoin && msg.hostId > userId) return;
+          // Senior to me (or the tiebreak winner): adopt below,
+          // through the same path a claim takes.
+        } else if (myClaim) {
           // Two hosts in one room (e.g. the host opened a second
           // tab and claimed there too): the EARLIER claim is
           // senior. Yield to it; if mine is senior, ignore — my
@@ -919,6 +1098,15 @@ export function useFluidMultiUser(roomId: string) {
         if (hostClaimRef.current) {
           announceRef.current();
           broadcastFabricRef.current();
+        } else if (
+          sessionRef.current.role === "host" &&
+          sessionRef.current.hostId === userId
+        ) {
+          // Hotfix 2.6: a succession host answers too — its
+          // statement + fabric are how joiners learn the room
+          // already has a host (and who).
+          announceSuccessionRef.current();
+          broadcastFabricRef.current();
         }
       } else if (msg.type === "session-clear") {
         // The host resigned gracefully: degrade now instead of
@@ -939,8 +1127,17 @@ export function useFluidMultiUser(roomId: string) {
         noteBcPeer(msg.from);
         if (msg.from === userId) return;
         if (hostClaimRef.current) return;
-        const host = remoteSessionRef.current;
-        if (!host || host.hostId !== msg.from) return;
+        // Hotfix 2.6: "my host" is the RESOLVED host — the remote
+        // session's host when a live claim names one, and the
+        // succession winner when an unclaimed room resolved one
+        // (their fabric statement is law exactly like a claim
+        // host's; a fabric-change from anyone else — including a
+        // junior peer while I host by succession — is still just
+        // noted for presence and ignored).
+        const announcedHost = remoteSessionRef.current?.hostId ?? null;
+        const resolvedHost =
+          sessionRef.current.role === "guest" ? sessionRef.current.hostId : null;
+        if (msg.from !== announcedHost && msg.from !== resolvedHost) return;
         const valid = validateFabricChange(msg);
         if (!valid) return;
         const prev = guestFabricRef.current;
@@ -958,7 +1155,7 @@ export function useFluidMultiUser(roomId: string) {
         }
       }
     },
-    [userId, noteBcPeer, acceptRemote, updateStatus]
+    [userId, noteBcPeer, notePeerJoin, acceptRemote, updateStatus]
   );
 
   // Setup BroadcastChannel fallback only when WebRTC is not active
@@ -1066,6 +1263,10 @@ export function useFluidMultiUser(roomId: string) {
     setRemoteSession(null);
     setGuestFabric(null);
     remoteSeenRef.current = 0;
+    // Hotfix 2.6: entering a room is a JOIN — succession seniority
+    // in this room starts now, and my next identity card carries
+    // the new stamp.
+    selfJoinedAtRef.current = Date.now();
     const applyIntent = (intent: HostIntent | null) => {
       if (!intent) {
         // Resigned while still in the room: tell guests now so they
@@ -1122,6 +1323,26 @@ export function useFluidMultiUser(roomId: string) {
     return () => window.clearInterval(id);
   }, [hostClaim, announceClaim]);
 
+  // Hotfix 2.6: succession heartbeat. While role resolution makes
+  // me host of an UNCLAIMED room and somebody is here to hear it,
+  // restate the succession session + fabric on the claim
+  // heartbeat's cadence — late joiners converge on the room's host
+  // within one beat, and if I vanish, my guests' presence clocks
+  // expire me and succession promotes the next senior present
+  // participant (their own heartbeat then takes over).
+  const successionHost =
+    !hostClaim && session.role === "host" && session.hostId === userId;
+  useEffect(() => {
+    if (!successionHost || humanPeers <= 0) return;
+    announceSuccessionRef.current();
+    broadcastFabricRef.current();
+    const id = window.setInterval(() => {
+      announceSuccessionRef.current();
+      broadcastFabricRef.current();
+    }, SESSION_ANNOUNCE_MS);
+    return () => window.clearInterval(id);
+  }, [successionHost, humanPeers, userId]);
+
   // Ask the room who hosts it whenever a transport path to peers
   // (re)appears — a host answers with an announce. The heartbeat
   // covers any race this misses within a few seconds.
@@ -1163,6 +1384,14 @@ export function useFluidMultiUser(roomId: string) {
     announceIdentityRef.current();
     if (hostClaimRef.current) {
       announceRef.current();
+      broadcastFabricRef.current();
+    } else if (
+      sessionRef.current.role === "host" &&
+      sessionRef.current.hostId === userId
+    ) {
+      // Hotfix 2.6: a rejoined succession host restates its
+      // session in the same round as a claimant does.
+      announceSuccessionRef.current();
       broadcastFabricRef.current();
     }
   }, [userId]);
@@ -1303,25 +1532,30 @@ export function useFluidMultiUser(roomId: string) {
   // host, my host's stated fabric when I'm a guest, and "none"
   // when the room is open or the host hasn't stated one yet.
   useEffect(() => {
-    if (hostClaim) {
+    // Hotfix 2.6: the branches key off the RESOLVED role, not the
+    // raw claim chairs — a succession host publishes its own fabric
+    // as the room's, and a succession guest reads its host's stated
+    // fabric with the resolved host's id, exactly like a claimed
+    // session's chairs do.
+    if (session.role === "host") {
       setSessionFabricState({
         layerId: hostFabric?.layerId ?? null,
         rules: hostFabric?.rules ?? DEFAULT_FABRIC_RULES,
         hostId: userId,
         byName: identityRef.current?.name ?? "",
       });
-    } else if (remoteSession && guestFabric) {
+    } else if (session.role === "guest" && guestFabric) {
       setSessionFabricState({
         layerId: guestFabric.layerId,
         rules: guestFabric.rules,
-        hostId: remoteSession.hostId,
+        hostId: session.hostId,
         byName: guestFabric.byName,
       });
-    } else if (remoteSession) {
+    } else if (session.role === "guest") {
       setSessionFabricState({
         layerId: null,
         rules: DEFAULT_FABRIC_RULES,
-        hostId: remoteSession.hostId,
+        hostId: session.hostId,
         byName: "",
       });
     } else {
@@ -1332,7 +1566,7 @@ export function useFluidMultiUser(roomId: string) {
         byName: "",
       });
     }
-  }, [hostClaim, remoteSession, hostFabric, guestFabric, userId]);
+  }, [session, hostFabric, guestFabric, userId]);
 
   /**
    * Hotfix 1.7: send a discrete note on/off to the room (the send
