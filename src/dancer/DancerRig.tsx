@@ -73,6 +73,7 @@ import {
   subscribeStageCharacter,
   type StageCharacterState,
 } from "./stageCharacter";
+import { loadBuiltinCharacterGltf } from "./traumaCharacter";
 
 /** The UE5 Mannequin bone contract (docs/DANCER.md). */
 export const UE5_BONE_NAMES = [
@@ -506,6 +507,11 @@ export default function DancerRig({
   // on every client). Any failure — network, parse, or a model
   // with no pelvis to drive — reports "failed" and the mannequin
   // keeps the stage.
+  //
+  // Built-in binds (Trauma, charState.builtin) resolve through
+  // traumaCharacter: raw .glb first, the base64 transport second.
+  // Picked files (blob URLs) and every other URL keep the plain
+  // loader path below, untouched.
   useEffect(() => {
     const url = characterSlot ? charState.url : null;
     if (!url) {
@@ -515,8 +521,11 @@ export default function DancerRig({
     let cancelled = false;
     let adopted: AdoptedCharacter | null = null;
     setStageCharacterStatus("loading");
-    new GLTFLoader()
-      .loadAsync(url)
+    const loader = new GLTFLoader();
+    const loading = charState.builtin
+      ? loadBuiltinCharacterGltf(loader, url)
+      : loader.loadAsync(url);
+    loading
       .then((gltf) => {
         if (cancelled) return;
         const bones = new Map<string, THREE.Object3D>();
@@ -612,7 +621,7 @@ export default function DancerRig({
         adopted.mixer.uncacheRoot(adopted.scene);
       }
     };
-  }, [charState.url, characterSlot, tintHue]);
+  }, [charState.url, charState.builtin, characterSlot, tintHue]);
 
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;

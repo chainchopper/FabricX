@@ -23,9 +23,28 @@
  * the same route the soundfont packs take). The single config
  * constant CHARACTER_ASSET_BASE_URL is the one place the location
  * lives — move the files (CDN, another folder) by changing it.
- * Until the files are in place the bind simply reports "failed"
- * and the mannequin keeps the stage, like any bad character file.
+ *
+ * TRANSPORT (Slice 26): the repo's write path is TEXT-ONLY (no
+ * binary commits, no release assets), so the GLBs actually in
+ * the repo ride as base64 TEXT: each `.glb` ships as sequential
+ * ≤900 KB parts `….glb.b64.00`, `.01`, … next to where the raw
+ * file would live (a single `….glb.b64` file is also accepted).
+ * Built-in binds resolve bytes in this order (see
+ * loadBuiltinCharacterGltf below):
+ *
+ *   1. the raw .glb URL — a real binary upload always wins;
+ *   2. the base64 transport — parts fetched in order,
+ *      concatenated, decoded in the browser, handed to
+ *      GLTFLoader.parseAsync.
+ *
+ * Either way the bytes move only when the stage binds Trauma.
+ * Until decodable bytes are in place the bind simply reports
+ * "failed" and the mannequin keeps the stage, like any bad
+ * character file. public/animations/README.md documents both
+ * forms and how to regenerate the parts.
  */
+
+import type { GLTF, GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export type TraumaIdleId = "mma" | "bouncing";
 
@@ -70,4 +89,124 @@ export const DEFAULT_TRAUMA_IDLE_ID: TraumaIdleId = "mma";
 export function traumaIdleDef(value: unknown): TraumaIdleDef {
   const found = TRAUMA_IDLES.find((d) => d.id === value);
   return found ?? TRAUMA_IDLES.find((d) => d.id === DEFAULT_TRAUMA_IDLE_ID)!;
+}
+
+// ---------------------------------------------------------------------------
+// Base64 transport (Slice 26): the built-in GLBs ride the repo as
+// base64 text because the repo's write path cannot carry binaries.
+// Resolution order for a built-in bind: raw .glb first (a real
+// binary at the same URL always wins), then the encoded transport.
+// ---------------------------------------------------------------------------
+
+/**
+ * Chunked base64 → ArrayBuffer. The transport text is ~7 MB of
+ * base64 per character; a single atob() over a string that long
+ * is exactly the kind of call that hits engine argument limits
+ * and stalls the main thread, so decoding runs in 32,764-char
+ * slices — a multiple of 4, so a slice boundary never splits a
+ * base64 quantum (padding lives only in the final slice).
+ * Whitespace (the parts are wrapped at 76 columns) is stripped
+ * first. Corrupt input throws from atob, which the bind path
+ * reports as a plain failed load.
+ */
+export function decodeBase64ToArrayBuffer(b64: string): ArrayBuffer {
+  const clean = b64.replace(/\s+/g, "");
+  const CHUNK = 32764;
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (let i = 0; i < clean.length; i += CHUNK) {
+    const bin = atob(clean.slice(i, i + CHUNK));
+    const bytes = new Uint8Array(bin.length);
+    for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+    parts.push(bytes);
+    total += bytes.length;
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out.buffer;
+}
+
+/**
+ * Fetch one transport candidate's text, or null when it isn't
+ * there. A missing static path on the SPA host answers 200 with
+ * the app's index.html — HTML is not transport data, so anything
+ * that looks like markup counts as absent.
+ */
+async function fetchTransportText(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (text.trimStart().startsWith("<")) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a built-in character's bytes from its base64 transport:
+ * a single `${url}.b64` when present, else sequential parts
+ * `${url}.b64.00`, `.01`, … fetched in order until one is absent,
+ * concatenated. The decoded bytes must carry the binary GLB
+ * magic ("glTF") — anything else is a failed load, never a parse
+ * surprise downstream. Throws on every failure mode; the caller
+ * (the rig's bind) already turns throws into "failed".
+ */
+export async function fetchBase64Transport(url: string): Promise<ArrayBuffer> {
+  let text = await fetchTransportText(`${url}.b64`);
+  if (text === null) {
+    const parts: string[] = [];
+    // The real assets ship 8 parts each; the cap only guards
+    // against a host that answers every path with junk.
+    for (let i = 0; i < 100; i++) {
+      const part = await fetchTransportText(
+        `${url}.b64.${String(i).padStart(2, "0")}`
+      );
+      if (part === null) break;
+      parts.push(part);
+    }
+    if (parts.length === 0) {
+      throw new Error(`traumaCharacter: no base64 transport for ${url}`);
+    }
+    text = parts.join("");
+  }
+  const buffer = decodeBase64ToArrayBuffer(text);
+  const head = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
+  const isGlb =
+    head.length === 4 &&
+    head[0] === 0x67 && // g
+    head[1] === 0x6c && // l
+    head[2] === 0x54 && // T
+    head[3] === 0x46; // F
+  if (!isGlb) {
+    throw new Error(`traumaCharacter: transport for ${url} is not a GLB`);
+  }
+  return buffer;
+}
+
+/**
+ * Load a BUILT-IN character (Trauma) for the rig's bind: try the
+ * raw .glb URL first — if a real binary ever lands at that path
+ * it takes precedence and the transport is never touched — and
+ * on any failure fall back to the base64 transport, decoded and
+ * parsed in memory. Picked files and remote URLs do NOT come
+ * through here; the rig keeps loading those with plain
+ * GLTFLoader.loadAsync, untouched.
+ */
+export async function loadBuiltinCharacterGltf(
+  loader: GLTFLoader,
+  url: string
+): Promise<GLTF> {
+  try {
+    return await loader.loadAsync(url);
+  } catch {
+    // No usable raw .glb at that URL — try the encoded transport.
+  }
+  const buffer = await fetchBase64Transport(url);
+  return loader.parseAsync(buffer, "");
 }

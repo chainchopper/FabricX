@@ -203,11 +203,22 @@ picking one binds it, and the layer remembers the pick
 mount. The files are ~5 MB binaries: they are **never bundled** —
 they live as same-origin static files in `public/animations/`
 (the soundfonts' route), lazy-loaded by URL only when bound,
-behind the one config constant `CHARACTER_ASSET_BASE_URL`. If a
-file is missing the bind reports "failed" and the mannequin
-keeps the stage. Trauma binds to the local rig only, wears the
-ghostie's hue wash + name tag, and his idle is his rest: the
-stage's `breathe` contract, embodied.
+behind the one config constant `CHARACTER_ASSET_BASE_URL`.
+
+Because the repo's automated write path is text-only, the GLBs
+are committed as a **base64 transport** (Slice 26): sequential
+≤900 KB text parts `trauma-*.glb.b64.00`, `.01`, … A built-in
+bind resolves its bytes in order — the raw `.glb` first (a real
+binary upload at the same path always wins), then the transport
+parts fetched in order, concatenated, decoded in the browser,
+and parsed in memory (`loadBuiltinCharacterGltf` in
+`traumaCharacter.ts`; picked files never take this path). If no
+decodable bytes are in place the bind reports "failed" and the
+mannequin keeps the stage. `public/animations/README.md`
+documents both forms, the verified SHA-256s, and how to
+regenerate the parts. Trauma binds to the local rig only, wears
+the ghostie's hue wash + name tag, and his idle is his rest:
+the stage's `breathe` contract, embodied.
 
 ## Stage settings (THIS LAYER, `specific.*`)
 
