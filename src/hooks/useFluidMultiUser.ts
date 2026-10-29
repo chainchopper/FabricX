@@ -30,6 +30,21 @@ import {
   subscribeIdentity,
   type ParticipantIdentity,
 } from "../identity/identityStore";
+import {
+  buildAnnounceExtras,
+  sanitizePeerExtras,
+} from "../identity/profile";
+import {
+  ensureLocalProfileExtras,
+  getLocalProfileExtras,
+  prunePeerProfiles,
+  setPeerProfileExtras,
+  subscribeLocalProfileExtras,
+} from "../identity/profileStore";
+import {
+  getGhostPublicState,
+  subscribeGhostState,
+} from "../ghost/ghostStore";
 import { getSignalingService } from "../services/SignalingService";
 import {
   bindLintBridge,
@@ -85,7 +100,23 @@ type TransportMsg =
   // the seed never leaves the device. Announced on arrival, in reply
   // to a peer-request, on edit, and on a slow heartbeat while peers
   // are present. Additive: older clients ignore unknown types.
-  | { type: "peer-announce"; from: string; name: string; hue: number }
+  // Slice 21 ("Profile Cards"): the announce gains the OPTIONAL
+  // profile extras — the sender's secure tag (the one-way fDNA
+  // fingerprint of their GHOST's seed; the seed itself is never
+  // computed for export and never sent), a ghostie summary, earned
+  // badge ids (public by design), and an equipped trail id. All
+  // optional: a legacy announce without them parses and renders
+  // exactly as before, and old clients ignore the new fields.
+  | {
+      type: "peer-announce";
+      from: string;
+      name: string;
+      hue: number;
+      tag?: string;
+      ghost?: { name: string; temperament?: string };
+      badges?: string[];
+      trail?: string;
+    }
   | { type: "peer-request"; from?: string }
   // Hotfix 1.7: discrete musical notes. Fluid interactions carry
   // splats, not pitch — a peer's piano note arrived as colored
@@ -366,6 +397,8 @@ export function useFluidMultiUser(roomId: string) {
       // Slice 6: learned identities expire with presence (the store
       // applies its own grace TTL for the WebRTC transport flip).
       prunePeerIdentities(ids);
+      // Slice 21: profile extras expire on the same presence clock.
+      prunePeerProfiles(ids);
       // Slice 5: a host that stopped announcing is gone — degrade
       // the room to open collab rather than enforcing a dead session.
       if (
@@ -444,17 +477,68 @@ export function useFluidMultiUser(roomId: string) {
   // Slice 6: announce this client's identity card (name + hue) to
   // the room. No-op until the identity has loaded; the public face
   // only — the seed never leaves the device.
+  // Slice 21: the announce also carries the profile extras, built
+  // by profile.ts's ONE builder (buildAnnounceExtras) from the
+  // same sources the menu's own-card renders from — the ghost
+  // store's public state for the ghostie line, the profile store
+  // for the tag's ghost seed and the rewards record's public
+  // face — so the card a peer sees is the payload itself.
   const announceIdentity = useCallback(() => {
     const id = identityRef.current;
     if (!id) return;
+    const local = getLocalProfileExtras();
+    const ghost = getGhostPublicState();
+    const extras = buildAnnounceExtras({
+      ghostSeed: local.ghostSeed,
+      identitySeed: id.seed,
+      ghostName: ghost.ghostName,
+      temperament: ghost.temperament,
+      badges: local.badges,
+      trail: local.trail,
+    });
     postRef.current({
       type: "peer-announce",
       from: userId,
       name: id.name,
       hue: id.hue,
+      ...extras,
     });
   }, [userId]);
   announceIdentityRef.current = announceIdentity;
+
+  // Slice 21: the extras have their own clocks, separate from the
+  // name/hue edit path above — the local profile record finishing
+  // its load (the tag resolves to the ghost seed), and the ghost's
+  // name/temperament settling or drifting. Re-announce on either,
+  // but only while someone is here to hear it (the same courtesy
+  // as the arrival path), and only on a real change of the two
+  // ghost fields — the ghost store also publishes presence and
+  // brain lines, which are not announce business.
+  const announcedGhostRef = useRef<{ name: string | null; temperament: string | null }>({
+    name: null,
+    temperament: null,
+  });
+  useEffect(() => {
+    ensureLocalProfileExtras();
+    const offLocal = subscribeLocalProfileExtras(() => {
+      if (bcPeersRef.current.size > 0) announceIdentityRef.current();
+    });
+    const offGhost = subscribeGhostState((s) => {
+      const prev = announcedGhostRef.current;
+      if (prev.name === s.ghostName && prev.temperament === s.temperament) {
+        return;
+      }
+      announcedGhostRef.current = {
+        name: s.ghostName,
+        temperament: s.temperament,
+      };
+      if (bcPeersRef.current.size > 0) announceIdentityRef.current();
+    });
+    return () => {
+      offLocal();
+      offGhost();
+    };
+  }, []);
 
   // Load the local identity once, keep the ref current, and
   // re-announce immediately when the user edits their name or hue
@@ -658,6 +742,12 @@ export function useFluidMultiUser(roomId: string) {
           name: typeof msg.name === "string" ? msg.name : "",
           hue: msg.hue,
         });
+        // Slice 21: the card behind the name. The extras are
+        // untrusted wire data — sanitized field-by-field before
+        // anything learns them (a malformed tag never reaches a
+        // card), and an extras-free legacy announce teaches the
+        // profile store nothing.
+        setPeerProfileExtras(msg.from, sanitizePeerExtras(msg));
       } else if (msg.type === "peer-request") {
         // Slice 6: someone (usually a fresh joiner) asks who's who.
         // Everyone answers with their own card — cheap and complete.

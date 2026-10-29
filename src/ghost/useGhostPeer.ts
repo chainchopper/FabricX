@@ -493,6 +493,17 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     return peerRef.current?.answerHeartbeat() ?? null;
   }, []);
 
+  /**
+   * Slice 21: where another ghost was last sensed on this canvas
+   * (the profile card's pet aim). Null when unseen or stale.
+   */
+  const otherGhostPosition = useCallback(
+    (peerId: string): { x: number; y: number } | null => {
+      return peerRef.current?.otherGhostPosition(peerId) ?? null;
+    },
+    []
+  );
+
   return {
     enabled,
     identity,
@@ -500,5 +511,6 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteRemoteInteraction,
     noteUserActivity,
     answerHeartbeat,
+    otherGhostPosition,
   };
 }

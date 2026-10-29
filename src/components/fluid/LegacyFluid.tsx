@@ -53,6 +53,7 @@ import { getHostArrivedFabric } from "../../session/fabricStore";
 import {
   setGhostPublicState,
   getGhostPublicState,
+  FABRIC_PET_GHOST_EVENT,
 } from "../../ghost/ghostStore";
 import {
   getSignalingService,
@@ -646,6 +647,59 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
     window.addEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
     return () => window.removeEventListener(FABRIC_VERB_EVENT, onVerb as EventListener);
+  }, []);
+
+  // Slice 21: petting a peer's ghostie from their profile card.
+  // The card dispatches FABRIC_PET_GHOST_EVENT with the primary's
+  // userId; the answer is the ordinary pet path and nothing else:
+  // three gentle strokes swept across the ghost's last-sensed
+  // position on THIS canvas, sent through the funnel like any
+  // hand stroke (mode gate + draw rule inside sendInteraction)
+  // and rendered locally the way pattern splats render. On the
+  // primary's device, their GhostPeer registers the strokes as
+  // remote pets — or refuses them under their "Accept pets from
+  // others" setting. If the ghost isn't sensed here (not out, or
+  // gone stale), there is nowhere honest for a pet to land and
+  // the request simply does nothing.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+    const onPetGhost = (ev: Event) => {
+      if (!sessionRef.current.inputEnabled) return;
+      const ownerId = (ev as CustomEvent<string>).detail;
+      if (typeof ownerId !== "string" || !ownerId || ownerId === userId) return;
+      const pos = ghostRef.current.otherGhostPosition(
+        ghostPeerIdFor(ownerId)
+      );
+      if (!pos) return;
+      markActivity();
+      const hue = getIdentitySnapshot().self?.hue ?? 205;
+      const color = hueDyeColor(hue, 0.95);
+      for (let k = 0; k < 3; k++) {
+        const sweep = k / 2 - 0.5; // -0.5 .. 0.5 across the ghost
+        const interaction: Omit<FluidInteraction, "userId" | "timestamp"> = {
+          position: {
+            x: clamp01(pos.x + sweep * 0.07),
+            y: clamp01(pos.y + Math.sin(k * 1.7) * 0.012),
+          },
+          force: { x: k === 1 ? 90 : 40, y: 0 },
+          pressure: 0.55,
+          color,
+        };
+        const full = sendRef.current(interaction);
+        engineRef.current?.splatAt(
+          interaction.position.x,
+          interaction.position.y,
+          interaction.force.x,
+          interaction.force.y,
+          color
+        );
+        ghostRef.current.noteLocalInteraction(full);
+      }
+      ghostRef.current.noteUserActivity();
+    };
+    window.addEventListener(FABRIC_PET_GHOST_EVENT, onPetGhost as EventListener);
+    return () => window.removeEventListener(FABRIC_PET_GHOST_EVENT, onPetGhost as EventListener);
   }, []);
 
   // ---- Pattern composer (Slice 4) --------------------------------------

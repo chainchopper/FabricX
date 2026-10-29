@@ -822,6 +822,22 @@ export class GhostPeer {
     }
   }
 
+  /**
+   * Slice 21: where another ghost was last sensed on this canvas
+   * (normalized coordinates), or null when it hasn't been seen or
+   * the sighting has gone stale (the same GHOST_STALE_MS horizon
+   * the social brain prunes on). Read-only and position-only: the
+   * profile card's "Pet their ghostie" aims its strokes here, so
+   * a card pet is aimed at the ghost as this device actually
+   * perceives it — never at a position the wire merely claims.
+   */
+  otherGhostPosition(peerId: string): { x: number; y: number } | null {
+    const g = this.otherGhosts.get(peerId);
+    if (!g) return null;
+    if (Date.now() - g.lastSeen > GHOST_STALE_MS) return null;
+    return { x: g.x, y: g.y };
+  }
+
   // ---------------------------------------------------------- petting
 
   private registerPet(
