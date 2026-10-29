@@ -45,6 +45,7 @@ import {
   getGhostPublicState,
   subscribeGhostState,
 } from "../ghost/ghostStore";
+import { vitalsWire } from "../ghost/ghostVitals";
 import { getSignalingService } from "../services/SignalingService";
 import {
   bindLintBridge,
@@ -493,8 +494,20 @@ export function useFluidMultiUser(roomId: string) {
       identitySeed: id.seed,
       ghostName: ghost.ghostName,
       temperament: ghost.temperament,
+      ghostHue: ghost.ghostHue,
       badges: local.badges,
       trail: local.trail,
+      // Slice 22: the ghostie's card facts — the primary's
+      // published permissions + (only when public) personality
+      // from the local extras, and the vitals readings this
+      // device computed from its ghost's live state. profile.ts's
+      // builder enforces the publication rules; the heartbeat
+      // below keeps the readings fresh.
+      ghostCard: {
+        permissions: local.permissions,
+        personality: local.personality,
+        vitals: ghost.vitals ? vitalsWire(ghost.vitals) : null,
+      },
     });
     postRef.current({
       type: "peer-announce",
@@ -514,9 +527,16 @@ export function useFluidMultiUser(roomId: string) {
   // as the arrival path), and only on a real change of the two
   // ghost fields — the ghost store also publishes presence and
   // brain lines, which are not announce business.
-  const announcedGhostRef = useRef<{ name: string | null; temperament: string | null }>({
+  const announcedGhostRef = useRef<{
+    name: string | null;
+    temperament: string | null;
+    hue: number | null;
+    vitalsKey: string;
+  }>({
     name: null,
     temperament: null,
+    hue: null,
+    vitalsKey: "",
   });
   useEffect(() => {
     ensureLocalProfileExtras();
@@ -525,12 +545,26 @@ export function useFluidMultiUser(roomId: string) {
     });
     const offGhost = subscribeGhostState((s) => {
       const prev = announcedGhostRef.current;
-      if (prev.name === s.ghostName && prev.temperament === s.temperament) {
+      // Slice 22: the ghost's card facts re-announce too — its
+      // hue settling, and its vitals readings once they move by
+      // a real step (rounded to 5s so ordinary drift doesn't
+      // chatter; the 10s heartbeat carries the fine grain).
+      const vitalsKey = s.vitals
+        ? `${Math.round(s.vitals.health / 5)}|${Math.round(s.vitals.stamina / 5)}|${Math.round(s.vitals.vigor / 5)}`
+        : "";
+      if (
+        prev.name === s.ghostName &&
+        prev.temperament === s.temperament &&
+        prev.hue === s.ghostHue &&
+        prev.vitalsKey === vitalsKey
+      ) {
         return;
       }
       announcedGhostRef.current = {
         name: s.ghostName,
         temperament: s.temperament,
+        hue: s.ghostHue,
+        vitalsKey,
       };
       if (bcPeersRef.current.size > 0) announceIdentityRef.current();
     });

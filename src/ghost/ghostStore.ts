@@ -15,8 +15,13 @@
  * - FABRIC_GHOST_SESSION_EVENT (detail: "summon" | "dismiss") — summon or
  *   dismiss THIS user's own ghost into/out of the shared session.
  *
+ * Slice 22 adds the ghost's card facts to the published state:
+ * its own hue (for portraits) and its computed vitals.
+ *
  * Powered by Nirvana
  */
+
+import type { GhostVitals } from "./ghostVitals";
 
 export type GhostPresence =
   | "present"
@@ -51,8 +56,22 @@ export interface GhostPublicState {
   sessionRole: "none" | "host";
   /** This user's ghost's persistent name (identity in fabric_ghost_v1). */
   ghostName: string | null;
+  /**
+   * This user's ghost's own signature hue (Slice 22) — distinct
+   * from the human's hue: the announce carries it on the ghostie
+   * line so a remote ghostie portrait wears the ghost's real color.
+   */
+  ghostHue: number | null;
   /** This user's ghost's current temperament (curious/playful/...). */
   temperament: string | null;
+  /**
+   * The local ghost's live vitals (Slice 22): Health / Stamina /
+   * Vigor readings computed from the peer's real state by
+   * useGhostPeer (ghostVitals.ts) — the ID card's bars and the
+   * announce's sender-computed ghostCard readings read these.
+   * Null until the peer exists.
+   */
+  vitals: GhostVitals | null;
   /** Distinct OTHER ghosts this client has sensed recently in the room. */
   otherGhostCount: number;
   /**
@@ -110,7 +129,9 @@ const state: GhostPublicState = {
   presence: "sleeping",
   sessionRole: "none",
   ghostName: null,
+  ghostHue: null,
   temperament: null,
+  vitals: null,
   otherGhostCount: 0,
   sessionGhostLastSeenAt: 0,
   brain: null,

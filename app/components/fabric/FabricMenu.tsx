@@ -111,6 +111,14 @@ import LifePacketCard from "./LifePacketCard";
 import GhostieHome from "./GhostieHome";
 import ProfileCard from "./ProfileCard";
 import {
+  FabricCardOverlay,
+  GhostieCardOverlay,
+  LayerCardOverlay,
+  type FabricCardOverlayData,
+  type GhostieCardOverlayData,
+} from "./IdCards";
+import { vitalsWire } from "../../../src/ghost/ghostVitals";
+import {
   buildAnnounceExtras,
   buildProfileCardData,
   type ProfileCardData,
@@ -557,6 +565,41 @@ export default function FabricMenu() {
     if (!menuOpen) setProfilePeerId(null);
   }, [menuOpen]);
 
+  // ID cards (Slice 22): the other three card kinds — ghostie,
+  // fabric, layer — open as sub-views in this same sheet. Back
+  // lands where you came from: the section list, the Ghostie
+  // Home, or a person's card (returnTo).
+  type CardOverlayState =
+    | { kind: "ghost"; peerId: string }
+    | { kind: "fabric"; layerId: string }
+    | { kind: "layer" }
+    | null;
+  const [cardOverlay, setCardOverlay] = useState<CardOverlayState>(null);
+  const [cardReturnTo, setCardReturnTo] = useState<
+    "list" | "home" | string
+  >("list");
+  useEffect(() => {
+    if (!menuOpen) setCardOverlay(null);
+  }, [menuOpen]);
+  const openCardOverlay = (
+    next: NonNullable<CardOverlayState>,
+    from: "list" | "home" | string
+  ) => {
+    noteActivity();
+    setCardReturnTo(from);
+    setCardOverlay(next);
+  };
+  const closeCardOverlay = () => {
+    noteActivity();
+    setCardOverlay(null);
+    if (cardReturnTo === "home") {
+      setGhostHomeOpen(true);
+    } else if (cardReturnTo !== "list") {
+      setProfilePeerId(cardReturnTo);
+    }
+    setCardReturnTo("list");
+  };
+
   // The profile extras (Slice 21): this device's announce inputs
   // (tag seed, badges, trail) and every peer's learned extras.
   const localExtras = useLocalProfileExtras();
@@ -638,8 +681,17 @@ export default function FabricMenu() {
           identitySeed: identity.self.seed,
           ghostName: ghost.ghostName,
           temperament: ghost.temperament,
+          ghostHue: ghost.ghostHue,
           badges: localExtras.badges,
           trail: localExtras.trail,
+          // Slice 22: the ghostie's card facts — the same inputs
+          // the transport announces (profileStore + ghost store),
+          // so the YOU mirror shows the published card exactly.
+          ghostCard: {
+            permissions: localExtras.permissions,
+            personality: localExtras.personality,
+            vitals: ghost.vitals ? vitalsWire(ghost.vitals) : null,
+          },
         }),
       }
     : null;
@@ -672,6 +724,158 @@ export default function FabricMenu() {
       : profilePeerId
         ? ownCardData
         : null;
+
+  // ---- ID cards (Slice 22) --------------------------------------
+  const PRESENCE_WORDS: Record<string, string> = {
+    present: "on the canvas with you",
+    summoned: "summoned into the room",
+    sleeping: "sleeping",
+    away: "away for now",
+    off: "off",
+  };
+  // The ghostie overlay's data: own ghost from the ghost store +
+  // the published extras (the same fields the announce carries);
+  // a remote ghost from ITS published extras alone — vitals and
+  // permissions are never invented for someone else's ghostie.
+  const ghostOverlayData = (
+    peerId: string
+  ): GhostieCardOverlayData | null => {
+    if (peerId === session.selfId) {
+      const card = ownCardData;
+      return {
+        name: ghost.ghostName ?? card?.ghost?.name ?? "Your ghostie",
+        hue: ghost.ghostHue ?? card?.ghost?.hue ?? null,
+        temperament: ghost.temperament ?? card?.ghost?.temperament ?? null,
+        presence: ghost.presence,
+        presenceLine: ghost.ghostName
+          ? `${ghost.presence} — ${PRESENCE_WORDS[ghost.presence] ?? ghost.presence}`
+          : null,
+        brainLine: ghost.brain
+          ? ghost.brain.tierLabel
+          : "On-device brain",
+        tag: card?.tag ?? null,
+        trail: card?.trail ?? localExtras.trail,
+        shareable: card?.ghostCard?.shareable ?? localExtras.permissions.shareable,
+        tradeable: card?.ghostCard?.tradeable ?? localExtras.permissions.tradeable,
+        personalityPublic:
+          card?.ghostCard?.personalityPublic ??
+          localExtras.permissions.personalityPublic,
+        personality: card?.ghostCard?.personality ?? null,
+        cardFactsKnown: true,
+        vitals: ghost.vitals
+          ? {
+              health: ghost.vitals.health,
+              stamina: ghost.vitals.stamina,
+              vigor: ghost.vitals.vigor,
+            }
+          : null,
+        vitalsWhy: ghost.vitals ? ghost.vitals.why : null,
+        isSelf: true,
+      };
+    }
+    const extras = peerProfiles[peerId] ?? null;
+    const gc = extras?.ghostCard ?? null;
+    return {
+      name: extras?.ghost?.name ?? "Their ghostie",
+      hue: extras?.ghost?.hue ?? null,
+      temperament: extras?.ghost?.temperament ?? null,
+      presence: null,
+      presenceLine: null,
+      brainLine: null,
+      tag: extras?.tag ?? null,
+      trail: extras?.trail ?? null,
+      shareable: gc?.shareable === true,
+      tradeable: gc?.tradeable === true,
+      personalityPublic: gc?.personalityPublic === true,
+      personality:
+        gc && gc.personalityPublic === true ? (gc.personality ?? null) : null,
+      cardFactsKnown: gc !== null,
+      vitals: gc?.vitals
+        ? { health: gc.vitals.h, stamina: gc.vitals.s, vigor: gc.vitals.v }
+        : null,
+      vitalsWhy: null,
+      isSelf: false,
+    };
+  };
+
+  // The fabric overlay's data for a registry entry: registry
+  // truth + session truth (host, who's here, rules in force).
+  const fabricOverlayData = (
+    exp: ExperienceLayer
+  ): FabricCardOverlayData => {
+    const isSessionFabric =
+      fabric.layerId === exp.id && session.role !== "open";
+    const peopleIds = [
+      session.selfId,
+      ...session.guestIds.filter((g) => g !== session.selfId),
+    ];
+    const inForce = isSessionFabric ? fabric.rules : rulesFor(exp.id);
+    return {
+      exp,
+      canvasBadge: canvasBadge(exp),
+      stateLine:
+        exp.id === active?.id
+          ? isSessionFabric
+            ? "Live here · session fabric"
+            : "Live here"
+          : isSessionFabric
+            ? "Session fabric"
+            : "Yours to open",
+      hostLine: isSessionFabric
+        ? fabric.byName ??
+          (fabric.hostId ? displayNameFor(fabric.hostId, session.selfId) : null)
+        : null,
+      rulesCaption: isSessionFabric
+        ? "In force in this room right now — set by the host, enforced on guest devices."
+        : "The host's saved rules for this fabric — they bind guests when the host leads a room here.",
+      rules: FABRIC_RULE_KEYS.map((key) => ({
+        label: FABRIC_RULE_LABEL[key],
+        allowed: inForce[key],
+      })),
+      people: peopleIds.map((pid) => ({
+        id: pid,
+        label:
+          pid === session.selfId
+            ? (identity.self?.name ?? "you")
+            : displayNameFor(pid, session.selfId),
+        isSelf: pid === session.selfId,
+      })),
+      canEdit: session.role !== "guest",
+    };
+  };
+
+  // The layer card's settings summary: the active layer's own
+  // per-layer values, read from the same config THIS LAYER edits.
+  // Curated labels for the keys the menu knows; an unset key is
+  // simply absent (defaults rule, and the card says so).
+  const LAYER_TOGGLE_LABELS: Record<string, string> = {
+    ghostEnabled: "Ghostie on this layer",
+    ambientEnabled: "Ambient life",
+    motionEnabled: "Motion (tilt & shake)",
+    pianoVoice: "Piano voice",
+    stageDancerEnabled: "Dancers",
+    stageCameraDrift: "Camera drift",
+    stageTheme: "Stage theme",
+  };
+  const layerToggleSummary = (
+    exp: ExperienceLayer
+  ): { label: string; value: string }[] => {
+    if (exp.id !== active?.id) return [];
+    const specific = (state.experienceConfig.specific ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const out: { label: string; value: string }[] = [];
+    for (const [key, label] of Object.entries(LAYER_TOGGLE_LABELS)) {
+      const v = specific[key];
+      if (v === undefined) continue;
+      out.push({
+        label,
+        value: typeof v === "boolean" ? (v ? "On" : "Off") : String(v),
+      });
+    }
+    return out;
+  };
 
   // ---- Studio compositions (Slice 8) ------------------------------
   // The real saved-compositions store: the share-live rows in the
@@ -1289,7 +1493,62 @@ export default function FabricMenu() {
               noteActivity();
               setGhostHomeOpen(false);
             }}
+            onOpenGhostieCard={() =>
+              openCardOverlay({ kind: "ghost", peerId: session.selfId }, "home")
+            }
           />
+        ) : cardOverlay ? (
+          cardOverlay.kind === "ghost" ? (
+            (() => {
+              const data = ghostOverlayData(cardOverlay.peerId);
+              return data ? (
+                <GhostieCardOverlay data={data} onBack={closeCardOverlay} />
+              ) : (
+                <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+                  That ghostie's card hasn't landed yet.
+                </Text>
+              );
+            })()
+          ) : cardOverlay.kind === "fabric" ? (
+            (() => {
+              const exp = state.availableExperiences.find(
+                (e) => e.id === cardOverlay.layerId
+              );
+              return exp ? (
+                <FabricCardOverlay
+                  data={fabricOverlayData(exp)}
+                  onBack={closeCardOverlay}
+                  onOpenPerson={(pid) => {
+                    noteActivity();
+                    setCardOverlay(null);
+                    setProfilePeerId(pid);
+                  }}
+                  onEditFabric={() => {
+                    noteActivity();
+                    setCardOverlay(null);
+                    openEditor(exp);
+                  }}
+                />
+              ) : (
+                <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+                  That fabric isn't in the registry anymore.
+                </Text>
+              );
+            })()
+          ) : active ? (
+            <LayerCardOverlay
+              data={{
+                exp: active,
+                canvasBadge: canvasBadge(active),
+                toggles: layerToggleSummary(active),
+              }}
+              onBack={closeCardOverlay}
+            />
+          ) : (
+            <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+              No layer is loaded right now.
+            </Text>
+          )
         ) : profilePeerId ? (
           <View>
             <View
@@ -1331,6 +1590,15 @@ export default function FabricMenu() {
             {openPeerCardData ? (
               <ProfileCard
                 data={openPeerCardData}
+                onOpenGhostie={
+                  openPeerCardData.ghost
+                    ? () =>
+                        openCardOverlay(
+                          { kind: "ghost", peerId: profilePeerId },
+                          profilePeerId
+                        )
+                    : undefined
+                }
                 ghostPresenceLine={
                   profilePeerId === session.selfId
                     ? ghost.ghostName
@@ -1523,19 +1791,42 @@ export default function FabricMenu() {
                   </Text>
                 </Pressable>
 
-                {canEdit ? (
+                {/* Slice 22: the card's doors — Edit (host-side)
+                    and the fabric's ID card (everyone). The card
+                    body above keeps its Slice 19 meaning: it
+                    opens/switches the fabric. These are separate
+                    targets; no ambiguous pixels. */}
+                <View style={{ flexDirection: "row", gap: spacing.lg }}>
                   <Pressable
                     pointerEvents="auto"
-                    onPress={() => openEditor(exp)}
+                    onPress={() =>
+                      openCardOverlay(
+                        { kind: "fabric", layerId: exp.id },
+                        "list"
+                      )
+                    }
                     accessibilityRole="button"
-                    accessibilityLabel={`${editing ? "Close" : "Edit"} ${exp.name} settings`}
-                    style={{ paddingVertical: 6, alignSelf: "flex-start" }}
+                    accessibilityLabel={`Open ${exp.name}'s ID card`}
+                    style={{ paddingVertical: 6 }}
                   >
-                    <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
-                      {editing ? "Close editor" : "Edit fabric ›"}
+                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                      ID card ›
                     </Text>
                   </Pressable>
-                ) : null}
+                  {canEdit ? (
+                    <Pressable
+                      pointerEvents="auto"
+                      onPress={() => openEditor(exp)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${editing ? "Close" : "Edit"} ${exp.name} settings`}
+                      style={{ paddingVertical: 6 }}
+                    >
+                      <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                        {editing ? "Close editor" : "Edit fabric ›"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
 
                 {canEdit && editing ? (
                   <View style={{ marginTop: spacing.xs }}>
@@ -1679,23 +1970,14 @@ export default function FabricMenu() {
                     : null
                   : (peerProfiles[pid]?.ghost ?? null);
                 return (
-                  <Pressable
+                  <View
                     key={pid}
-                    pointerEvents="auto"
-                    onPress={() => {
-                      noteActivity();
-                      setProfilePeerId(pid);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${isSelf ? "your" : `${displayNameFor(pid, session.selfId)}'s`} profile card`}
-                    style={({ pressed }) => ({
+                    style={{
                       flexDirection: "row",
                       alignItems: "center",
                       gap: spacing.sm,
                       paddingVertical: 3,
-                      borderRadius: radius.card,
-                      backgroundColor: pressed ? colors.accentDim : "transparent",
-                    })}
+                    }}
                   >
                     <View
                       style={{
@@ -1707,31 +1989,63 @@ export default function FabricMenu() {
                       }}
                     />
                     <View style={{ flex: 1 }}>
-                      <Text
-                        style={{
-                          color: colors.text,
-                          fontSize: typeScale.body,
-                          fontWeight: isSelf ? "700" : "400",
+                      {/* The person is one door (their user card);
+                          the ghostie sub-line is its OWN door
+                          (Slice 22: the ghostie's ID card) —
+                          stacked targets, never nested. */}
+                      <Pressable
+                        pointerEvents="auto"
+                        onPress={() => {
+                          noteActivity();
+                          setProfilePeerId(pid);
                         }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${isSelf ? "your" : `${displayNameFor(pid, session.selfId)}'s`} profile card`}
+                        style={({ pressed }) => ({
+                          borderRadius: radius.card,
+                          backgroundColor: pressed ? colors.accentDim : "transparent",
+                        })}
                       >
-                        {isSelf
-                          ? (identity.self?.name ?? "you")
-                          : displayNameFor(pid, session.selfId)}
-                      </Text>
-                      {peerGhost ? (
-                        <Text style={{ color: colors.ghost, fontSize: typeScale.caption }}>
-                          👻 {peerGhost.name}
-                          {peerGhost.temperament
-                            ? ` · ${peerGhost.temperament}`
-                            : ""}{" "}
-                          — tap for their card
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontSize: typeScale.body,
+                            fontWeight: isSelf ? "700" : "400",
+                          }}
+                        >
+                          {isSelf
+                            ? (identity.self?.name ?? "you")
+                            : displayNameFor(pid, session.selfId)}
                         </Text>
+                      </Pressable>
+                      {peerGhost ? (
+                        <Pressable
+                          pointerEvents="auto"
+                          onPress={() =>
+                            openCardOverlay({ kind: "ghost", peerId: pid }, "list")
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open ${peerGhost.name}'s ID card`}
+                          style={({ pressed }) => ({
+                            borderRadius: radius.card,
+                            backgroundColor: pressed ? colors.ghostDim : "transparent",
+                            alignSelf: "flex-start",
+                          })}
+                        >
+                          <Text style={{ color: colors.ghost, fontSize: typeScale.caption }}>
+                            👻 {peerGhost.name}
+                            {peerGhost.temperament
+                              ? ` · ${peerGhost.temperament}`
+                              : ""}{" "}
+                            — tap for its ID card
+                          </Text>
+                        </Pressable>
                       ) : null}
                     </View>
                     <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
                       {tag}
                     </Text>
-                  </Pressable>
+                  </View>
                 );
               }
             )}
@@ -2039,6 +2353,15 @@ export default function FabricMenu() {
             </Text>
             <ProfileCard
               data={ownCardData}
+              onOpenGhostie={
+                ownCardData.ghost
+                  ? () =>
+                      openCardOverlay(
+                        { kind: "ghost", peerId: session.selfId },
+                        "list"
+                      )
+                  : undefined
+              }
               ghostPresenceLine={
                 ghost.ghostName
                   ? `${ghost.temperament ? `${ghost.temperament} · ` : ""}${ghost.presence}${ghost.otherGhostCount > 0 ? ` · ${ghost.otherGhostCount} other ghostie${ghost.otherGhostCount === 1 ? "" : "s"} in the room` : ""}`
@@ -2221,6 +2544,29 @@ export default function FabricMenu() {
 
         {/* ---------------- THIS LAYER ---------------- */}
         <SectionHeader>{`THIS LAYER${active ? ` · ${active.name.toUpperCase()}` : ""}`}</SectionHeader>
+        {/* Slice 22: the active layer has an ID card too — what
+            it is, its tools, its caps, its settings summary, and
+            the lint attached. The settings below stay the working
+            surface; the card is the layer's public face. */}
+        {active ? (
+          <Pressable
+            pointerEvents="auto"
+            onPress={() => openCardOverlay({ kind: "layer" }, "list")}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${active.name}'s layer ID card`}
+            style={({ pressed }) => ({
+              alignSelf: "flex-start",
+              paddingVertical: 4,
+              marginBottom: spacing.xs,
+              borderRadius: radius.card,
+              backgroundColor: pressed ? colors.accentDim : "transparent",
+            })}
+          >
+            <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+              {active.name} — ID card ›
+            </Text>
+          </Pressable>
+        ) : null}
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
           Settings below belong to this layer only and are saved under its
           own id — they never leak into other layers.

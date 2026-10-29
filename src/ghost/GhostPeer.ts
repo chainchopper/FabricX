@@ -354,6 +354,20 @@ export class GhostPeer {
   private taps = new Map<string, Tap[]>();
   private petTimes: number[] = [];
   private emitTimes: number[] = [];
+
+  // ---- Vitals journals (Slice 22) ----
+  // Longer-window rings the ID card's vitals read (ghostVitals.ts).
+  // petTimes above prunes at 9s for the purr rules; nourishment is
+  // a 30-minute story, so landed pets are journaled again here.
+  // Same discipline for work: emitTimes is the 10s budget window,
+  // emitHistory keeps 30 minutes of output; deliberationTimes
+  // journals each brain window. All pruned on write, all local —
+  // only the three derived readings ever leave (on the announce).
+  private petReceivedTimes: number[] = [];
+  private emitHistory: number[] = [];
+  private deliberationTimes: number[] = [];
+  /** When the current presence began (rest stretches for stamina). */
+  private presenceSince = Date.now();
   private crowdEmitTimes: number[] = [];
 
   // Ghost society
@@ -635,6 +649,46 @@ export class GhostPeer {
   }
 
   /**
+   * The raw state the ID card's vitals derive from (Slice 22 —
+   * ghostVitals.computeGhostVitals does the reading). A snapshot,
+   * never a store: the peer's journals stay the one truth, and
+   * the card's numbers can always be re-derived from them.
+   */
+  getVitalsSnapshot(now = Date.now()): {
+    ghostSeed: number;
+    bpm: number;
+    petsReceived30m: number;
+    verbsReceived30m: number;
+    secondsSinceHumanTouch: number;
+    emits10m: number;
+    deliberations30m: number;
+    restSeconds: number;
+  } {
+    return {
+      ghostSeed: this.options.identity.seed,
+      bpm: this.heartbeatBpm(now),
+      petsReceived30m: this.petReceivedTimes.filter(
+        (t) => now - t < 30 * 60_000
+      ).length,
+      verbsReceived30m: this.verbsSeenLog.filter(
+        (v) => now - v.at < 30 * 60_000
+      ).length,
+      secondsSinceHumanTouch: Math.max(
+        0,
+        Math.round((now - this.lastActivityAt) / 1000)
+      ),
+      emits10m: this.emitHistory.filter((t) => now - t < 10 * 60_000).length,
+      deliberations30m: this.deliberationTimes.filter(
+        (t) => now - t < 30 * 60_000
+      ).length,
+      restSeconds:
+        this.presence === "sleeping"
+          ? Math.max(0, Math.round((now - this.presenceSince) / 1000))
+          : 0,
+    };
+  }
+
+  /**
    * Answer a direct heartbeat request with a generated pulse at the
    * ghost's body, in its signature color. This is not the HEART verb
    * macro: two unequal strikes (lub, then a softer dub), a rest, and
@@ -888,6 +942,11 @@ export class GhostPeer {
 
     this.petTimes = this.petTimes.filter((t) => now - t < 9_000);
     this.petTimes.push(now);
+    // Vitals journal: a landed pet nourishes for 30 minutes.
+    this.petReceivedTimes = this.petReceivedTimes.filter(
+      (t) => now - t < 30 * 60_000
+    );
+    this.petReceivedTimes.push(now);
     // A landed pet is meaningful context for the brain.
     this.journal(
       `pet x${this.petTimes.filter((t) => now - t < 5_000).length}`,
@@ -1389,6 +1448,11 @@ export class GhostPeer {
     ) {
       this.lastDeliberationAt = now;
       this.deliberationDirty = false;
+      // Vitals journal: thinking is work; stamina spends on it.
+      this.deliberationTimes = this.deliberationTimes.filter(
+        (t) => now - t < 30 * 60_000
+      );
+      this.deliberationTimes.push(now);
       try {
         this.options.onDeliberate(this.buildScenario(now));
       } catch {
@@ -1820,6 +1884,9 @@ export class GhostPeer {
       this.crowdEmitTimes.push(now);
     }
     this.emitTimes.push(now);
+    // Vitals journal: 30 minutes of work output for stamina.
+    this.emitHistory = this.emitHistory.filter((t) => now - t < 30 * 60_000);
+    this.emitHistory.push(now);
 
     const full: FluidInteraction = {
       ...payload,
@@ -1899,9 +1966,11 @@ export class GhostPeer {
   private lastPublishedKey = "";
 
   private publishPresence(): void {
-    const next = this.computePresence(Date.now());
+    const now = Date.now();
+    const next = this.computePresence(now);
     const prev = this.presence;
     this.presence = next;
+    if (next !== prev) this.presenceSince = now;
     const key = `${next}:${this.mode}`;
     if (key !== this.lastPublishedKey) {
       const isFirstPublish = this.lastPublishedKey === "";
