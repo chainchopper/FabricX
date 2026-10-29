@@ -31,15 +31,21 @@
  * module captures, stores or transmits an image.
  *
  * DEPENDENCIES, named plainly (see the PR body): the JS library is
- * the npm package @mediapipe/tasks-vision. Its WASM fileset loads
- * from the pinned CDN mirror of that exact package version (Metro
- * web exports do not serve node_modules statics, so the package's
- * own wasm cannot ride the bundle in this stack); the
- * hand_landmarker.task model loads from Google's hosted model URL.
- * Self-hosting both through the repo's base64 transport (the
- * Slice 26 route) is the named follow-up. If either load fails, or
- * WebGPU/WASM is unavailable, start() reports "unsupported" and the
- * layer carries on touch-only — nothing else changes.
+ * MediaPipe Tasks Vision, loaded at first use from the pinned
+ * jsDelivr CDN build — NEVER bundled. Metro cannot bundle it: its
+ * vision_bundle.mjs dies inside Metro on an internal dynamic
+ * import (`import(t.toString())`), which killed the Oct 29
+ * production build at 98.9% (Hotfix 2.10). The runtime-constructed
+ * import below is the same route Slice 27's WebLLM load and
+ * Slice 30's GroundingDINO load already prove in this app, so the
+ * package is deliberately absent from package.json. Its WASM
+ * fileset loads from the pinned jsDelivr mirror of the exact same
+ * version; the hand_landmarker.task model loads from Google's
+ * hosted model URL. Self-hosting both through the repo's base64
+ * transport (the Slice 26 route) is the named follow-up. If either
+ * load fails, or WebGPU/WASM is unavailable, start() reports
+ * "unsupported" and the layer carries on touch-only — nothing
+ * else changes.
  *
  * The factory takes its dependencies (landmarker creation, event
  * dispatch, clock, rAF) so the check script can drive the whole
@@ -76,9 +82,14 @@ import {
 export const HAND_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
-/** WASM fileset: pinned CDN mirror of the installed package version. */
+/** WASM fileset: pinned CDN mirror of the exact library version. */
 export const TASKS_VISION_VERSION = "0.10.14";
 export const HAND_WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VISION_VERSION}/wasm`;
+
+/** The JS library itself: the package's own ESM entry file
+ * (vision_bundle.mjs, its package.json "module"), same pinned
+ * version, same CDN as the WASM fileset above. */
+export const TASKS_VISION_CDN_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VISION_VERSION}/vision_bundle.mjs`;
 
 /** Detection cadence cap: at most one inference per ~33ms (~30Hz). */
 export const DETECT_INTERVAL_MS = 33;
@@ -102,14 +113,52 @@ export interface HandsEngineDeps {
   cancelRaf?: (id: number) => void;
 }
 
+/** The slice of the Tasks Vision module this engine actually uses. */
+export interface TasksVisionModule {
+  FilesetResolver: {
+    forVisionTasks: (wasmUrl: string) => Promise<unknown>;
+  };
+  HandLandmarker: {
+    createFromOptions: (
+      fileset: unknown,
+      options: unknown
+    ) => Promise<unknown>;
+  };
+}
+
+/** Test seam: the node check injects a mocked tasks-vision module. */
+type TasksVisionImporter = (url: string) => Promise<TasksVisionModule>;
+let importerOverride: TasksVisionImporter | null = null;
+export function setTasksVisionImporterForTests(
+  fn: TasksVisionImporter | null
+): void {
+  importerOverride = fn;
+}
+
+async function importTasksVision(): Promise<TasksVisionModule> {
+  if (importerOverride) return importerOverride(TASKS_VISION_CDN_URL);
+  // A runtime-constructed import: Metro must never see the CDN
+  // specifier (it would try to bundle the library and hit the
+  // vision_bundle.mjs failure named in the header), and on the web
+  // this performs the browser's genuine dynamic import — the exact
+  // route Slice 27's onDeviceBrain and Slice 30's deviceGrounding
+  // already prove in this app.
+  const dynamicImport = new Function(
+    "u",
+    "return import(u)"
+  ) as (u: string) => Promise<unknown>;
+  return (await dynamicImport(TASKS_VISION_CDN_URL)) as TasksVisionModule;
+}
+
 /**
- * The production landmarker: dynamic import keeps MediaPipe out of
- * the first bundle paint; GPU delegate first, CPU on refusal
+ * The production landmarker: the runtime CDN import keeps
+ * MediaPipe out of the bundle entirely and loads it only when a
+ * Hands toggle first turns on; GPU delegate first, CPU on refusal
  * (older devices and some browsers decline GPU inference — the
  * hand must still work there).
  */
 export async function createHandLandmarker(): Promise<HandLandmarkerLike> {
-  const vision = await import("@mediapipe/tasks-vision");
+  const vision = await importTasksVision();
   const fileset = await vision.FilesetResolver.forVisionTasks(HAND_WASM_URL);
   const options = (delegate: "GPU" | "CPU") => ({
     baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate },
