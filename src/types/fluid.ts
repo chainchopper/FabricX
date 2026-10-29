@@ -43,6 +43,17 @@ export interface FluidInteraction {
    */
   kind?: "shake";
   /**
+   * Slice 28: WHICH KIND OF HAND made this interaction — "hand"
+   * for camera-gesture input (src/hands: a fingertip tracked in
+   * the air, a pinch, a palm push), absent for pointer input and
+   * every legacy sender. The funnel treats a hand-touch exactly
+   * like a finger-touch; this tag is the ONLY difference, kept so
+   * consumers that care (the ghost's senses, diagnostics) can tell
+   * a wave from a tap. Optional and additive: older clients
+   * neither send nor require it.
+   */
+  source?: string;
+  /**
    * Slice 6 ("Who's Who"): the sender's signature hue (degrees,
    * 0–359) from their persisted participant identity
    * (src/identity/identityStore). Stamped by sendInteraction on the

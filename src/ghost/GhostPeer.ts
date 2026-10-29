@@ -979,6 +979,36 @@ export class GhostPeer {
   }
 
   /**
+   * A hand sign, SEEN (Slice 28, "Hands"). The local user's camera
+   * reads their hand on-device; when a held sign fires, LegacyFluid
+   * forwards it here. This is a SENSE, not an act: the ghost emits
+   * nothing, spends nothing, and no gate is consulted — the sign
+   * lands in the event journal, which is a deliberation input
+   * (buildScenario's recent_events), so the brain's next decision
+   * is made in a room where someone just showed it an open palm /
+   * a peace sign / a fist / a thumbs up, in the dataset's own
+   * vocabulary of plain event labels. Being shown a sign is
+   * company, so it also wakes and timestamps like any activity.
+   * Unknown sign ids are ignored — the vocabulary is an allowlist,
+   * like every other stimulus the ghost accepts.
+   */
+  noteHandSign(sign: string): void {
+    if (this.destroyed) return;
+    const labels: Record<string, string> = {
+      hold: "open palm received",
+      peace: "peace sign received",
+      fist: "fist received",
+      thumbsup: "thumbs up received",
+    };
+    const label = labels[sign];
+    if (!label) return;
+    const now = Date.now();
+    this.noteUserActivity();
+    this.journal(label, now);
+    this.markDeliberationDirty();
+  }
+
+  /**
    * Feed one HUMAN participant interaction into the brain — the local
    * user's strokes and every remote human peer's, so the ghost can
    * react to anyone in the room. `origin` says whose hand it was: the

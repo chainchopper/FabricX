@@ -87,6 +87,21 @@ export function registerSamVideo(el: HTMLVideoElement | null): void {
 }
 
 /**
+ * The live <video> element, for in-app ON-DEVICE consumers only
+ * (Slice 28: the Hands engine runs its HandLandmarker against the
+ * element SAM already opened, rather than opening a second stream
+ * to the same camera). The privacy contract is unchanged and this
+ * accessor does not bend it: detection reads frames locally and
+ * drops them, exactly as capture does — no frame, landmark or
+ * image leaves the device through either path, and nothing is
+ * retained. External code still cannot reach the element; this is
+ * a module-level getter for the app's own layers.
+ */
+export function getSamVideoElement(): HTMLVideoElement | null {
+  return videoEl;
+}
+
+/**
  * Capture ONE frame from the camera as a JPEG data URL, or null
  * when the camera isn't ready. The data URL exists only as this
  * return value: segmentFrame puts it in one request body, and

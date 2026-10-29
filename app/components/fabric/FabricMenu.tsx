@@ -173,6 +173,11 @@ import {
   subscribeMotionState,
   type MotionPublicState,
 } from "../../../src/sensors/motionState";
+import {
+  getHandsSnapshot,
+  subscribeHands,
+  type HandsSnapshot,
+} from "../../../src/hands/handsStore";
 import { requestFirstBreath } from "../../../src/onboarding/onboardingStore";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
@@ -436,6 +441,7 @@ const LAYER_EDIT_FIELDS: Record<string, LayerEditField[]> = {
     { key: "ghostEnabled", label: "Ghost in this layer", kind: "bool", defaultValue: true },
     { key: "ambientEnabled", label: "Ambient life", kind: "bool", defaultValue: true },
     { key: "motionEnabled", label: "Motion — tilt & shake", kind: "bool", defaultValue: false },
+    { key: "handsEnabled", label: "Hands — gesture input", kind: "bool", defaultValue: false },
   ],
   "ar-piano": [
     {
@@ -479,6 +485,7 @@ const LAYER_EDIT_FIELDS: Record<string, LayerEditField[]> = {
   ],
   "sam-see": [
     { key: "ghostEnabled", label: "Ghost in this layer", kind: "bool", defaultValue: true },
+    { key: "handsEnabled", label: "Hands — gesture input", kind: "bool", defaultValue: false },
   ],
   "camera-effects": [],
 };
@@ -872,6 +879,7 @@ export default function FabricMenu() {
     ghostEnabled: "Ghostie on this layer",
     ambientEnabled: "Ambient life",
     motionEnabled: "Motion (tilt & shake)",
+    handsEnabled: "Hands (gesture input)",
     pianoVoice: "Piano voice",
     stageDancerEnabled: "Dancers",
     stageCameraDrift: "Camera drift",
@@ -1211,6 +1219,33 @@ export default function FabricMenu() {
       },
     });
   };
+
+  // "Hands" — Slice 28. The layer's camera-gesture input, stored
+  // per layer id like Motion, with the same deliberate default:
+  // absent means OFF — a camera is even more personal than a gyro,
+  // and a layer's owner opts their hand in on purpose. The feature
+  // state (starting / live / blocked / not-on-this-device) is
+  // published by the hands store from the live layer, so this
+  // section can say plainly what state it is in. Ships on See and
+  // the Fluid Fabric in v1 — the toggle renders only there.
+  const [handsUi, setHandsUi] = useState<HandsSnapshot>(() =>
+    getHandsSnapshot()
+  );
+  useEffect(() => subscribeHands(setHandsUi), []);
+  const handsInLayer =
+    (state.experienceConfig.specific as any)?.handsEnabled === true;
+  const setHandsInLayer = (next: boolean) => {
+    noteActivity();
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        handsEnabled: next,
+      },
+    });
+  };
+  const handsAppliesHere =
+    state.activeExperience?.id === "sam-see" ||
+    state.activeExperience?.id === "default-fluid";
 
   const openPanel = (name: DrawerName) => {
     noteActivity();
@@ -3169,6 +3204,36 @@ export default function FabricMenu() {
                 : "Tilting leans the pool on this device only. A sharp shake sends one bloom to the room in your color. Your motion readings themselves never leave this phone."}
           </Text>
         </View>
+
+        {/* Hands in this layer — Slice 28. Per-layer like Motion,
+            default OFF: the camera opens only while this is on,
+            and only on the layers where a hand over the fluid
+            means something (See, the Fluid Fabric). Point to draw
+            in the air, pinch to press, shove with an open palm;
+            hold a sign — ✋ stills, ✌ cheers, 👍 hearts, ✊ clears.
+            The reading happens on this device: no frame, landmark
+            or image is sent or stored, ever. On See, Hands reads
+            the camera See already runs; here on the fluid it opens
+            the camera as the background, under the dye. */}
+        {handsAppliesHere ? (
+          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              Hands
+            </Text>
+            <BoolPillRow
+              value={handsInLayer}
+              onPick={setHandsInLayer}
+              labelPrefix="Hands"
+            />
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {handsInLayer && handsUi.phase === "blocked"
+                ? "Camera access was denied — this browser is keeping its camera private, and Fabric respects that. The layer still works by touch."
+                : handsInLayer && handsUi.phase === "unsupported"
+                  ? "Hand tracking couldn't start on this device, so this layer stays touch-driven here. Nothing else changes."
+                  : "Point to draw in the air. Pinch to press. ✋ hold stills the room, ✌ peace cheers, 👍 sends a heart, ✊ clears a ripple — and your ghostie sees the signs too. Your camera is read on this device only: nothing is sent or stored."}
+            </Text>
+          </View>
+        ) : null}
 
         {/* ---------------- STUDIO ---------------- */}
         <SectionHeader>STUDIO</SectionHeader>

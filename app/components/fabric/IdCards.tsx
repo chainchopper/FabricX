@@ -831,7 +831,7 @@ const LAYER_TOOLS: Record<string, string[]> = {
     "Key strip",
     "Ghosties on stage",
   ],
-  "sam-see": ["Camera", "SAM 3.1 segmentation", "Tap-to-fire patterns", "Ghostie"],
+  "sam-see": ["Camera", "SAM 3.1 segmentation", "Tap-to-fire patterns", "Hands — gesture input", "Ghostie"],
   "camera-effects": ["Camera", "Live effects", "Ghostie"],
 };
 
@@ -958,6 +958,32 @@ export function LayerCardOverlay({
               A frame is sent only when you tap Segment — one frame,
               dropped right after. Regions keep only their box
               coordinates.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+              Hands: your camera is read on this device only;
+              nothing is sent or stored.
+            </Text>
+          </View>
+        ) : null}
+
+        {exp.id === "default-fluid" ? (
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+              paddingTop: spacing.sm,
+              gap: 4,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+              How Hands works
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
+              With Hands on (THIS LAYER), the camera opens as this
+              layer's background and your hand becomes a way to
+              touch: point to draw, pinch to press, sign to speak.
+              Hands: your camera is read on this device only;
+              nothing is sent or stored.
             </Text>
           </View>
         ) : null}

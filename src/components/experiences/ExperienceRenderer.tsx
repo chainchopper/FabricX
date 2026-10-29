@@ -7,6 +7,7 @@ import Ambience from "../audio/Ambience";
 import AutoComposer from "../audio/AutoComposer";
 import PianoNoteLayer from "../piano/PianoNoteLayer";
 import SamLayer, { SamCameraBackground } from "../sam/SamLayer";
+import HandsLayer, { HandsCameraBackground } from "../hands/HandsLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 const DancerStageLazy = lazy(() => import("../../dancer/DancerStage"));
@@ -151,6 +152,23 @@ export default function ExperienceRenderer() {
           <SamLayer />
         </>
       ) : null}
+
+      {/* Hands (Slice 28): a per-layer gesture feature on the fluid
+          canvas (See + the Fluid Fabric), mounted in the same
+          never-moving slot discipline as the layers above — the
+          fragment's tree position is fixed, so toggling Hands never
+          remounts the canvas. Inside, the feature gates itself on
+          specific.handsEnabled: HandsCameraBackground (zIndex -1)
+          opens the camera UNDER the fluid on layers that don't
+          already run one (on See it renders nothing — SAM's stream
+          is the one stream, and Hands detects on it), and HandsLayer
+          (zIndex 31) runs the on-device hand engine + the reticle
+          overlay. Stage-canvas experiences never reach this slot's
+          feature: it applies only where the fluid is the ground. */}
+      <>
+        <HandsCameraBackground />
+        <HandsLayer />
+      </>
 
       <Animated.View
         pointerEvents="none"
