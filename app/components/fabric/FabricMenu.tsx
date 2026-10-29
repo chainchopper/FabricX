@@ -109,7 +109,9 @@ import {
 } from "../../../src/identity/useIdentity";
 import LifePacketCard from "./LifePacketCard";
 import GhostieHome from "./GhostieHome";
-import ProfileCard from "./ProfileCard";
+import ProfileCard, { BadgeGlyphMark } from "./ProfileCard";
+import { badgeInfo } from "../../../src/identity/profile";
+import { useRewards } from "../../../src/rewards/rewardsStore";
 import {
   FabricCardOverlay,
   GhostieCardOverlay,
@@ -624,6 +626,8 @@ export default function FabricMenu() {
   // still owns roles and enforcement; identity owns who's who.
   const identity = useIdentitySnapshot();
   const localIdentity = useLocalIdentity();
+  // Slice 24: the rewards record (YOU section's Badges row).
+  const rewards = useRewards();
   const [nameDraft, setNameDraft] = useState<string | null>(null);
 
   // ---- Profile cards (Slice 21) ----------------------------------
@@ -2374,6 +2378,58 @@ export default function FabricMenu() {
             />
           </>
         ) : null}
+
+        {/* Badges (Slice 24) — earned by living in the fabric.
+            The same earned ids ride your announce, so this row and
+            your card in the room always agree. Power-ups are
+            equipped in Your Ghostie. */}
+        <View style={{ ...cardStyle, gap: 6 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              Badges
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {rewards.earned.length} of 9 earned
+            </Text>
+          </View>
+          {rewards.earned.length > 0 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.md }}>
+              {rewards.earned.map((e) => {
+                const info = badgeInfo(e.id);
+                if (!info) return null;
+                return (
+                  <View
+                    key={e.id}
+                    style={{ flexDirection: "row", alignItems: "center" }}
+                  >
+                    <BadgeGlyphMark glyph={info.glyph} color={hueCss(info.hue)} />
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: typeScale.caption,
+                        marginLeft: 6,
+                      }}
+                    >
+                      {info.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              None yet — they come from sharing a fabric, hosting,
+              composing, and being kind to ghosties. Power-ups live in
+              Your Ghostie.
+            </Text>
+          )}
+        </View>
 
         {/* You (Slice 6) — the human LifePacket v0: the name and
             signature hue the room sees and hears. Your color tints

@@ -35,6 +35,10 @@ import {
 } from "../ghost/ghostPermissions";
 import { subscribeGhostPermissions } from "../ghost/ghostPermissionsPref";
 import { getGhostPersonality } from "../ghost/ghostPersonalityPref";
+import {
+  rewardsPublicFace,
+  subscribeRewards,
+} from "../rewards/rewardsStore";
 
 /** The ghost record's key (canonical export: useGhostPeer.GHOST_PREF_KEY). */
 const GHOST_PREF_KEY = "fabric_ghost_v1";
@@ -50,6 +54,8 @@ export interface LocalProfileExtras {
   ghostSeed: number | null;
   badges: string[];
   trail: string | null;
+  /** Equipped Signature Heart motif id (Slice 24), if any. */
+  motif: string | null;
   /**
    * The ghostie's card permissions (Slice 22), live from
    * ghostPermissionsPref — they decide what the announce may
@@ -71,6 +77,7 @@ let local: LocalProfileExtras = {
   ghostSeed: null,
   badges: [],
   trail: null,
+  motif: null,
   permissions: { ...DEFAULT_GHOST_PERMISSIONS },
   personality: "",
   loaded: false,
@@ -97,35 +104,47 @@ async function readGhostSeed(): Promise<number | null> {
   }
 }
 
-async function readRewards(): Promise<{ badges: string[]; trail: string | null }> {
+async function readRewards(): Promise<{
+  badges: string[];
+  trail: string | null;
+  motif: string | null;
+}> {
   try {
     const raw = await getJSON<unknown>(REWARDS_KEY, null);
-    if (!raw || typeof raw !== "object") return { badges: [], trail: null };
+    if (!raw || typeof raw !== "object") {
+      return { badges: [], trail: null, motif: null };
+    }
     const rec = raw as Record<string, unknown>;
-    // Accept both shapes the design allows: a flat id list, or
-    // earned entries with ids. Anything else sanitizes to empty.
+    // Accept every shape the design allows: a flat id list, or
+    // earned entries with ids — Slice 24's store writes `earned`
+    // (and earlier drafts wrote `earnedBadges`). Anything else
+    // sanitizes to empty.
     const flat = sanitizeBadgeIds(rec.badges);
-    const earned = Array.isArray(rec.earnedBadges)
-      ? sanitizeBadgeIds(
-          rec.earnedBadges.map((e) =>
-            e && typeof e === "object"
-              ? (e as Record<string, unknown>).id
-              : undefined
+    const earnedFrom = (list: unknown): string[] =>
+      Array.isArray(list)
+        ? sanitizeBadgeIds(
+            list.map((e) =>
+              e && typeof e === "object"
+                ? (e as Record<string, unknown>).id
+                : undefined
+            )
           )
-        )
-      : [];
+        : [];
+    const earned = earnedFrom(rec.earned);
+    const earnedBadges = earnedFrom(rec.earnedBadges);
     const equipped =
       rec.equipped && typeof rec.equipped === "object"
         ? (rec.equipped as Record<string, unknown>)
         : {};
-    const trail =
-      typeof equipped.trail === "string" &&
-      /^[a-z0-9][a-z0-9-]{0,31}$/.test(equipped.trail)
-        ? equipped.trail
-        : null;
-    return { badges: flat.length ? flat : earned, trail };
+    const idOrNull = (v: unknown): string | null =>
+      typeof v === "string" && /^[a-z0-9][a-z0-9-]{0,31}$/.test(v) ? v : null;
+    return {
+      badges: flat.length ? flat : earned.length ? earned : earnedBadges,
+      trail: idOrNull(equipped.trail),
+      motif: idOrNull(equipped.heartMotif),
+    };
   } catch {
-    return { badges: [], trail: null };
+    return { badges: [], trail: null, motif: null };
   }
 }
 
@@ -149,10 +168,34 @@ export function ensureLocalProfileExtras(): void {
       ghostSeed,
       badges: rewards.badges,
       trail: rewards.trail,
+      motif: rewards.motif,
       personality,
       loaded: true,
     });
   })();
+  // Slice 24: the rewards store is LIVE — a badge earned or a
+  // power-up (un)equipped mid-session republishes the local
+  // extras, and the transport's existing subscription turns the
+  // republish into a re-announce, so the room sees the new badge
+  // (or trail, or heart motif) on the next announce instead of
+  // the next app launch. The store's public face is the only
+  // thing read here; its counters stay home.
+  subscribeRewards((s) => {
+    const face = rewardsPublicFace(s);
+    if (
+      face.badges.join(",") === local.badges.join(",") &&
+      face.trail === local.trail &&
+      face.heartMotif === local.motif
+    ) {
+      return;
+    }
+    publishLocal({
+      ...local,
+      badges: face.badges,
+      trail: face.trail,
+      motif: face.heartMotif,
+    });
+  });
   // Slice 22: permissions are live — a flip in the Ghostie Home
   // republishes the local extras (and the transport re-announces
   // on the republish), and the Personality text is re-read at the
@@ -276,6 +319,7 @@ function extrasEqual(a: PeerProfileExtras, b: PeerProfileExtras): boolean {
   return (
     a.tag === b.tag &&
     a.trail === b.trail &&
+    a.motif === b.motif &&
     a.ghost?.name === b.ghost?.name &&
     a.ghost?.temperament === b.ghost?.temperament &&
     a.ghost?.hue === b.ghost?.hue &&

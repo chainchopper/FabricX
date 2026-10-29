@@ -114,7 +114,19 @@ import {
   refreshLocalGhostCardInputs,
   subscribeLocalProfileExtras,
 } from "../../../src/identity/profileStore";
-import { trailLabel } from "../../../src/identity/profile";
+import { badgeInfo, trailLabel } from "../../../src/identity/profile";
+import {
+  TRAIL_STYLES,
+  badgeProgress,
+  hasBadge,
+  powerUpUnlocked,
+  trailStyleUnlocked,
+} from "../../../src/rewards/rewardsCore";
+import {
+  equipRewards,
+  useRewards,
+} from "../../../src/rewards/rewardsStore";
+import { BadgeGlyphMark } from "./ProfileCard";
 import { GhostiePortrait } from "./IdCards";
 import { getJSON } from "../../utils/storage";
 
@@ -207,6 +219,8 @@ export default function GhostieHome({
   const self = identity.self;
   const shared = useGhostSharedSettings();
   const permissions = useGhostPermissions();
+  // Slice 24: the rewards record — badges + equipped power-ups.
+  const rewards = useRewards();
 
   // The ghostie's equipped trail (rewards state, local extras).
   const [trail, setTrail] = useState<string | null>(null);
@@ -891,6 +905,259 @@ export default function GhostieHome({
               })
             }
           />
+
+          <Text
+            style={{
+              color: hueCss(hue),
+              fontSize: typeScale.caption,
+              fontWeight: "700",
+              letterSpacing: 2,
+              marginTop: spacing.lg,
+              marginBottom: spacing.sm,
+            }}
+          >
+            POWER-UPS
+          </Text>
+          <Text
+            style={{
+              color: colors.textDim,
+              fontSize: typeScale.caption,
+              marginBottom: spacing.sm,
+            }}
+          >
+            Earned by living in the fabric, never bought with taps.
+            Badges so far: {rewards.earned.length} of 9.
+          </Text>
+          {rewards.earned.length > 0 ? (
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                marginBottom: spacing.sm,
+              }}
+            >
+              {rewards.earned.map((e) => {
+                const info = badgeInfo(e.id);
+                if (!info) return null;
+                return (
+                  <View
+                    key={e.id}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      marginRight: spacing.md,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <BadgeGlyphMark glyph={info.glyph} color={hueCss(info.hue)} />
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: typeScale.caption,
+                        marginLeft: 6,
+                      }}
+                    >
+                      {info.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: typeScale.body,
+              fontWeight: "600",
+              marginBottom: 4,
+            }}
+          >
+            Movement trail
+          </Text>
+          <Text
+            style={{
+              color: colors.textDim,
+              fontSize: typeScale.caption,
+              marginBottom: spacing.sm,
+            }}
+          >
+            {ghostName} leaves this behind as it moves — here, and on
+            every screen it visits.
+          </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              marginBottom: spacing.sm,
+            }}
+          >
+            {TRAIL_STYLES.map((styleId) => {
+              const unlocked = trailStyleUnlocked(rewards, styleId);
+              const active = rewards.equipped.trail === styleId;
+              return (
+                <Pressable
+                  key={styleId}
+                  disabled={!unlocked}
+                  onPress={() =>
+                    equipRewards({ trail: active ? null : styleId })
+                  }
+                  style={({ pressed }) => ({
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: active ? hueCss(hue) : colors.line,
+                    backgroundColor: active
+                      ? colors.ghostDim
+                      : pressed
+                        ? colors.ghostDim
+                        : "transparent",
+                    marginRight: spacing.sm,
+                    marginBottom: spacing.sm,
+                    opacity: unlocked ? 1 : 0.45,
+                  })}
+                >
+                  <Text
+                    style={{
+                      color: active ? hueCss(hue) : colors.text,
+                      fontSize: typeScale.caption,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {trailLabel(styleId)}
+                    {active ? " · on" : ""}
+                  </Text>
+                  {!unlocked ? (
+                    <Text
+                      style={{ color: colors.textDim, fontSize: 10, marginTop: 2 }}
+                    >
+                      {styleId === "ribbon"
+                        ? "Earn First Thread"
+                        : `Any ${
+                            styleId === "sparkle"
+                              ? 3
+                              : styleId === "petals"
+                                ? 5
+                                : 7
+                          } badges (${rewards.earned.length} so far)`}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <HomeToggleRow
+            label="Second voice"
+            caption={
+              powerUpUnlocked(rewards, "second-voice")
+                ? `${ghostName}’s chirps and purrs sit a fourth higher, in a rounder tone — the same voice, a second register.`
+                : `Locked — earn Pattern Mind (${badgeProgress(rewards, "pattern-mind")}) by having the agent answer your asks.`
+            }
+            value={
+              powerUpUnlocked(rewards, "second-voice") && rewards.equipped.voice
+            }
+            onPress={() =>
+              powerUpUnlocked(rewards, "second-voice") &&
+              equipRewards({ voice: !rewards.equipped.voice })
+            }
+          />
+          <HomeToggleRow
+            label="Signature heart"
+            caption={
+              powerUpUnlocked(rewards, "signature-heart")
+                ? "Your hearts land with a double ring around them, on your screen and everyone else’s."
+                : `Locked — earn Heartfelt (${badgeProgress(rewards, "heartfelt")}) by sending hearts to people.`
+            }
+            value={
+              powerUpUnlocked(rewards, "signature-heart") &&
+              rewards.equipped.heartMotif === "double-ring"
+            }
+            onPress={() =>
+              powerUpUnlocked(rewards, "signature-heart") &&
+              equipRewards({
+                heartMotif:
+                  rewards.equipped.heartMotif === "double-ring"
+                    ? null
+                    : "double-ring",
+              })
+            }
+          />
+          <HomeToggleRow
+            label="Stage aura"
+            caption={
+              powerUpUnlocked(rewards, "stage-aura")
+                ? "A ring of your color on the floor under your dancer on the Stage."
+                : `Locked — earn Stage Presence (${badgeProgress(rewards, "stage-presence")}) by dancing with a crowd.`
+            }
+            value={
+              powerUpUnlocked(rewards, "stage-aura") && rewards.equipped.aura
+            }
+            onPress={() =>
+              powerUpUnlocked(rewards, "stage-aura") &&
+              equipRewards({ aura: !rewards.equipped.aura })
+            }
+          />
+
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: typeScale.body,
+              fontWeight: "600",
+              marginBottom: 4,
+            }}
+          >
+            Warm welcome
+          </Text>
+          <Text
+            style={{
+              color: colors.textDim,
+              fontSize: typeScale.caption,
+              marginBottom: spacing.sm,
+            }}
+          >
+            {powerUpUnlocked(rewards, "warm-welcome")
+              ? `When someone joins a session you’re hosting, ${ghostName} greets them with this — from its own budget, like any act. If the budget is spent, it simply doesn’t.`
+              : `Locked — earn Good Host (${badgeProgress(rewards, "good-host")}) by hosting a full room. Then, when someone joins your session, ${ghostName} greets them from its own budget.`}
+          </Text>
+          {powerUpUnlocked(rewards, "warm-welcome") ? (
+            <View style={{ flexDirection: "row", marginBottom: spacing.sm }}>
+              {(["heart", "cheer", "tickle"] as const).map((verbId) => {
+                const active = rewards.equipped.welcomeVerb === verbId;
+                return (
+                  <Pressable
+                    key={verbId}
+                    onPress={() => equipRewards({ welcomeVerb: verbId })}
+                    style={({ pressed }) => ({
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: active ? hueCss(hue) : colors.line,
+                      backgroundColor: active
+                        ? colors.ghostDim
+                        : pressed
+                          ? colors.ghostDim
+                          : "transparent",
+                      marginRight: spacing.sm,
+                    })}
+                  >
+                    <Text
+                      style={{
+                        color: active ? hueCss(hue) : colors.text,
+                        fontSize: typeScale.caption,
+                        fontWeight: "600",
+                        textTransform: "capitalize",
+                      }}
+                    >
+                      {verbId}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
         </>
       )}
     </View>

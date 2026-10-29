@@ -601,6 +601,14 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteUserActivity();
   }, []);
 
+  /** Slice 24: the Warm Welcome greeting (budget-spending). */
+  const warmWelcome = useCallback(
+    (verbId: GhostVerbAskId): boolean => {
+      return peerRef.current?.warmWelcome(verbId) ?? false;
+    },
+    []
+  );
+
   /** Slice 17: ask this ghost to perform its heartbeat. */
   const answerHeartbeat = useCallback((): number | null => {
     return peerRef.current?.answerHeartbeat() ?? null;
@@ -641,6 +649,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteLocalInteraction,
     noteRemoteInteraction,
     noteUserActivity,
+    warmWelcome,
     answerHeartbeat,
     answerVerb,
     expressPuzzlement,

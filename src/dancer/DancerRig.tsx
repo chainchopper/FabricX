@@ -432,6 +432,7 @@ export default function DancerRig({
   label = null,
   characterSlot = false,
   style = NEUTRAL_STYLE,
+  aura = false,
 }: {
   driver: DancerDriver;
   fx: StageFxState;
@@ -447,14 +448,24 @@ export default function DancerRig({
   /** True only for the LOCAL rig: the glTF slot is your ghostie's body. */
   characterSlot?: boolean;
   style?: RigStyle;
+  /**
+   * Slice 24: the Stage Aura power-up — a soft hue ring on the
+   * floor under this rig. Passed only for the local rig whose
+   * primary earned Stage Presence and equipped it; remote rigs
+   * never carry it (their equip state is theirs).
+   */
+  aura?: boolean;
 }) {
   const mannequin = useMemo(() => buildMannequin(tintHue), [tintHue]);
   const groupRef = useRef<THREE.Group>(null);
   const gesturesRef = useRef<{ verb: string; start: number }[]>([]);
   const styleRef = useRef(style);
   styleRef.current = style;
-  const baseYRef = useRef(position[1]);
-  baseYRef.current = position[1];
+  // Slice 24: the aura ring's color — the rig's own hue, lit.
+  const auraColor = useMemo(() => {
+    const hue = (((tintHue ?? 190) % 360) + 360) % 360;
+    return new THREE.Color().setHSL(hue / 360, 0.85, 0.6);
+  }, [tintHue]);
 
   const [charState, setCharState] = useState<StageCharacterState>(
     getStageCharacterState()
@@ -557,6 +568,9 @@ export default function DancerRig({
 
     // Root bounce: leg energy + cheer hops lift the whole figure,
     // scaled by the rig's style bounce (a playful ghostie hops).
+    // The bounce moves the INNER group; the outer group carries
+    // the layout position, so the aura ring (below) stays planted
+    // on the floor while the body hops inside it.
     if (groupRef.current) {
       const legs = pose.bands.find((b) => b.id === "legs");
       const bounce = figureEnabled
@@ -565,15 +579,29 @@ export default function DancerRig({
             pose.breath * 0.006) *
           styleRef.current.bounce
         : 0;
-      groupRef.current.position.y = baseYRef.current + bounce;
+      groupRef.current.position.y = bounce;
     }
   });
 
   return (
-    <group ref={groupRef} position={position} rotation={[0, rotationY, 0]}>
-      <primitive object={mannequin.mesh} visible={!character} />
-      {character ? <primitive object={character.scene} /> : null}
-      {label ? <RigLabel name={label} hue={tintHue ?? 190} /> : null}
+    <group position={position} rotation={[0, rotationY, 0]}>
+      <group ref={groupRef}>
+        <primitive object={mannequin.mesh} visible={!character} />
+        {character ? <primitive object={character.scene} /> : null}
+        {label ? <RigLabel name={label} hue={tintHue ?? 190} /> : null}
+      </group>
+      {aura ? (
+        <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.5, 0.64, 48]} />
+          <meshBasicMaterial
+            color={auraColor}
+            transparent
+            opacity={0.5}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+          />
+        </mesh>
+      ) : null}
     </group>
   );
 }

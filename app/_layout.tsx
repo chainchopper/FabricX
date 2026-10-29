@@ -46,6 +46,7 @@ import {
 import FabricAnchor from "./components/fabric/FabricAnchor";
 import FabricMenu from "./components/fabric/FabricMenu";
 import FabricSessionFollower from "./components/fabric/FabricSessionFollower";
+import RewardsFeed from "./components/fabric/RewardsFeed";
 import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
 import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
@@ -117,6 +118,9 @@ function ChromeLayer() {
           the host's fabric changes and toasts them. Headless;
           renders nothing and never touches the canvas. */}
       <FabricSessionFollower />
+      {/* Slice 24: the rewards feed + the badge-earned toast.
+          Headless; renders nothing and never touches the canvas. */}
+      <RewardsFeed />
       <ExperienceHUD />
       <ConnectionBadge />
       <FabricAnchor />

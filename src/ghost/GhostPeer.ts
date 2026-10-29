@@ -317,6 +317,13 @@ const DELIBERATION_MIN_MS = 10_000;
  */
 const DRAW_BUDGET_COST = 6;
 const DRAW_MIN_INTERVAL_MS = 45_000;
+/**
+ * Warm Welcome's price (Slice 24): a session-mode verb burst is
+ * three emits, and the greeting is all-or-nothing against the
+ * ordinary emit budget — the power-up buys expression, never
+ * headroom. EMIT_BUDGET itself is untouched, here and everywhere.
+ */
+const WELCOME_COST = 3;
 
 /** Deterministic PRNG so ghost behavior is reproducible, never chaotic. */
 function mulberry32(seed: number): () => number {
@@ -830,6 +837,39 @@ export class GhostPeer {
       });
     }
     return bpm;
+  }
+
+  /**
+   * Warm Welcome (Slice 24, the Good Host power-up): greet a guest
+   * who just joined my primary's hosted session with one verb.
+   * The greeting is NOT free and NOT extra: in session mode a verb
+   * performance is a three-splat burst, and this method first
+   * checks the SAME emit window emit() enforces — when fewer than
+   * WELCOME_COST emits remain in the window, there is no greeting
+   * and false is returned. Nothing is charged for the check; the
+   * scheduled burst pays emit()'s ordinary price when it fires,
+   * and emit() remains the final enforcer if the room spends the
+   * headroom in between. Session mode only: a welcome belongs to
+   * a hosted room, and a ghost that isn't summoned into it has
+   * nobody to welcome.
+   */
+  warmWelcome(verbId: GhostVerbAskId): boolean {
+    if (this.destroyed || !this.enabled || this.dismissing) return false;
+    if (this.mode !== "session") return false;
+    if (!this.canAct()) return false;
+    const now = Date.now();
+    const inWindow = this.emitTimes.filter(
+      (t) => now - t < EMIT_WINDOW_MS
+    ).length;
+    if (EMIT_BUDGET - inWindow < WELCOME_COST) return false;
+    this.journal("warm welcome", now);
+    this.options.onPerformance?.("welcomed a guest");
+    if (verbId === "heart") {
+      this.brainHeart(0.65);
+    } else {
+      this.performVerbAct(verbId === "cheer" ? CHEER : TICKLE, 0.65);
+    }
+    return true;
   }
 
   /**

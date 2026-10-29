@@ -303,6 +303,8 @@ export interface StageRigSpec {
   label: string;
   isLocal: boolean;
   style: RigStyle;
+  /** Slice 24: Stage Aura equipped (the local rig's ring). */
+  aura?: boolean;
 }
 
 export default function StageScene({
@@ -339,6 +341,7 @@ export default function StageScene({
           label={r.label}
           characterSlot={r.isLocal}
           style={r.style ?? NEUTRAL_STYLE}
+          aura={r.aura === true}
         />
       ))}
     </>
