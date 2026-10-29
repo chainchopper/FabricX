@@ -17,7 +17,13 @@
  * The companion device-side facts (both real GLBs parse, clips
  * are 5.0 s / 2.97 s, every contract bone present in the files)
  * are verified against the actual asset files at build time —
- * the files are binaries and deliberately not in this repo.
+ * the files are binaries and deliberately not in this repo AS
+ * binaries. Slice 26 commits them as base64 text parts under
+ * public/animations/ instead; this script also proves the
+ * chunked decoder those parts rely on (synthetic payloads here;
+ * byte-exactness of the real parts against the original GLBs is
+ * proven in Slice 26's verification record) and that the rig
+ * routes ONLY built-in binds through the transport fallback.
  *
  * Run: esbuild src/dancer/mixamoBones.ts src/dancer/traumaCharacter.ts \
  *        --bundle --format=esm --outdir=/tmp/slice25-check
@@ -30,7 +36,8 @@ const bones = await import(process.argv[2] ?? "/tmp/mixamoBones.mjs");
 const trauma = await import(process.argv[3] ?? "/tmp/traumaCharacter.mjs");
 const { MIXAMO_TO_UE5_BONE, normalizeMixamoBoneName, resolveContractBoneName } =
   bones;
-const { TRAUMA_IDLES, DEFAULT_TRAUMA_IDLE_ID, traumaIdleDef, CHARACTER_ASSET_BASE_URL } =
+const { TRAUMA_IDLES, DEFAULT_TRAUMA_IDLE_ID, traumaIdleDef, CHARACTER_ASSET_BASE_URL,
+  decodeBase64ToArrayBuffer } =
   trauma;
 
 let failures = 0;
@@ -127,6 +134,39 @@ console.log("== the Trauma catalog ==");
     traumaIdleDef("bouncing").id === "bouncing");
   check("garbage value falls back to the default, never crashes",
     traumaIdleDef("nonsense").id === "mma");
+}
+
+console.log("== the base64 transport decoder (Slice 26) ==");
+{
+  // Short vector, wrapped at 76 columns exactly like the parts.
+  const raw = new TextEncoder().encode("glTF-chunked-decode");
+  const wrapped = Buffer.from(raw).toString("base64").replace(/.{76}/g, "$&\n");
+  const back = new Uint8Array(decodeBase64ToArrayBuffer(wrapped));
+  check("short wrapped payload round-trips",
+    Buffer.from(back).equals(Buffer.from(raw)));
+  // Large vector spanning many decode chunks (chunk = 32,764
+  // base64 chars): ~2M chars in, byte-identical out.
+  const big = Buffer.alloc(1_500_003);
+  for (let i = 0; i < big.length; i++) big[i] = (i * 31 + 7) & 0xff;
+  const bigB64 = big.toString("base64").replace(/.{76}/g, "$&\n");
+  const bigBack = new Uint8Array(decodeBase64ToArrayBuffer(bigB64));
+  check("multi-chunk payload is byte-identical",
+    bigBack.length === big.length && Buffer.from(bigBack).equals(big));
+  check("decoder ignores stray whitespace",
+    Buffer.from(new Uint8Array(decodeBase64ToArrayBuffer("  Z2xU\nRg==  "))).toString() === "glTF");
+}
+
+console.log("== the rig routes built-in binds through the transport ==");
+{
+  const { readFileSync } = await import("node:fs");
+  const rig = readFileSync(
+    new URL("../src/dancer/DancerRig.tsx", import.meta.url), "utf8");
+  check("rig imports the built-in loader",
+    rig.includes("loadBuiltinCharacterGltf"));
+  check("built-in binds are gated on charState.builtin",
+    /charState\.builtin\s*\?\s*loadBuiltinCharacterGltf\(loader, url\)/.test(rig));
+  check("non-built-in binds keep plain loadAsync",
+    rig.includes(": loader.loadAsync(url)"));
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
