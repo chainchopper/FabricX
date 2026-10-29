@@ -12,10 +12,17 @@
  * Sources:
  * - "cloud":   a cloud model resolved for this device (SamLayer
  *              publishes it from the composer's shared resolution).
- * - "device":  the on-device brain tier is present and ready
- *              (SamLayer publishes it from the brain snapshot).
- * - "acts":    the See Acts on-device interpreter can route
- *              (published by Slice 30's tier when it lands).
+ * - "device":  the on-device eyes (Slice 30's GroundingDINO
+ *              tier) are ready — SamLayer's truth keeper
+ *              publishes it from the grounding tier's own
+ *              readiness, the same truth segmentation.ts's
+ *              getSegmentationStatus() reports. (Slice 29
+ *              originally fed this source from the WebLLM
+ *              brain's readiness — a placeholder from before
+ *              the eyes existed; Slice 31 removed that publish
+ *              outright.)
+ * - "acts":    See-act asks are servable — derived in SamLayer
+ *              after every publish: cloud || device.
  *
  * The seed, frames and prompts never pass through here — presence
  * booleans only.

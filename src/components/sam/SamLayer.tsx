@@ -26,10 +26,7 @@ import {
   segmentationAvailable,
   subscribeSegmentationAvailable,
 } from "../../sam/segmentationAvailability";
-import {
-  getBrainSnapshot,
-  subscribeOnDeviceBrain,
-} from "../../ai/onDeviceBrain";
+import { subscribeOnDeviceBrain } from "../../ai/onDeviceBrain";
 import { colors, radius, spacing } from "../../theme/tokens";
 // Slice 30's imports sit below the theme import on purpose:
 // Slices 29 and 30 both first inserted at the anchor above, and
@@ -130,22 +127,18 @@ import { getSegmentationSources } from "../../sam/segmentationAvailability";
  * below runs on the same seam, so Segment works with whichever
  * eyes this device has — its frame discipline is unchanged.
  *
- * Availability wiring (S29/S30 reconciliation): the STATUS
- * paragraph above says the seam's "device" source comes from
- * the brain snapshot — that was Slice 29's placeholder, written
- * before the on-device eyes existed, and it misattributes
- * availability (a ready brain is not a pair of eyes). It is
- * RETIRED in place below: the brain-snapshot publish stays as
- * text (deleting main-side lines from this branch would make
- * the merge itself conflict), but a corrective publisher —
- * subscribed after it on the brain store, and on the grounding
- * store — re-derives "device" from the grounding tier's own
- * readiness after every change, so the seam's resting value is
- * always the tier truth, and derives "acts" (servable whenever
- * either tier is) from the seam's current sources. The tier
- * truth is segmentation.ts's getSegmentationStatus(); the
- * seam's API is unchanged. A post-merge cleanup on main can
- * delete the retired publish outright.
+ * Availability wiring: the seam's "device" source is the
+ * on-device EYES' readiness — this layer's truth keeper derives
+ * it from the grounding tier (the same truth segmentation.ts's
+ * getSegmentationStatus() reports) after every change, and
+ * derives "acts" (servable whenever either tier is) from the
+ * seam's current sources. (Slice 29 originally published
+ * "device" from the WebLLM brain's snapshot — a placeholder
+ * from before the eyes existed, which misattributed
+ * availability; the S29/S30 reconciliation superseded it with
+ * the keeper while keeping it as text for a clean merge, and
+ * Slice 31 deleted it outright. The keeper is the only
+ * publisher of "device" now.) The seam's API is unchanged.
  *
  * Powered by Nirvana
  */
@@ -320,21 +313,13 @@ export default function SamLayer() {
   const [chipDismissed, setChipDismissed] = useState(false);
   // Slice 29: the shared segmentation-availability boolean (the
   // seam in src/sam/segmentationAvailability.ts). This layer
-  // publishes the cloud and on-device sources; Slice 30's Acts
-  // tier publishes its own. The chip below reads only this.
+  // publishes the cloud source itself and — via the truth keeper
+  // below — the device and acts sources. The chip below reads
+  // only this.
   const [segAvailable, setSegAvailable] = useState<boolean>(() =>
     segmentationAvailable()
   );
   useEffect(() => subscribeSegmentationAvailable(setSegAvailable), []);
-  useEffect(() => {
-    publishSegmentationSource(
-      "device",
-      getBrainSnapshot().state === "ready"
-    );
-    return subscribeOnDeviceBrain((snap) =>
-      publishSegmentationSource("device", snap.state === "ready")
-    );
-  }, []);
 
   // Displayed-frame geometry: the video is COVER-fit, so SAM's
   // normalized boxes map onto the displayed frame rect, which may
@@ -368,21 +353,17 @@ export default function SamLayer() {
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // S29/S30 reconciliation — the availability seam's truth
-  // keeper. Slice 29's effect above publishes "device" from the
-  // WebLLM BRAIN's readiness: a placeholder that misattributes
-  // availability (it predates the on-device eyes). It is retired
-  // in place (kept as text so this branch's merge stays clean)
-  // and superseded by this publisher: subscribed AFTER the
-  // retired one on the brain store, and on the grounding store,
-  // it re-derives "device" from the grounding tier's own
-  // readiness — the same truth segmentation.ts's
-  // getSegmentationStatus() reports — after every change, so
-  // the seam's resting value is always the tier truth; and it
-  // derives "acts" (servable whenever either tier is) from the
-  // seam's current sources. The config watcher covers the cloud
-  // side: when this layer's model resolution settles, "acts"
-  // re-derives against the cloud source the resolution
+  // The availability seam's truth keeper (S29/S30
+  // reconciliation; Slice 31 removed the retired brain-snapshot
+  // publisher it once corrected, so this is now the ONLY
+  // publisher of "device"): it re-derives "device" from the
+  // grounding tier's own readiness — the same truth
+  // segmentation.ts's getSegmentationStatus() reports — after
+  // every change, so the seam's value is always the tier truth;
+  // and it derives "acts" (servable whenever either tier is)
+  // from the seam's current sources. The config watcher covers
+  // the cloud side: when this layer's model resolution settles,
+  // "acts" re-derives against the cloud source the resolution
   // published. Net behavior, every combination: cloud configured
   // or eyes ready → the seam says available and acts can serve;
   // neither → "Segmentation resting" and acts honestly cannot.

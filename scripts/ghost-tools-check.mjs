@@ -25,13 +25,41 @@
  *   the shape list never drifts from RecipeCore) and the bias
  *   chain order holds (personality -> stamina -> tool gate).
  *
+ * Slice 31 ("Ghostie Tools II — the ghost plays") adds section K:
+ * - the NOTE tools: call-and-response fixtures in the dataset's
+ *   exact schema (temperament answers: echo / octave / fifth /
+ *   drop; sleepy listens; petting and startle keep their own
+ *   answers; the piano layer + the fabric's notes rule gate the
+ *   overlay), the battery still unmoved (zero play-note on
+ *   legacy scenarios);
+ * - the gates at every layer: the validator refuses play-note
+ *   under a notes-off fabric with the refusal surfaced (Spark
+ *   path, mocked), the registry names the same refusal, the
+ *   peer refuses asked performances under a notes-off fabric
+ *   with ZERO sink emissions, the tools do not exist off the
+ *   Piano layer, and the wire seam the bus notes traverse
+ *   (fabricGate for kind "notes") honors the Slice 5 modes —
+ *   a mirror/view guest's ghost note stays local;
+ * - budget accounting: a note costs 1 emit slot, an arpeggio 3,
+ *   the 8s note cooldown spaces performances;
+ * - ask routing: ghostNoteAsk claims its narrow shapes ("play
+ *   middle C", "play Eb3", "play that again", arpeggios) and
+ *   nothing else ("play a song" stays the composer's);
+ * - the SamLayer cleanup (the retired brain publish deleted)
+ *   and the hook surface, pinned structurally — including the
+ *   three wrappers (noteHandSign / answerTouchAt /
+ *   answerDrawAround) LegacyFluid always called but the hook
+ *   never exposed before this slice.
+ *
  * Build + run:
  *   esbuild src/ghost/GhostBrain.ts --bundle --format=esm --outfile=/tmp/GhostBrain23.mjs
  *   esbuild src/ghost/ghostTools.ts --bundle --format=esm --outfile=/tmp/GhostTools23.mjs
  *   esbuild src/ghost/GhostPeer.ts --bundle --format=esm --outfile=/tmp/GhostPeer23.mjs
  *   esbuild src/ai/RecipeCore.ts --bundle --format=esm --outfile=/tmp/RecipeCore23.mjs
+ *   esbuild src/session/fabricStore.ts --bundle --format=esm --outfile=/tmp/FabricStore31.mjs
  *   node scripts/ghost-tools-check.mjs /tmp/GhostBrain23.mjs /tmp/GhostTools23.mjs \
- *     /tmp/GhostPeer23.mjs /tmp/RecipeCore23.mjs <path-to-dataset-v1.jsonl>
+ *     /tmp/GhostPeer23.mjs /tmp/RecipeCore23.mjs <path-to-dataset-v1.jsonl> \
+ *     /tmp/FabricStore31.mjs
  */
 import { readFileSync } from "node:fs";
 
@@ -40,25 +68,36 @@ const tools = await import(process.argv[3] ?? "/tmp/GhostTools23.mjs");
 const peerMod = await import(process.argv[4] ?? "/tmp/GhostPeer23.mjs");
 const recipeCore = await import(process.argv[5] ?? "/tmp/RecipeCore23.mjs");
 const datasetPath = process.argv[6];
+const fabricStore = await import(process.argv[7] ?? "/tmp/FabricStore31.mjs");
 
 const {
   decideOnDevice,
   validateGhostDecision,
   ghostDrawGateRefusal,
+  ghostNoteGateRefusal,
+  noteDecisionFor,
   consultSparkBrain,
   buildSparkMessages,
   fabricAllowsDraw,
+  fabricAllowsNotes,
   sanitizeFabricContext,
   applyPersonalityBias,
   applyStaminaBias,
   parseGhostPersonality,
+  isGhostNoteName,
+  ghostNoteNumber,
+  ghostNoteName,
+  ghostAnswerNote,
   GHOST_INTENTS,
   GHOST_DRAW_SHAPES,
   GHOST_DRAW_REFUSAL_TEXT,
+  GHOST_NOTE_REFUSAL_TEXT,
+  GHOST_PIANO_LAYER_ID,
 } = brain;
 const { GHOST_TOOL_REGISTRY, ghostToolForIntent, ghostToolRefusal } = tools;
-const { GhostPeer, ghostVerbAsk, isGhostHeartbeatRequest } = peerMod;
+const { GhostPeer, ghostVerbAsk, ghostNoteAsk, isGhostHeartbeatRequest } = peerMod;
 const { validateRecipe, RECIPE_SHAPES } = recipeCore;
+const { fabricGate } = fabricStore;
 
 let failures = 0;
 const check = (label, ok, extra = "") => {
@@ -105,14 +144,17 @@ if (!datasetPath) {
   const lines = readFileSync(datasetPath, "utf8").trim().split("\n");
   let agree = 0;
   let draws = 0;
+  let notes = 0;
   for (const line of lines) {
     const { scenario: s, decision } = JSON.parse(line);
     const { decision: mine } = decideOnDevice(s);
     if (mine.intent === decision.intent) agree += 1;
     if (mine.intent === "draw") draws += 1;
+    if (mine.intent === "play-note") notes += 1;
   }
   check("battery still 59/60", agree === 59, `${agree}/60`);
   check("no draw on any legacy scenario", draws === 0);
+  check("no play-note on any legacy scenario (Slice 31)", notes === 0);
 }
 
 /* ---------------- B. fabric context + gate helpers ---------------- */
@@ -322,7 +364,7 @@ check(
 );
 check(
   "ask tools are registered with no deliberation intents",
-  ["verb-perform", "heartbeat-answer"].every((id) => {
+  ["verb-perform", "heartbeat-answer", "note-perform"].every((id) => {
     const t = GHOST_TOOL_REGISTRY.find((x) => x.id === id);
     return t && t.intents.length === 0;
   })
@@ -493,6 +535,407 @@ check(
 check(
   "transport ships ghost recipes under the ghost's id",
   src("src/hooks/useFluidMultiUser.ts").includes("sendRecipeAs")
+);
+
+/* ---------------- K. Slice 31: the NOTE tools ---------------- */
+console.log("== Slice 31: note vocabulary ==");
+check("bus vocabulary: C4 / C#3 are notes", isGhostNoteName("C4") && isGhostNoteName("C#3"));
+check("bus vocabulary: H4 / Cb4 / c4 are not", !isGhostNoteName("H4") && !isGhostNoteName("Cb4") && !isGhostNoteName("c4"));
+check(
+  "note number math round-trips",
+  ghostNoteNumber("C4") === 60 && ghostNoteName(60) === "C4" && ghostNoteName(ghostNoteNumber("A#5")) === "A#5"
+);
+check(
+  "temperament answers: echo / octave / fifth / drop",
+  ghostAnswerNote("C4", "playful") === "C4" &&
+    ghostAnswerNote("C4", "curious") === "C5" &&
+    ghostAnswerNote("C4", "affectionate") === "G4" &&
+    ghostAnswerNote("C4", "sassy") === "C3"
+);
+check(
+  "answers clamp to the piano (C1..C7)",
+  ghostAnswerNote("C7", "curious") === "C7" && ghostAnswerNote("C1", "sassy") === "C1"
+);
+check(
+  "the brain's piano layer id is the registry's",
+  GHOST_PIANO_LAYER_ID === "ar-piano" &&
+    src("src/contexts/ExperienceContext.tsx").includes('id: "ar-piano"')
+);
+
+console.log("== Slice 31: call-and-response fixtures (dataset schema) ==");
+const pianoFabric = (over = {}) => fabric({ layer_id: "ar-piano", ...over });
+const guestNoNotes = () =>
+  fabric({
+    layer_id: "ar-piano",
+    role: "guest",
+    in_session: true,
+    rules: { draw: true, verbs: true, notes: false },
+  });
+const heardScenario = (over = {}) =>
+  scenario({
+    seconds_since_human_touch: 1.5,
+    recent_events: ["human played C4"],
+    fabric: pianoFabric(),
+    ...over,
+  });
+const noteFixture = (intent, note_name) => ({
+  mood_shift: null,
+  intent,
+  pattern_id: null,
+  draw_shape: null,
+  note_name,
+  intensity: 0.6,
+  linger_s: 3,
+});
+const NOTE_FIXTURES = [
+  { label: "playful hears C4 at the piano -> echoes C4", s: heardScenario(), want: ["play-note", "C4"] },
+  { label: "curious hears C4 -> answers C5", s: heardScenario({ temperament: "curious" }), want: ["play-note", "C5"] },
+  { label: "affectionate hears C4 -> answers G4 (a fifth)", s: heardScenario({ temperament: "affectionate" }), want: ["play-note", "G4"] },
+  { label: "sassy hears C4 -> drops it to C3", s: heardScenario({ temperament: "sassy" }), want: ["play-note", "C3"] },
+  { label: "no fabric (provenance) -> still answers", s: heardScenario({ fabric: undefined }), want: ["play-note", "C4"] },
+];
+for (const f of NOTE_FIXTURES) {
+  const { decision, ruleId } = decideOnDevice(f.s);
+  check(
+    f.label,
+    decision.intent === f.want[0] && decision.note_name === f.want[1],
+    `${decision.intent}/${decision.note_name} (${ruleId})`
+  );
+  check(
+    `${f.label} — fixture decision validates in the dataset schema`,
+    validateGhostDecision(noteFixture(f.want[0], f.want[1]), f.s)?.note_name === f.want[1]
+  );
+}
+check(
+  "sleepy hears a note -> listens (naps, never plays)",
+  decideOnDevice(heardScenario({ temperament: "sleepy", seconds_since_human_touch: 140 })).decision.intent === "nap" &&
+    noteDecisionFor(heardScenario({ temperament: "sleepy" })) === null
+);
+check(
+  "petting keeps its own answer (no note)",
+  noteDecisionFor(heardScenario({ pets_in_last_5s: 2 })) === null &&
+    decideOnDevice(heardScenario({ pets_in_last_5s: 2 })).decision.intent !== "play-note"
+);
+check(
+  "a loud splat keeps startle (no note)",
+  noteDecisionFor(heardScenario({ nearby_splat_intensity: 0.9 })) === null &&
+    decideOnDevice(heardScenario({ nearby_splat_intensity: 0.9 })).decision.intent === "startle"
+);
+check(
+  "notes live at the piano: the fluid layer never answers",
+  noteDecisionFor(heardScenario({ fabric: fabric() })) === null &&
+    decideOnDevice(heardScenario({ fabric: fabric() })).decision.intent !== "play-note"
+);
+check(
+  "a notes-off fabric silences the answer",
+  noteDecisionFor(heardScenario({ fabric: guestNoNotes() })) === null &&
+    decideOnDevice(heardScenario({ fabric: guestNoNotes() })).decision.intent !== "play-note"
+);
+
+console.log("== Slice 31: note gates — validator / Spark / registry ==");
+const noteRaw = {
+  mood_shift: null,
+  intent: "play-note",
+  pattern_id: null,
+  draw_shape: null,
+  note_name: "E4",
+  intensity: 0.6,
+  linger_s: 3,
+};
+check("bare play-note validates", validateGhostDecision(noteRaw)?.note_name === "E4");
+check(
+  "play-note without a note is not a decision",
+  validateGhostDecision({ ...noteRaw, note_name: null }) === null
+);
+check(
+  "play-note with a non-note is not a decision",
+  validateGhostDecision({ ...noteRaw, note_name: "H4" }) === null
+);
+check(
+  "note_name on a play decision coerced to null",
+  validateGhostDecision({ ...noteRaw, intent: "play", pattern_id: "chase_loop" })?.note_name === null
+);
+check(
+  "play-note under a notes-off scenario refused by the validator",
+  validateGhostDecision(noteRaw, scenario({ fabric: guestNoNotes() })) === null
+);
+check(
+  "gate helpers agree (brain + namer)",
+  fabricAllowsNotes(scenario({ fabric: guestNoNotes() })) === false &&
+    fabricAllowsNotes(scenario()) === true &&
+    ghostNoteGateRefusal(noteRaw, scenario({ fabric: guestNoNotes() })) === GHOST_NOTE_REFUSAL_TEXT &&
+    ghostNoteGateRefusal(noteRaw, scenario({ fabric: pianoFabric() })) === null
+);
+const noteReply = JSON.stringify(noteRaw);
+const sparkNoteAllowed = await consultSparkBrain(
+  scenario({ fabric: pianoFabric() }),
+  async () => noteReply,
+  500
+);
+check(
+  "Spark play-note under an allowing fabric applies",
+  sparkNoteAllowed?.intent === "play-note" && sparkNoteAllowed?.note_name === "E4"
+);
+let noteRefusalHeard = null;
+const sparkNoteRefused = await consultSparkBrain(
+  scenario({ fabric: guestNoNotes() }),
+  async () => noteReply,
+  500,
+  undefined,
+  undefined,
+  (text) => {
+    noteRefusalHeard = text;
+  }
+);
+check("Spark play-note under a refusing fabric is rejected", sparkNoteRefused === null);
+check(
+  "the note refusal is surfaced verbatim",
+  noteRefusalHeard === GHOST_NOTE_REFUSAL_TEXT,
+  noteRefusalHeard ?? "(none)"
+);
+const noteFabricNote = buildSparkMessages(scenario({ fabric: guestNoNotes() }))
+  .map((m) => m.content)
+  .join("\n");
+check(
+  "Spark consult carries the notes law",
+  noteFabricNote.includes("notes NOT allowed"),
+  noteFabricNote.includes("notes allowed") ? "(says allowed?!)" : ""
+);
+check(
+  "registry gate: play-note refused / allowed by the notes rule",
+  ghostToolForIntent("play-note")?.id === "play-note" &&
+    ghostToolRefusal("play-note", scenario({ fabric: guestNoNotes() })) === GHOST_NOTE_REFUSAL_TEXT &&
+    ghostToolRefusal("play-note", scenario({ fabric: pianoFabric() })) === null
+);
+
+console.log("== Slice 31: stamina steers notes like any performance ==");
+const noteDecisionFixture = noteFixture("play-note", "C4");
+const drainedNote = applyStaminaBias(noteDecisionFixture, 10);
+check(
+  "drained stamina rests instead of playing (note_name nulled)",
+  drainedNote.decision.intent === "nap" && drainedNote.decision.note_name === null
+);
+const lowNote = applyStaminaBias(noteDecisionFixture, 30);
+check(
+  "low stamina plays softer (named)",
+  lowNote.decision.intent === "play-note" &&
+    lowNote.decision.note_name === "C4" &&
+    lowNote.decision.intensity < noteDecisionFixture.intensity &&
+    lowNote.steeredBy.some((s) => s.includes("plays softer"))
+);
+
+console.log("== Slice 31: GhostPeer note performance ==");
+const mkNotePeer = (fabricCtx) => {
+  const seen = { notes: [], perfs: [] };
+  const peer = new GhostPeer({
+    peerId: "ghost:tools-check",
+    identity: { hue: 210, seed: 42 },
+    injectLocal: () => {},
+    broadcast: () => {},
+    ghostName: "Boop",
+    getFabricContext: () => fabricCtx,
+    onNote: (note, velocity, durationMs) => seen.notes.push({ note, velocity, durationMs }),
+    onPerformance: (l) => seen.perfs.push(l),
+  });
+  return { peer, seen };
+};
+const playNoteDecision = {
+  mood_shift: null,
+  intent: "play-note",
+  pattern_id: null,
+  draw_shape: null,
+  note_name: "C4",
+  intensity: 0.65,
+  linger_s: 3,
+};
+
+const n1 = mkNotePeer(pianoFabric());
+n1.peer.applyBrainDecision(playNoteDecision, "table");
+await sleep(60);
+check(
+  "a play-note decision hands ONE note to the sink (bus-shaped)",
+  n1.seen.notes.length === 1 &&
+    n1.seen.notes[0].note === "C4" &&
+    n1.seen.notes[0].durationMs > 0 &&
+    n1.seen.notes[0].velocity > 0 &&
+    n1.seen.notes[0].velocity <= 1,
+  JSON.stringify(n1.seen.notes)
+);
+check(
+  "the answer costs exactly 1 emit slot",
+  n1.peer.getVitalsSnapshot().emits10m === 1,
+  `${n1.peer.getVitalsSnapshot().emits10m} emits`
+);
+n1.peer.applyBrainDecision(playNoteDecision, "table");
+await sleep(60);
+check("the 8s note cooldown spaces answers", n1.seen.notes.length === 1);
+n1.peer.destroy();
+
+const n2 = mkNotePeer(guestNoNotes());
+n2.peer.applyBrainDecision(playNoteDecision, "table");
+await sleep(60);
+check(
+  "peer-side gate: a direct play-note decision cannot play on a notes-off fabric",
+  n2.seen.notes.length === 0
+);
+check(
+  "asked note on a notes-off fabric -> refused, ZERO sink emissions",
+  n2.peer.answerNote("E4") === "refused" && n2.seen.notes.length === 0
+);
+n2.peer.destroy();
+
+const n3 = mkNotePeer(fabric());
+check(
+  "asked note off the Piano layer -> unavailable (the tool does not exist there)",
+  n3.peer.answerNote("E4") === "unavailable" && n3.seen.notes.length === 0
+);
+n3.peer.destroy();
+
+const n4 = mkNotePeer(pianoFabric());
+check("asked note performs", n4.peer.answerNote("E4") === "performed");
+await sleep(60);
+check(
+  "the asked note reaches the sink",
+  n4.seen.notes.length === 1 && n4.seen.notes[0].note === "E4"
+);
+check(
+  "the performance is reported",
+  n4.seen.perfs.some((l) => l.includes("played E4 on request"))
+);
+n4.peer.destroy();
+
+const n5 = mkNotePeer(pianoFabric());
+check(
+  "'play that again' with nothing remembered -> unavailable",
+  n5.peer.answerNoteAgain() === "unavailable"
+);
+n5.peer.noteHumanNote("D4");
+check(
+  "a human's note is journaled in the dataset's event vocabulary",
+  n5.peer.buildScenario().recent_events.includes("human played D4"),
+  n5.peer.buildScenario().recent_events.join(" | ")
+);
+check("'play that again' replays the human's note", n5.peer.answerNoteAgain() === "performed");
+await sleep(60);
+check(
+  "the replay reaches the sink",
+  n5.seen.notes.length === 1 && n5.seen.notes[0].note === "D4"
+);
+n5.peer.destroy();
+
+const n6 = mkNotePeer(pianoFabric());
+check("asked arpeggio performs as ONE call", n6.peer.answerArpeggio(false) === "performed");
+await sleep(750);
+check(
+  "the arpeggio is four chord tones ascending from middle C",
+  JSON.stringify(n6.seen.notes.map((x) => x.note)) === JSON.stringify(["C4", "E4", "G4", "C5"]),
+  JSON.stringify(n6.seen.notes.map((x) => x.note))
+);
+check(
+  "the arpeggio costs exactly 3 emit slots",
+  n6.peer.getVitalsSnapshot().emits10m === 3,
+  `${n6.peer.getVitalsSnapshot().emits10m} emits`
+);
+check(
+  "a second arpeggio inside the cooldown -> unavailable",
+  n6.peer.answerArpeggio(false) === "unavailable"
+);
+n6.peer.destroy();
+
+const n7 = mkNotePeer(pianoFabric());
+n7.peer.noteHumanNote("C4");
+const heardBack = decideOnDevice({ ...n7.peer.buildScenario(), temperament: "playful" });
+check(
+  "end to end: heard C4 -> deliberation answers play-note",
+  heardBack.decision.intent === "play-note" && heardBack.decision.note_name === "C4",
+  `${heardBack.decision.intent} (${heardBack.ruleId})`
+);
+n7.peer.applyBrainDecision(heardBack.decision, heardBack.ruleId);
+await sleep(60);
+check(
+  "end to end: the answer reaches the sink",
+  n7.seen.notes.length === 1 && n7.seen.notes[0].note === "C4"
+);
+n7.peer.destroy();
+
+console.log("== Slice 31: the wire seam the bus notes traverse ==");
+const RULES_ON = { draw: true, verbs: true, notes: true };
+const RULES_NOTES_OFF = { draw: true, verbs: true, notes: false };
+check(
+  "mode gate binds first: a mirror/view guest's notes never broadcast (local only)",
+  fabricGate({ modeCanSend: false, role: "guest", rules: RULES_ON, kind: "notes" }) === false &&
+    fabricGate({ modeCanSend: false, role: "host", rules: RULES_ON, kind: "notes" }) === false
+);
+check(
+  "guest + fabric notes OFF -> the note stays off the wire",
+  fabricGate({ modeCanSend: true, role: "guest", rules: RULES_NOTES_OFF, kind: "notes" }) === false
+);
+check(
+  "guest + fabric notes ON + a sending mode -> the note rides",
+  fabricGate({ modeCanSend: true, role: "guest", rules: RULES_ON, kind: "notes" }) === true
+);
+check(
+  "the host is never bound by guest rules",
+  fabricGate({ modeCanSend: true, role: "host", rules: RULES_NOTES_OFF, kind: "notes" }) === true
+);
+
+console.log("== Slice 31: note-ask routing ==");
+const nroute = (p) => ghostNoteAsk(p, "Boop");
+const nkind = (p) => nroute(p)?.kind ?? null;
+check("'play a note' -> ghost's choice", nroute("play a note")?.kind === "note" && nroute("play a note")?.note === null);
+check("'play middle C' -> C4", nroute("play middle C")?.note === "C4");
+check("'Boop, play a C' -> C4", nroute("Boop, play a C")?.note === "C4");
+check("'play C#4' -> C#4", nroute("play C#4")?.note === "C#4");
+check("'play Eb3' -> D#3 (flats land on sharp names)", nroute("play Eb3")?.note === "D#3");
+check("'play that again' -> again", nkind("play that again") === "again");
+check("'play it again' -> again", nkind("play it again") === "again");
+check(
+  "arpeggios route, direction honored",
+  nroute("play an arpeggio")?.kind === "arpeggio" &&
+    nroute("play an arpeggio")?.descending === false &&
+    nroute("play a descending arpeggio")?.descending === true
+);
+check("'play a song' stays the composer's", nroute("play a song") === null);
+check("'play the heartbeat' stays the heartbeat route", nroute("play the heartbeat") === null);
+check("'play some jazz' -> null", nroute("play some jazz") === null);
+check("'play a fifth' (no note named) -> null", nroute("play a fifth") === null);
+check("'display a note' (no play word) -> null", nroute("display a note") === null);
+check("'make a heart' -> null", nroute("make a heart") === null);
+
+console.log("== Slice 31: structural wiring ==");
+const legacySrc = src("src/components/fluid/LegacyFluid.tsx");
+check(
+  "LegacyFluid routes note asks + the bus sink + the call-and-response forwarder",
+  legacySrc.includes("ghostNoteAsk(") &&
+    legacySrc.includes("noteBus.emitNoteOn") &&
+    legacySrc.includes("noteHumanNote(") &&
+    legacySrc.includes("onNote: onGhostNote")
+);
+const hookSrc = src("src/ghost/useGhostPeer.ts");
+check(
+  "the hook exposes the note wrappers",
+  hookSrc.includes("answerNote") &&
+    hookSrc.includes("answerNoteAgain") &&
+    hookSrc.includes("answerArpeggio") &&
+    hookSrc.includes("noteHumanNote")
+);
+check(
+  "drive-by: the hook finally exposes Slice 28/30's wrappers (LegacyFluid calls all three)",
+  hookSrc.includes("noteHandSign") &&
+    hookSrc.includes("answerTouchAt") &&
+    hookSrc.includes("answerDrawAround")
+);
+const samSrc = src("src/components/sam/SamLayer.tsx");
+check(
+  "SamLayer cleanup: the retired brain publish is deleted, the keeper remains",
+  !samSrc.includes("getBrainSnapshot") &&
+    !samSrc.includes('publishSegmentationSource("device", snap.state === "ready")') &&
+    samSrc.includes('publishSegmentationSource("device", isDeviceGroundingReady())')
+);
+check(
+  "the availability seam's header tells the grounding truth now",
+  src("src/sam/segmentationAvailability.ts").includes("GroundingDINO") &&
+    !src("src/sam/segmentationAvailability.ts").includes("publishes it from the brain snapshot")
 );
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

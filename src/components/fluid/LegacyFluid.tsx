@@ -43,6 +43,7 @@ import { useAudioCues } from "../../../app/hooks/useAudioCues";
 import type { FluidInteraction } from "../../types/fluid";
 import { useGhostPeer } from "../../ghost/useGhostPeer";
 import {
+  ghostNoteAsk,
   ghostPeerIdFor,
   ghostVerbAsk,
   isGhostHeartbeatRequest,
@@ -452,6 +453,26 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   const onGhostDrawRecipe = useCallback((recipe: Recipe) => {
     ghostDrawSinkRef.current(recipe);
   }, []);
+  // Slice 31: the ghost's NOTE sink rides the same indirection —
+  // the peer is constructed before the note-bus plumbing below
+  // exists, so the stable wrapper forwards to a ref the real
+  // sink is assigned into. ghostOwnNoteRef is the sink's
+  // self-guard: while it names a note, that note's bus emission
+  // is the ghost's own playing (the call-and-response forwarder
+  // further down must not journal it as a human's).
+  const ghostNoteSinkRef = useRef<
+    (note: string, velocity: number, durationMs: number) => void
+  >(() => {});
+  const onGhostNote = useCallback(
+    (note: string, velocity: number, durationMs: number) => {
+      ghostNoteSinkRef.current(note, velocity, durationMs);
+    },
+    []
+  );
+  const ghostOwnNoteRef = useRef<string | null>(null);
+  const ghostNoteOffTimersRef = useRef<Map<ReturnType<typeof setTimeout>, string>>(
+    new Map()
+  );
   const ghost = useGhostPeer({
     ownerId: userId,
     inject: injectRemoteInteraction,
@@ -460,6 +481,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     layerEnabled: ghostLayerEnabled,
     getFabricContext: getGhostFabricContext,
     onDrawRecipe: onGhostDrawRecipe,
+    onNote: onGhostNote,
     onSfx: (kind) => {
       // Own ghost: sounds are pitched from its signature hue.
       sfxRef.current.play(kind, ghostSelfHueRef.current);
@@ -662,6 +684,38 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     });
     sendGhostRecipeRef.current(recipe, ghostPeerIdRef.current);
   };
+  // Slice 31: the ghost's note sink — the note goes on the shared
+  // noteBus, the pipeline human keys use: it sounds through the
+  // soundfont on this device, lights the key on the Piano layer,
+  // streams into the fluid, and rides the note transport to the
+  // room under the session's notes gate (Slice 5 modes + Slice
+  // 19 fabric rules, inside sendNote). The bus emission is
+  // synchronous, so the self-guard is exact: it is set for the
+  // duration of the emit and cleared immediately after, and the
+  // forwarder below reads it in the same tick. The note-off is
+  // timed here (the bus's own convention: whoever turns a note
+  // on turns it off); pending offs flush on unmount so a ghost
+  // note can never ring forever.
+  ghostNoteSinkRef.current = (note, velocity, durationMs) => {
+    ghostOwnNoteRef.current = note;
+    noteBus.emitNoteOn(note, velocity);
+    ghostOwnNoteRef.current = null;
+    const timer = setTimeout(() => {
+      ghostNoteOffTimersRef.current.delete(timer);
+      noteBus.emitNoteOff(note);
+    }, durationMs);
+    ghostNoteOffTimersRef.current.set(timer, note);
+  };
+  useEffect(() => {
+    const timers = ghostNoteOffTimersRef.current;
+    return () => {
+      timers.forEach((note, timer) => {
+        clearTimeout(timer);
+        noteBus.emitNoteOff(note);
+      });
+      timers.clear();
+    };
+  }, []);
 
   // Inbound recipes: the hook validated them and handed them over
   // on the recipe bus. The sender's signature hue (when a step
@@ -1134,6 +1188,27 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     return () => window.removeEventListener(FABRIC_VOICE_UNHEARD_EVENT, onVoiceUnheard);
   }, []);
 
+  // Slice 31: call-and-response input. While the Piano layer is
+  // front, human note-ons on the shared bus — the local user's
+  // keys and remote peers' notes alike (both ride the bus, the
+  // remote ones flagged as such) — are forwarded to the ghost as
+  // a sense (GhostPeer.noteHumanNote): journaled in the dataset's
+  // event vocabulary, so deliberation may answer a played note
+  // with one of its own. The ghost's own sink emissions are
+  // guarded out by ghostOwnNoteRef — the sink sets it for the
+  // synchronous duration of its bus emission — so the ghost
+  // never mistakes its own playing for a human's and answers
+  // itself.
+  useEffect(() => {
+    const off = noteBus.on((e) => {
+      if (e.type !== "on") return;
+      if (ghostOwnNoteRef.current === e.note) return;
+      if (experienceRef.current?.id !== "ar-piano") return;
+      ghostRef.current.noteHumanNote(e.note);
+    });
+    return off;
+  }, []);
+
   // ---- Pattern composer (Slice 4) --------------------------------------
   // The HUD's ComposeBar dispatches FABRIC_COMPOSE_EVENT with a
   // plain-language prompt. Composition lives here because this
@@ -1479,6 +1554,59 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
             );
             return;
           }
+        }
+
+        // Slice 31 ("the ghost plays"): a note ask — "play a
+        // note", "play middle C", "Boop, play that again", "play
+        // an arpeggio" — belongs to the ghost's NOTE tools. The
+        // route claims its asks on shape alone (a named note is
+        // not something the generic interpreter can perform),
+        // and the layer decides the answer: at the Piano, the
+        // ghost performs through its gates, budget and cooldown;
+        // on any other layer the ask gets the in-world redirect
+        // — the ghost's puzzlement and a plain line naming where
+        // notes live — never an error, and never a composed
+        // pattern pretending to be a note.
+        const noteAsk = ghostNoteAsk(
+          prompt,
+          ghostRef.current.identity?.name ?? null
+        );
+        if (noteAsk) {
+          const ghostName = ghostRef.current.identity?.name ?? "Ghost";
+          if (experienceRef.current?.id !== "ar-piano") {
+            seeActFallback(
+              `Notes live on the Piano layer — ${ghostName} can play there`
+            );
+            return;
+          }
+          const res =
+            noteAsk.kind === "arpeggio"
+              ? ghostRef.current.answerArpeggio(noteAsk.descending)
+              : noteAsk.kind === "again"
+                ? ghostRef.current.answerNoteAgain()
+                : ghostRef.current.answerNote(noteAsk.note);
+          if (res === "performed") {
+            recordAgentAnswer();
+            window.dispatchEvent(
+              new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+                detail: "ghost",
+              })
+            );
+            publishState(
+              noteAsk.kind === "arpeggio"
+                ? `${ghostName} played an arpeggio`
+                : noteAsk.kind === "again"
+                  ? `${ghostName} played it again`
+                  : `${ghostName} played ${noteAsk.note ?? "a note"}`
+            );
+          } else if (res === "refused") {
+            publishState(
+              `${ghostName} wanted to play — this fabric doesn't allow it`
+            );
+          } else {
+            seeActFallback(null);
+          }
+          return;
         }
 
         // Slice 30 ("See acts"): on the See layer, an act ask is
