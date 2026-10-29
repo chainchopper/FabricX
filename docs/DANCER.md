@@ -160,6 +160,24 @@ wear their hue mannequins, on every screen including yours.
   `clavicle_r`, `upperarm_l`, `upperarm_r`, `lowerarm_l`,
   `lowerarm_r`, `hand_l`, `hand_r`, `thigh_l`, `thigh_r`,
   `calf_l`, `calf_r`, `foot_l`, `foot_r`, `ball_l`, `ball_r`.
+- **Mixamo skeletons bind too** (Slice 25): a Mixamo export's
+  authored names (`mixamorig:Hips.2`, `mixamorig:Spine1.4`, ...)
+  are normalized (prefix + Blender `.N` suffix stripped) and
+  mapped onto the contract by `src/dancer/mixamoBones.ts` —
+  Hips→pelvis, Spine/Spine1/Spine2→spine_01/02/03,
+  LeftArm/LeftForeArm/LeftHand→the arm chain, LeftUpLeg/LeftLeg/
+  LeftFoot/LeftToeBase→the leg chain, and mirrors. Resolution
+  reads the name the author wrote: GLTFLoader renames nodes to a
+  sanitized unique form and preserves the authored name in
+  `userData.name`. Unmapped bones (fingers, end helpers) are
+  skipped like any missing bone.
+- **A character with a clip idles** (Slice 25): if the loaded
+  model carries an animation, an `AnimationMixer` loops its
+  first clip as the body's base layer and the driver's band
+  impulses compose additively over each frame's clip pose — the
+  notes still move the body down the bands while it idles. With
+  the figure switched off the mixer rests and the body composes
+  over its bind pose, like the rest of the cast.
 - `pelvis` is the one required bone (the driver needs a root to
   move). **Missing bones are skipped silently** — a partially
   matching rig dances with the joints it has.
@@ -168,9 +186,28 @@ wear their hue mannequins, on every screen including yours.
 - A model that fails to load (bad file, no `pelvis`) reports
   "failed" in settings and **the mannequin keeps the stage**.
 - Band emissive glow is a mannequin-material feature; a loaded
-  character keeps its authored materials — the floor ripples and
-  accent lights carry the note reaction for it.
+  character keeps its authored materials — washed lightly (22%)
+  toward its owner's hue so the ghostie's identity still reads —
+  and the floor ripples and accent lights carry the note
+  reaction for it.
 - **Restore mannequin** in settings clears the slot.
+
+### The built-in character: Trauma
+
+THIS LAYER also offers **Trauma**, a Mixamo character that ships
+with the stage (Slice 25, `src/dancer/traumaCharacter.ts`). Each
+GLB is the full character **and** one looping idle in a single
+file — **MMA idle** (~5.0 s) or **Bouncing fight** (~2.97 s);
+picking one binds it, and the layer remembers the pick
+(`stageTraumaIdle`, default MMA) so the stage rebinds it on
+mount. The files are ~5 MB binaries: they are **never bundled** —
+they live as same-origin static files in `public/animations/`
+(the soundfonts' route), lazy-loaded by URL only when bound,
+behind the one config constant `CHARACTER_ASSET_BASE_URL`. If a
+file is missing the bind reports "failed" and the mannequin
+keeps the stage. Trauma binds to the local rig only, wears the
+ghostie's hue wash + name tag, and his idle is his rest: the
+stage's `breathe` contract, embodied.
 
 ## Stage settings (THIS LAYER, `specific.*`)
 
@@ -179,6 +216,7 @@ wear their hue mannequins, on every screen including yours.
 | `stageDancerEnabled` | The whole cast dances vs stands at rest (default on). |
 | `stageCameraDrift`   | Camera idle sway (default on).                      |
 | `stageTheme`         | `cyan` \| `violet` \| `magenta` \| `amber` rim/floor hue. |
+| `stageTraumaIdle`    | Built-in character (Trauma) idle: `mma` (default) \| `bouncing`; unset = no built-in bound. |
 | `roomId`             | The stage's room (default `"stage"`).               |
 
 Playable surface: the HUD mounts the piano keyboard **slim** as the

@@ -6,7 +6,9 @@
  *
  * - FabricMenu's THIS LAYER block for the stage offers "Load
  *   character (glTF)"; picking a file mints an object URL and lands
- *   here as status "loading".
+ *   here as status "loading". The built-in character (Trauma,
+ *   traumaCharacter.ts) binds the same way from a same-origin URL
+ *   via setStageCharacterRemote — one slot, two doors.
  * - DancerRig (inside the stage canvas) subscribes, loads the
  *   model with GLTFLoader, and reports "ready" (it replaces the
  *   procedural mannequin) or "failed" (the mannequin stays — a bad
@@ -14,9 +16,10 @@
  * - "Restore mannequin" clears the URL.
  *
  * The bone contract the model must expose is docs/DANCER.md: UE5
- * Mannequin bone names, bound by NAME; missing bones are skipped
- * silently. Nothing is bundled and nothing leaves the device — the
- * file is read through a local object URL only.
+ * Mannequin bone names, bound by NAME (Mixamo skeletons resolve
+ * through mixamoBones.ts); missing bones are skipped silently.
+ * Nothing is bundled; a picked file never leaves the device — it
+ * is read through a local object URL only.
  */
 
 export type StageCharacterStatus = "mannequin" | "loading" | "ready" | "failed";
@@ -25,9 +28,17 @@ export interface StageCharacterState {
   url: string | null;
   name: string | null;
   status: StageCharacterStatus;
+  /** True when the bound URL is a same-origin built-in asset
+   *  (Trauma) rather than a device-local picked file. */
+  builtin: boolean;
 }
 
-let state: StageCharacterState = { url: null, name: null, status: "mannequin" };
+let state: StageCharacterState = {
+  url: null,
+  name: null,
+  status: "mannequin",
+  builtin: false,
+};
 const listeners = new Set<(s: StageCharacterState) => void>();
 
 function emit() {
@@ -54,7 +65,18 @@ export function subscribeStageCharacter(
 }
 
 export function setStageCharacterLoading(url: string, name: string) {
-  state = { url, name, status: "loading" };
+  state = { url, name, status: "loading", builtin: false };
+  emit();
+}
+
+/**
+ * Bind a character from a same-origin URL (the built-in Trauma
+ * idles, traumaCharacter.ts). Same slot, same load/report flow as
+ * a picked file; the difference is lifecycle — the URL is not an
+ * object URL, so clearing the slot must not revoke it.
+ */
+export function setStageCharacterRemote(url: string, name: string) {
+  state = { url, name, status: "loading", builtin: true };
   emit();
 }
 
@@ -65,14 +87,16 @@ export function setStageCharacterStatus(status: StageCharacterStatus) {
 }
 
 export function clearStageCharacter() {
-  if (state.url) {
+  // Only picked files hold object URLs; a built-in's same-origin
+  // URL is shared and must survive the slot being cleared.
+  if (state.url && state.url.startsWith("blob:")) {
     try {
       URL.revokeObjectURL(state.url);
     } catch {
       // Object URLs are best-effort to revoke.
     }
   }
-  state = { url: null, name: null, status: "mannequin" };
+  state = { url: null, name: null, status: "mannequin", builtin: false };
   emit();
 }
 

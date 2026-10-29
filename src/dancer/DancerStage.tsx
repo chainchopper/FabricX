@@ -32,6 +32,13 @@
  *   theirs.
  * - The glTF character slot binds to the LOCAL rig only: the
  *   character is YOUR ghostie's body. Models never travel.
+ * - The built-in character (Trauma, Slice 25) is remembered BY
+ *   THE LAYER: THIS LAYER's `stageTraumaIdle` names the idle the
+ *   user picked, and this stage rebinds that same-origin GLB
+ *   whenever it mounts with an empty slot. A picked custom file
+ *   is session state (an object URL); the built-in is a URL the
+ *   layer itself can hold, so the pick survives reloads until
+ *   "Restore mannequin" clears the setting.
  *
  * DOM side (this file) owns the cast bookkeeping: one
  * DancerDriver per participant (created lazily, pruned when they
@@ -43,7 +50,8 @@
  * voice, packs ensured on mount like the piano layer does).
  *
  * THIS LAYER settings (specific.*): stageDancerEnabled (the whole
- * cast dances vs stands at rest), stageCameraDrift, stageTheme.
+ * cast dances vs stands at rest), stageCameraDrift, stageTheme,
+ * stageTraumaIdle (the built-in character's idle pick).
  * Idle contract: `breathe` — drivers' breath phase sways the
  * figures, the camera drifts, motes float.
  */
@@ -74,6 +82,11 @@ import {
   type StageParticipant,
 } from "./stageRoster";
 import { useIdentitySnapshot } from "../identity/useIdentity";
+import {
+  getStageCharacterState,
+  setStageCharacterRemote,
+} from "./stageCharacter";
+import { traumaIdleDef } from "./traumaCharacter";
 import { displayNameFor } from "../identity/identityStore";
 import {
   getGhostPublicState,
@@ -109,6 +122,25 @@ export default function DancerStage({
   const figureEnabled = specific.stageDancerEnabled !== false;
   const drift = specific.stageCameraDrift !== false;
   const themeHue = stageThemeHue(specific.stageTheme);
+  // THIS LAYER's built-in character pick: an idle id from the
+  // Trauma catalog, or null when the layer never picked one.
+  const traumaIdleSetting =
+    typeof specific.stageTraumaIdle === "string"
+      ? specific.stageTraumaIdle
+      : null;
+
+  // Rebind the layer's built-in character on mount (see header):
+  // only into an EMPTY slot — a character the user bound this
+  // session (either idle, or their own picked file) is never
+  // overridden. A failed load reports through the slot and the
+  // mannequin keeps the stage; the URL stays in the store, so
+  // this never retry-loops.
+  useEffect(() => {
+    if (!traumaIdleSetting) return;
+    if (getStageCharacterState().url) return;
+    const def = traumaIdleDef(traumaIdleSetting);
+    setStageCharacterRemote(def.url, def.characterName);
+  }, [traumaIdleSetting]);
 
   const fx = useMemo(createStageFx, []);
   const fxRef = useRef(fx);
