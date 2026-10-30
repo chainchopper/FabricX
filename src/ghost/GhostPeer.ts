@@ -100,6 +100,7 @@ import type { GhostSfxKind } from "./useGhostSfx";
 import type {
   GhostDecision,
   GhostFabricContext,
+  GhostGestureReading,
   GhostScenario,
   GhostScenarioOther,
 } from "./GhostBrain";
@@ -109,6 +110,7 @@ import {
   ghostNoteNumber,
   isGhostNoteName,
   sanitizeFabricContext,
+  sanitizeGestureReadings,
   seedTraitsForTemperament,
 } from "./GhostBrain";
 import { validateRecipe, type Recipe } from "../ai/RecipeCore";
@@ -668,6 +670,14 @@ export class GhostPeer {
   /** Scenario journal, in the dataset's event vocabulary. */
   private eventJournal: { label: string; at: number }[] = [];
   private verbsSeenLog: { id: string; at: number }[] = [];
+  /**
+   * Slice 34 (Layer B1): recent gesture-token readings, in the
+   * v2 digest shape + their arrival time. The scenario snapshot
+   * carries the fresh ones (45s) as `gestures`; like every sense
+   * log it is pruned on read and capped on write — a digest field,
+   * not a history.
+   */
+  private gestureLog: (GhostGestureReading & { at: number })[] = [];
   /** Human interaction timestamps (energy trend), pruned at 90s. */
   private humanEventTimes: number[] = [];
   /** Strongest nearby splat + when (decays over ~20s in snapshots). */
@@ -1409,6 +1419,47 @@ export class GhostPeer {
     const now = Date.now();
     this.noteUserActivity();
     this.journal(label, now);
+    this.markDeliberationDirty();
+  }
+
+  /**
+   * A gesture TOKEN, READ (Slice 34, "Senses" Layer B1). The hands
+   * engine's vocabulary tracker (src/hands/gestureVocabulary) turns
+   * the local user's hand into tokens — open_palm, pinch, point,
+   * finger_draw, wave, palm_push, the signs — and LegacyFluid
+   * forwards each fired token here. This is a SENSE, like
+   * noteHandSign: nothing is emitted, nothing is spent, no gate is
+   * consulted. The reading lands in two places the brain reads:
+   * the event journal ("gesture open_palm", the dataset's plain
+   * event style) and the gesture log, which buildScenario carries
+   * into the scenario's v2 `gestures` field — so both brain tiers
+   * deliberate in a room where a hand just spoke, in the same
+   * digest where Slice 33's utterances will land. Readings are
+   * clamped through GhostBrain's sanitizer (the vocabulary
+   * allowlist lives there): an out-of-vocabulary token is ignored,
+   * and "none" — the vocabulary's word for a present-but-unread
+   * hand — is deliberately NOT recorded: camera noise is not
+   * company, and journaling it would mark deliberation dirty on
+   * every unreadable frame's behalf. Being gestured at IS company,
+   * so a real token wakes and timestamps like any activity.
+   */
+  noteGesture(reading: {
+    token: string;
+    hand?: string;
+    confidence?: number;
+    held_s?: number;
+  }): void {
+    if (this.destroyed) return;
+    if (!reading || reading.token === "none") return;
+    const clean = sanitizeGestureReadings([reading]);
+    if (clean.length === 0) return;
+    const now = Date.now();
+    this.gestureLog.push({ ...clean[0], at: now });
+    if (this.gestureLog.length > 8) {
+      this.gestureLog = this.gestureLog.filter((g) => now - g.at < 45_000);
+    }
+    this.noteUserActivity();
+    this.journal(`gesture ${clean[0].token}`, now);
     this.markDeliberationDirty();
   }
 
@@ -2297,6 +2348,18 @@ export class GhostPeer {
       }
     });
     const fabric = this.currentFabricContext();
+    // Slice 34: fresh gesture readings ride the scenario in the
+    // v2 shape; the key is omitted entirely when the sense has
+    // been quiet (absence is information — see GhostBrain).
+    const gestures: GhostGestureReading[] = this.gestureLog
+      .filter((g) => now - g.at < 45_000)
+      .slice(-3)
+      .map(({ token, hand, confidence, held_s }) => ({
+        token,
+        hand,
+        confidence,
+        held_s,
+      }));
     return {
       temperament: this.temperament,
       seconds_since_human_touch: Math.round((now - this.lastActivityAt) / 100) / 10,
@@ -2318,6 +2381,7 @@ export class GhostPeer {
         seed_traits: seedTraitsForTemperament(this.temperament),
       },
       ...(fabric ? { fabric } : {}),
+      ...(gestures.length > 0 ? { gestures } : {}),
     };
   }
 

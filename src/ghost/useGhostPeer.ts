@@ -741,6 +741,19 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteHandSign(sign);
   }, []);
 
+  /** Slice 34: a gesture token was read (Layer B1 — a sense). */
+  const noteGesture = useCallback(
+    (reading: {
+      token: string;
+      hand?: string;
+      confidence?: number;
+      held_s?: number;
+    }): void => {
+      peerRef.current?.noteGesture(reading);
+    },
+    []
+  );
+
   /** Slice 30: ask this ghost to touch/tap/poke a seen region. */
   const answerTouchAt = useCallback(
     (
@@ -808,6 +821,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     answerArpeggio,
     noteHumanNote,
     noteHandSign,
+    noteGesture,
     answerTouchAt,
     answerDrawAround,
     expressPuzzlement,

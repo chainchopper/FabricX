@@ -84,6 +84,7 @@ import {
   getPeerIdentity,
   subscribeIdentity,
   tintColorTowardHue,
+  hueCss,
   hueDyeColor,
 } from "../../identity/identityStore";
 import { useAmbientLife, type AmbientLifeStats } from "./useAmbientLife";
@@ -106,13 +107,23 @@ import { getSamCameraSnapshot } from "../../sam/samCameraStore";
 import { noteBus } from "../../../shared/utils/noteBus";
 import { getAudioContextState } from "../../audio/sharedAudio";
 import {
+  FABRIC_GESTURE_EVENT,
   FABRIC_HAND_INPUT_EVENT,
   FABRIC_HAND_SIGN_EVENT,
   getHandsSnapshot,
   subscribeHands,
+  type GestureDetail,
   type HandInputDetail,
   type HandSignDetail,
 } from "../../hands/handsStore";
+import {
+  ensureControllerLoaded,
+  getControllerSnapshot,
+  subscribeController,
+  tiltInteractionFor,
+  type ControllerSnapshot,
+} from "../../sensors/controllerStore";
+import ControllerSurface from "./ControllerSurface";
 
 interface LegacyFluidProps {
   /**
@@ -370,6 +381,21 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     []
   );
 
+  // Slice 34 (Layer B3): this device's controller stance. The
+  // store is the truth (device-local, persisted); the ref mirrors
+  // it for the callbacks below, which are built once and must see
+  // the CURRENT role at fire time, not at build time.
+  const [controllerSnap, setControllerSnap] = useState<ControllerSnapshot>(
+    () => getControllerSnapshot()
+  );
+  useEffect(() => {
+    ensureControllerLoaded();
+    return subscribeController(setControllerSnap);
+  }, []);
+  const isController = controllerSnap.role === "controller";
+  const controllerRef = useRef(false);
+  controllerRef.current = isController;
+
   // A confirmed local shake (thresholded + debounced inside the
   // sensor hook): render the burst here, and send ONE event
   // through the ordinary funnel — session gating, hue stamp, and
@@ -377,10 +403,15 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // also ticks this phone's haptics (pressure > 0.7), so the
   // shaker feels their own shake land. Raw motion data is NOT
   // part of the payload; the event is all that travels.
+  // Slice 34: a CONTROLLER's shake is for the room — it sends
+  // through the same funnel but does not bloom on its own dark
+  // surface (the other screens render it via the remote path).
   const fireShake = useCallback(() => {
     const hue = getIdentitySnapshot().self?.hue ?? 205;
     const color = hueDyeColor(hue, 0.95);
-    renderShakeBurst(0.5, 0.5, color);
+    if (!controllerRef.current) {
+      renderShakeBurst(0.5, 0.5, color);
+    }
     sendRef.current({
       kind: "shake",
       position: { x: 0.5, y: 0.5 },
@@ -390,6 +421,22 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     });
     ghostRef.current.noteUserActivity();
   }, [renderShakeBurst]);
+
+  // Slice 34 (Layer B3): a controller's lean, delivered to the
+  // room. The interaction carries Slice 12's own tilt geometry
+  // (controllerStore.tiltInteractionFor), so receiving screens
+  // render the lean exactly as the controller's own splat would
+  // have looked; the send funnel applies session gating, hue
+  // stamp and sequencing like any human input, and the local
+  // ghost hears it as this participant's activity. Nothing is
+  // rendered locally — the controller's surface is the readout
+  // (ControllerSurface), not the canvas.
+  const fireTilt = useCallback((tiltX: number, tiltY: number) => {
+    const hue = getIdentitySnapshot().self?.hue ?? 205;
+    const color = hueDyeColor(hue, 0.6);
+    const full = sendRef.current(tiltInteractionFor(tiltX, tiltY, color));
+    if (full) ghostRef.current.noteLocalInteraction(full);
+  }, []);
 
   // Tilt steering + shake detection. Local only: the hook applies
   // tilt to THIS device's engine and reports shakes via fireShake;
@@ -401,6 +448,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     enabled: motionLayerEnabled,
     onActivity: markActivity,
     onShake: fireShake,
+    controller: isController,
+    onTilt: fireTilt,
   });
   const ghostPeerIdRef = useRef("");
   ghostPeerIdRef.current = ghostPeerIdFor(userId);
@@ -1134,6 +1183,37 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         }
         engine?.splatAt(interaction.position.x, interaction.position.y, 0, 0, color, 2.4);
         ghostRef.current.noteLocalInteraction(full);
+      } else if (d.kind === "grab") {
+        // Slice 34 (B2): a pinch-grab — the hand has closed on the
+        // fluid at the fingertip and is holding it. The held point
+        // is rendered as a sustained, slightly wide splat that
+        // travels with the hand (move force from the grab delta,
+        // the stroke math), broadcast through the same funnel so
+        // the hold and its travel land on every screen; release
+        // exhales one soft wide splat where the hand let go.
+        const releasing = d.phase === "end";
+        const fx = d.dx * 6000;
+        const fy = d.dy * 6000;
+        const interaction: Omit<FluidInteraction, "userId" | "timestamp"> = {
+          position: { x: clamp01(d.x), y: clamp01(d.y) },
+          force: { x: fx, y: fy },
+          pressure: releasing ? 0.3 : 0.75,
+          color,
+          radiusScale: releasing ? 2.2 : 1.8,
+          source: "hand",
+        };
+        const full = sendRef.current(interaction, undefined, {
+          batch: d.phase === "move",
+        });
+        engine?.splatAt(
+          interaction.position.x,
+          interaction.position.y,
+          fx,
+          fy,
+          color,
+          interaction.radiusScale
+        );
+        ghostRef.current.noteLocalInteraction(full);
       }
     };
 
@@ -1147,11 +1227,31 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       ghostRef.current.noteHandSign(d.sign);
     };
 
+    // Slice 34 (Layer B1): a gesture TOKEN is a sense for the
+    // ghost, forwarded ungated for the same reason as the sign —
+    // the reading lands in the scenario digest's `gestures` field
+    // (GhostPeer.noteGesture), where both brain tiers deliberate
+    // over it alongside words, verbs and scene. Tokens never touch
+    // the fluid here: a wave is something the ghost READS, not a
+    // splat the hand makes.
+    const onGesture = (ev: Event) => {
+      const d = (ev as CustomEvent<GestureDetail>).detail;
+      if (!d || d.source !== "hand") return;
+      ghostRef.current.noteGesture({
+        token: d.token,
+        hand: d.hand,
+        confidence: d.confidence,
+        held_s: d.held_s,
+      });
+    };
+
     window.addEventListener(FABRIC_HAND_INPUT_EVENT, onHandInput as EventListener);
     window.addEventListener(FABRIC_HAND_SIGN_EVENT, onHandSign as EventListener);
+    window.addEventListener(FABRIC_GESTURE_EVENT, onGesture as EventListener);
     return () => {
       window.removeEventListener(FABRIC_HAND_INPUT_EVENT, onHandInput as EventListener);
       window.removeEventListener(FABRIC_HAND_SIGN_EVENT, onHandSign as EventListener);
+      window.removeEventListener(FABRIC_GESTURE_EVENT, onGesture as EventListener);
     };
   }, []);
 
@@ -1950,6 +2050,18 @@ brain   ${diagBrain}`}
             ×
           </button>
         </div>
+      ) : null}
+      {/* Slice 34 (Layer B3): the controller surface — while this
+          phone is joined as a senses-only controller, the canvas
+          goes dark and quiet under this readout: the experience is
+          rendering on the room's other screens. The engine keeps
+          running beneath (peers' work still arrives; the surface
+          simply owns this screen's face). */}
+      {isController ? (
+        <ControllerSurface
+          motionStatsRef={motionStatsRef}
+          hueColor={hueCss(getIdentitySnapshot().self?.hue ?? 205)}
+        />
       ) : null}
     </div>
   );

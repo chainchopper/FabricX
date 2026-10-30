@@ -6,6 +6,10 @@ import {
   setMotionPublicState,
   type MotionPermission,
 } from "./motionState";
+import {
+  getControllerSnapshot,
+  registerCalibrationCapture,
+} from "./controllerStore";
 
 /**
  * Slice 12 ("The Body's Sensors") — the phone's motion sensors,
@@ -35,6 +39,15 @@ import {
  *    stamp, Hotfix 1.9 sequence all apply — and receivers render a
  *    radial bloom in the shaker's hue. Peers feel an event, never
  *    a feed.
+ *
+ * Slice 34 (Layer B3) adds the one deliberate exception to law 1's
+ * local-only tilt, and it is a ROLE, not a leak: a phone that has
+ * joined the room as a senses-only controller (controllerStore)
+ * sends its lean as tilt-geometry events (kind: "tilt") so the
+ * OTHER screens render it, while its own screen runs the control
+ * surface. Raw samples still never leave — the events carry the
+ * same position/force a local tilt splat would have used — and
+ * the role is opt-in per device, reversible in one tap.
  *
  * IDLE BEHAVIOR (the Slice 7 contract applied to sensors): hidden
  * tab → the apply loop stands down and nothing is scheduled; a
@@ -121,8 +134,23 @@ export function useDeviceMotion(opts: {
   onActivity: () => void;
   /** A confirmed shake gesture. LegacyFluid sends + renders it. */
   onShake: () => void;
+  /**
+   * Slice 34 (Layer B3): this device has joined the room as a
+   * senses-only CONTROLLER (src/sensors/controllerStore). The
+   * lean stops being local: at the tilt-splat cadence the hook
+   * calls onTilt with the smoothed lean vector and applies NO
+   * local splat — LegacyFluid delivers the lean to the room as
+   * tilt interactions, and the experience renders on the other
+   * screens. Law 1 still holds in spirit and in fact: the raw
+   * samples never leave; only the lean's splat geometry does,
+   * as events, under a role the user explicitly joined.
+   */
+  controller?: boolean;
+  /** Controller mode only: the lean, at splat cadence. */
+  onTilt?: (tiltX: number, tiltY: number) => void;
 }): RefObject<MotionStats> {
-  const { engineRef, enabled, onActivity, onShake } = opts;
+  const { engineRef, enabled, onActivity, onShake, controller, onTilt } =
+    opts;
   const statsRef = useRef<MotionStats>({
     state: "off",
     tiltX: 0,
@@ -131,8 +159,13 @@ export function useDeviceMotion(opts: {
     lastShakeAt: null,
   });
   const [granted, setGranted] = useState(false);
-  const callbacksRef = useRef({ onActivity, onShake });
-  callbacksRef.current = { onActivity, onShake };
+  const callbacksRef = useRef({ onActivity, onShake, onTilt, controller });
+  callbacksRef.current = { onActivity, onShake, onTilt, controller };
+  // The latest raw orientation sample, shared with the Slice 34
+  // calibration capture (below): a capture reads exactly this —
+  // one pair of angles, at the moment the user asks — and nothing
+  // else anywhere ever sees it.
+  const rawRef = useRef({ beta: NEUTRAL_BETA_DEG, gamma: 0, seen: false });
 
   // The gesture-gated permission request. Registered whenever the
   // canvas is mounted so the menu's "Enable tilt" button can reach
@@ -161,7 +194,20 @@ export function useDeviceMotion(opts: {
       return ok;
     };
     registerMotionRequestHandler(request);
-    return () => registerMotionRequestHandler(null);
+    // Slice 34: the calibration capture for the controller store —
+    // registered alongside the permission handler (same mount,
+    // same lifetime). It answers with the latest raw sample only
+    // when one has actually been seen; a request against a silent
+    // sensor reports null and the store records nothing.
+    registerCalibrationCapture(() =>
+      rawRef.current.seen
+        ? { beta: rawRef.current.beta, gamma: rawRef.current.gamma }
+        : null
+    );
+    return () => {
+      registerMotionRequestHandler(null);
+      registerCalibrationCapture(null);
+    };
   }, []);
 
   useEffect(() => {
@@ -195,7 +241,8 @@ export function useDeviceMotion(opts: {
     // Raw samples land in refs only. Nothing below this line ever
     // leaves the device (law 1): the refs feed a smoothed vector, a
     // splat, a shake decision — and are gone.
-    const raw = { beta: NEUTRAL_BETA_DEG, gamma: 0, seen: false };
+    rawRef.current = { beta: NEUTRAL_BETA_DEG, gamma: 0, seen: false };
+    const raw = rawRef.current;
     const tilt = { x: 0, y: 0 };
     let lastAccel: { x: number; y: number; z: number } | null = null;
     let jolts: number[] = [];
@@ -252,10 +299,18 @@ export function useDeviceMotion(opts: {
       // phone, not a command to pour the pool uphill: read it as
       // neutral. Without this, every table would tilt the world.
       const flat = Math.abs(raw.gamma) < 10 && raw.beta < 15;
-      const targetX = flat ? 0 : clamp(raw.gamma / TILT_RANGE_DEG, -1, 1);
+      // Slice 34: a captured calibration (the controller's natural
+      // grip, registered for the shared space) is the neutral —
+      // the stock 45° assumption only serves an uncalibrated phone.
+      const cal = getControllerSnapshot().calibration;
+      const beta0 = cal ? cal.beta0 : NEUTRAL_BETA_DEG;
+      const gamma0 = cal ? cal.gamma0 : 0;
+      const targetX = flat
+        ? 0
+        : clamp((raw.gamma - gamma0) / TILT_RANGE_DEG, -1, 1);
       const targetY = flat
         ? 0
-        : clamp((raw.beta - NEUTRAL_BETA_DEG) / TILT_RANGE_DEG, -1, 1);
+        : clamp((raw.beta - beta0) / TILT_RANGE_DEG, -1, 1);
       tilt.x += (targetX - tilt.x) * 0.1;
       tilt.y += (targetY - tilt.y) * 0.1;
       stats.tiltX = tilt.x;
@@ -269,6 +324,15 @@ export function useDeviceMotion(opts: {
       const now = Date.now();
       if (now - lastSplatAt < TILT_SPLAT_MS) return;
       lastSplatAt = now;
+      // Slice 34 (Layer B3): a controller's lean is for the ROOM,
+      // not for this screen — hand the vector up and apply nothing
+      // locally. LegacyFluid turns it into tilt interactions; the
+      // other screens render the lean.
+      if (callbacksRef.current.controller) {
+        callbacksRef.current.onTilt?.(tilt.x, tilt.y);
+        callbacksRef.current.onActivity();
+        return;
+      }
       const engine = engineRef.current;
       if (!engine) return;
       const hue = getIdentitySnapshot().self?.hue ?? 205;

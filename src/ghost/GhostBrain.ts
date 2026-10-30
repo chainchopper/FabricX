@@ -323,6 +323,88 @@ export function fabricAllowsNotes(scenario: GhostScenario): boolean {
 export const GHOST_NOTE_REFUSAL_TEXT =
   "wanted to play a note — this fabric doesn't allow it";
 
+/* ------------------------------------------------------------------ */
+/* Gesture sense (Slice 34, Layer B1)                                  */
+/* ------------------------------------------------------------------ */
+/*
+ * The v2 sense field for hands (dataset schema_v2.md `gestures`):
+ * the gesture-vocabulary readings (src/hands/gestureVocabulary)
+ * the peer has taken in recently, in the dataset's own shape —
+ * [{ token, hand, confidence, held_s }]. Like `fabric`, the field
+ * is ABSENT when the sense has nothing to report: absence is
+ * information, and every legacy/dataset scenario (none of which
+ * carry it) stays valid untouched. The token allowlist below is
+ * the v2 vocabulary verbatim, plus the RESERVED asl_<letter>
+ * pattern — carried by the sanitizer so a future recognizer can
+ * speak without a schema change, and produced by NOTHING in the
+ * current build (no sign-language recognition exists; see the
+ * vocabulary module's honesty note). A reading the sanitizer
+ * cannot clamp to the vocabulary is dropped, never passed on:
+ * the digest is the brain's whole world, and it does not get to
+ * contain words the dataset never taught.
+ */
+
+export interface GhostGestureReading {
+  token: string;
+  hand: "left" | "right" | "unknown";
+  /** Heuristic 0..1 from the vocabulary tracker (not a model score). */
+  confidence: number;
+  held_s: number;
+}
+
+export const GHOST_GESTURE_TOKENS: readonly string[] = [
+  "open_palm",
+  "closed_fist",
+  "pinch",
+  "point",
+  "finger_draw",
+  "peace",
+  "thumbs_up",
+  "thumbs_down",
+  "wave",
+  "palm_push",
+  "two_hands_open",
+  "heart_hands",
+  "none",
+];
+
+/**
+ * Clamp an unknown value to at most 3 gesture readings in the v2
+ * shape. Non-array → empty; entries with an out-of-vocabulary
+ * token are dropped; confidence clamps to [0,1], held_s to
+ * [0, 30]; an unknown hand reads "unknown".
+ */
+export function sanitizeGestureReadings(raw: unknown): GhostGestureReading[] {
+  if (!Array.isArray(raw)) return [];
+  const out: GhostGestureReading[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const rec = entry as Record<string, unknown>;
+    const token = rec.token;
+    if (
+      typeof token !== "string" ||
+      !(GHOST_GESTURE_TOKENS.includes(token) || /^asl_[a-z]$/.test(token))
+    ) {
+      continue;
+    }
+    out.push({
+      token,
+      hand:
+        rec.hand === "left" || rec.hand === "right" ? rec.hand : "unknown",
+      confidence:
+        typeof rec.confidence === "number" && Number.isFinite(rec.confidence)
+          ? clamp(rec.confidence, 0, 1)
+          : 0.5,
+      held_s:
+        typeof rec.held_s === "number" && Number.isFinite(rec.held_s)
+          ? clamp(rec.held_s, 0, 30)
+          : 0,
+    });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
 /** Scenario snapshot — the dataset's input schema, verbatim. */
 export interface GhostScenario {
   temperament: GhostBrainTemperament;
@@ -344,6 +426,13 @@ export interface GhostScenario {
    * blocks key on its presence, so legacy behavior is untouched.
    */
   fabric?: GhostFabricContext;
+  /**
+   * Slice 34: what the hands just said (see GhostGestureReading).
+   * The v2 `gestures` sense field — absent whenever no gesture
+   * token has fired recently, so legacy scenarios and the whole
+   * v1 dataset stay byte-identical.
+   */
+  gestures?: GhostGestureReading[];
 }
 
 /** Decision — the dataset's output schema, verbatim. */
