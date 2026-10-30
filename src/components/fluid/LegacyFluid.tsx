@@ -45,6 +45,7 @@ import { useGhostPeer } from "../../ghost/useGhostPeer";
 import {
   ghostNoteAsk,
   ghostPeerIdFor,
+  ghostUtteranceClaim,
   ghostVerbAsk,
   isGhostHeartbeatRequest,
   isGhostPeerId,
@@ -1492,8 +1493,28 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
 
     const onCompose = (ev: Event) => {
-      const prompt = (ev as CustomEvent<string>).detail;
+      // Slice 33: the detail is the prompt text — or, for a voice
+      // final that carried the recognizer's confidence, an object
+      // { text, confidence, via } (ComposeBar). Every route below
+      // consumes the same extracted text; only the utterance
+      // route spends the confidence.
+      const detail = (ev as CustomEvent<unknown>).detail;
+      const detailObj =
+        detail && typeof detail === "object"
+          ? (detail as { text?: unknown; confidence?: unknown })
+          : null;
+      const prompt =
+        typeof detail === "string"
+          ? detail
+          : typeof detailObj?.text === "string"
+            ? detailObj.text
+            : null;
       if (typeof prompt !== "string" || !prompt.trim()) return;
+      const heardConfidence =
+        typeof detailObj?.confidence === "number" &&
+        Number.isFinite(detailObj.confidence)
+          ? detailObj.confidence
+          : null;
       void (async () => {
         // Slice 17: a heartbeat request addressed to the ghost is
         // answered BY the ghost, not by the generic interpreter. It
@@ -1620,6 +1641,51 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         if (seeAct && experienceRef.current?.id === "sam-see") {
           await performSeeAct(seeAct);
           return;
+        }
+
+        // Slice 33 ("Understands"): a claimed utterance — words
+        // spoken into the room, not an ask (ghostUtteranceClaim
+        // keeps heartbeat / verb / note asks and imperative
+        // compose prompts with their owners, and this route sits
+        // after all of them anyway) — is HEARD by the ghost. It
+        // acknowledges at once (GhostPeer.noteUtterance's beat),
+        // then deliberation answers from its live state through
+        // the brain tiers — state, temperament, scene and history
+        // shape the response, so the same sentence does not earn
+        // the same answer twice. A garbled hearing (confidence
+        // under the floor) is answered on the spot with the
+        // ghost's in-character puzzlement, captioned exactly like
+        // Hotfix 2.4's living fallback. When no ghost can hear
+        // ("unavailable"), the words fall through to the generic
+        // interpreter, as with every ghost route above.
+        if (
+          ghostUtteranceClaim(
+            prompt,
+            ghostRef.current.identity?.name ?? null
+          )
+        ) {
+          const ghostName = ghostRef.current.identity?.name ?? "Ghost";
+          const heard = ghostRef.current.noteUtterance(prompt, {
+            confidence: heardConfidence,
+          });
+          if (heard === "heard") {
+            window.dispatchEvent(
+              new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+                detail: "ghost",
+              })
+            );
+            publishState(`${ghostName} heard you`);
+            return;
+          }
+          if (heard === "uncertain") {
+            window.dispatchEvent(
+              new CustomEvent(FABRIC_COMPOSE_SOURCE_EVENT, {
+                detail: { source: "puzzled", ghostName },
+              })
+            );
+            publishState(null);
+            return;
+          }
         }
 
         // Slice 15/17: one entry, two performance vocabularies —

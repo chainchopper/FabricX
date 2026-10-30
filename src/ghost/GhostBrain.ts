@@ -344,6 +344,71 @@ export interface GhostScenario {
    * blocks key on its presence, so legacy behavior is untouched.
    */
   fabric?: GhostFabricContext;
+  /**
+   * Slice 33 ("Understands"): what someone just SAID (see
+   * GhostUtteranceContext). Absent on every dataset scenario and
+   * on every deliberation that was not preceded by an utterance —
+   * the utterance overlay keys on its presence, so legacy
+   * behavior is untouched.
+   */
+  utterance?: GhostUtteranceContext;
+}
+
+/** Who said the utterance, as far as this client honestly knows. */
+export type GhostUtteranceSpeaker = "primary" | "guest" | "unknown";
+
+/**
+ * One heard utterance, riding the scenario (Slice 33). The shape
+ * is dataset schema v2's `utterance` sense (text + asr_confidence),
+ * extended with the two facts the runtime honestly has: who spoke
+ * (the local compose path is this device's primary; anything else
+ * is stated, never guessed) and how many times this same
+ * utterance has been heard in the recent window — the second
+ * hearing is itself context (variation rule 1).
+ */
+export interface GhostUtteranceContext {
+  /** The words as heard/typed, trimmed, capped at 200 chars. */
+  text: string;
+  /**
+   * Transcription confidence 0..1 when the hearing path reports
+   * one (the platform recognizer does); null when it does not
+   * (typed text, or a transcriber that returns words without a
+   * score). Absent is NOT zero — an unscored hearing is an
+   * ordinary hearing, never a garbled one.
+   */
+  asr_confidence: number | null;
+  speaker: GhostUtteranceSpeaker;
+  /** Times this same utterance was already heard in the window. */
+  repeats: number;
+}
+
+/**
+ * Clamp an unknown value to a GhostUtteranceContext, or null when
+ * it is not one — the sanitizeFabricContext discipline: a garbled
+ * payload must never reach the brain as a fact.
+ */
+export function sanitizeUtteranceContext(
+  raw: unknown
+): GhostUtteranceContext | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec.text !== "string") return null;
+  const text = rec.text.trim().slice(0, 200);
+  if (!text) return null;
+  const conf =
+    typeof rec.asr_confidence === "number" &&
+    Number.isFinite(rec.asr_confidence)
+      ? Math.min(1, Math.max(0, rec.asr_confidence))
+      : null;
+  const speaker: GhostUtteranceSpeaker =
+    rec.speaker === "guest" || rec.speaker === "unknown"
+      ? rec.speaker
+      : "primary";
+  const repeats =
+    typeof rec.repeats === "number" && Number.isFinite(rec.repeats)
+      ? Math.max(0, Math.floor(rec.repeats))
+      : 0;
+  return { text, asr_confidence: conf, speaker, repeats };
 }
 
 /** Decision — the dataset's output schema, verbatim. */
@@ -854,18 +919,25 @@ export function noteDecisionFor(
 }
 
 /**
- * The on-device brain: the note overlay answers first when a
- * human just played (it is the most specific stimulus in the
- * room), then the draw overlay when its narrow window is open
- * (fabric scenarios only); otherwise the first matching table
- * rule decides. The output is run through the same validator as
- * a Spark reply, so both tiers share one safety gate. Never
- * throws.
+ * The on-device brain: the utterance overlay answers first when
+ * someone just spoke (Slice 33 — it is the most specific stimulus
+ * in the room, and the deliberation carrying it exists because of
+ * it), then the note overlay when a human just played, then the
+ * draw overlay when its narrow window is open (fabric scenarios
+ * only); otherwise the first matching table rule decides. The
+ * output is run through the same validator as a Spark reply, so
+ * both tiers share one safety gate. Never throws.
  */
 export function decideOnDevice(scenario: GhostScenario): {
   decision: GhostDecision;
   ruleId: string;
 } {
+  try {
+    const utterance = utteranceDecisionFor(scenario);
+    if (utterance) return utterance;
+  } catch {
+    // The overlay must never take the table down with it.
+  }
   try {
     const note = noteDecisionFor(scenario);
     if (note) return note;
@@ -892,6 +964,502 @@ export function decideOnDevice(scenario: GhostScenario): {
     decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.25, linger_s: 5 },
     ruleId: "fallback-drift",
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Utterances (Slice 33, "Understands")                                */
+/* ------------------------------------------------------------------ */
+/*
+ * Someone in the room SAID something — "it's cold in here" is the
+ * reference case. That is not a command and not a keyword, and
+ * the correct response is not a macro: the ghost cannot answer
+ * in words, so it acknowledges and responds through its tools,
+ * and because temperament, state, scene and history differ, the
+ * same sentence must NOT always produce the same response. A
+ * system that splats a blue poof on the word "cold" is the cheat
+ * this layer exists to not be.
+ *
+ * How comprehension works on the floor tier (the model tiers get
+ * the same facts as prose — see describeUtteranceForSpark):
+ *
+ *   1. READ the utterance's KIND with a legible cue map (the
+ *      parseGhostPersonality discipline: whole words and phrases,
+ *      listed below, inspectable — not an embedding, not a
+ *      regex lottery). The kind is what the utterance is DOING
+ *      (remarking on the room, reporting a feeling, arriving,
+ *      appreciating, leaving) — never which action it wants.
+ *   2. CHOOSE the response from the DIGEST — temperament, room
+ *      energy, company, petting, quiet length, the fabric's
+ *      rules, and how many times this was already said. The kind
+ *      selects the family; the digest selects the answer. The
+ *      word never maps to the act: "it's cold in here" and "it's
+ *      so quiet in here" (same kind, same digest) earn the same
+ *      response, and "it's cold in here" in two different digests
+ *      earns two different ones. That is the anti-macro proof,
+ *      and the check script runs it.
+ *   3. Candidates are ordered best-first and the REPEAT count
+ *      indexes them: the first hearing earns the best answer,
+ *      a repeat earns the next one — different by construction
+ *      (candidates are deduplicated by decision signature), and
+ *      the repetition itself is journaled and told to the model
+ *      tiers as context.
+ *   4. PROPORTIONALITY: utterance responses are capped at
+ *      UTTERANCE_MAX_INTENSITY — ambient remarks earn
+ *      ambient-scale answers, well under a startle's.
+ *   5. FAILURE HONESTY: no defensible reading (unknown kind) or
+ *      a low-confidence hearing yields NO decision from this
+ *      overlay — decideUtteranceOutcome says "uncertain" and the
+ *      peer performs puzzlement in character instead of faking
+ *      an act. A loud moment (startle territory) also yields:
+ *      the table's own startle answer owns that deliberation.
+ *
+ * Consent is structural, twice over: draw candidates are only
+ * BUILT when the fabric allows drawing for the ghost's side, and
+ * every candidate still passes validateGhostDecision, which
+ * refuses a draw under a refusing fabric outright. An utterance
+ * that would best be answered by drawing is answered another way.
+ */
+
+export const UTTERANCE_CONFIDENCE_FLOOR = 0.5;
+export const UTTERANCE_MAX_INTENSITY = 0.7;
+
+export type GhostUtteranceKind =
+  | "ambience"
+  | "feeling"
+  | "presence"
+  | "appreciation"
+  | "farewell"
+  | "unknown";
+
+export interface GhostUtteranceReading {
+  kind: GhostUtteranceKind;
+  /** The words spoke TO the ghost (its name, or "ghost"/"ghostie"). */
+  addressed: boolean;
+}
+
+/*
+ * The cue map. Phrases match on word boundaries; words match
+ * whole. Precedence is deliberate: a greeting is answered as a
+ * greeting even when it also remarks on the room ("hello, it's
+ * cold in here"); a first-person experiencer report ("i'm cold")
+ * is a FEELING, while the same adjective about the room ("it's
+ * cold in here") is AMBIENCE — the speaker, not the adjective,
+ * decides.
+ */
+const UTTERANCE_PRESENCE_PHRASES: readonly string[] = [
+  "who's there", "who is there", "anyone here", "anybody here",
+  "anyone there", "anybody there", "someone there", "is anyone here",
+  "is anybody here", "you there", "hi there", "hey there",
+  "hello there", "knock knock", "good morning", "good afternoon",
+  "good evening",
+];
+const UTTERANCE_PRESENCE_WORDS: readonly string[] = [
+  "hello", "hi", "hey", "greetings",
+];
+const UTTERANCE_FAREWELL_PHRASES: readonly string[] = [
+  "goodbye", "good bye", "bye bye", "see you", "see ya",
+  "good night", "goodnight", "gotta go", "have to go",
+  "i should go", "time to go", "i'm leaving", "im leaving",
+  "signing off",
+];
+const UTTERANCE_FAREWELL_WORDS: readonly string[] = ["bye"];
+const UTTERANCE_FEELING_PHRASES: readonly string[] = [
+  "i feel", "i'm feeling", "im feeling", "feeling so", "i love",
+  "i miss", "i hate", "i need", "i'm so", "im so", "i am so",
+];
+const UTTERANCE_EXPERIENCER_WORDS: readonly string[] = [
+  "tired", "sleepy", "exhausted", "drained", "awake", "hungry",
+  "thirsty", "happy", "sad", "lonely", "bored", "anxious",
+  "nervous", "stressed", "calm", "relaxed", "uncomfortable",
+  "comfortable", "cold", "warm", "hot", "freezing", "chilly",
+  "sore", "dizzy",
+];
+const UTTERANCE_FIRST_PERSON_WORDS: readonly string[] = [
+  "i", "i'm", "im", "me", "my", "we", "we're", "us", "mine",
+];
+const UTTERANCE_APPRECIATION_PHRASES: readonly string[] = [
+  "love it", "love this", "so pretty", "so beautiful",
+  "that was great", "this is great", "well done", "thank you",
+  "thanks so much",
+];
+const UTTERANCE_APPRECIATION_WORDS: readonly string[] = [
+  "beautiful", "lovely", "amazing", "wonderful", "gorgeous",
+  "pretty", "awesome", "magical", "perfect", "incredible",
+  "fantastic", "brilliant", "wow", "stunning", "delightful",
+  "nice", "great", "thanks",
+];
+const UTTERANCE_AMBIENCE_WORDS: readonly string[] = [
+  "cold", "colder", "chilly", "freezing", "warm", "warmer", "hot",
+  "hotter", "stuffy", "quiet", "quieter", "loud", "louder",
+  "noisy", "dark", "darker", "bright", "brighter", "dim", "cozy",
+  "cozier", "comfy", "comfortable", "empty", "crowded",
+  "peaceful", "still", "drafty", "humid", "smoky", "silent",
+  "spooky", "eerie", "cool", "cooler", "cramped", "airy",
+];
+
+/**
+ * Read what an utterance is DOING — the legible first half of
+ * comprehension. Pure and total: unrecognized words are an
+ * honest "unknown", never a guess dressed as a kind.
+ */
+export function parseUtteranceReading(
+  text: string,
+  ghostName?: string | null
+): GhostUtteranceReading {
+  const words = text.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  const wordSet = new Set(words);
+  const padded = ` ${words.join(" ")} `;
+  const hasPhrase = (list: readonly string[]): boolean =>
+    list.some((p) => padded.includes(` ${p} `));
+  const hasWord = (list: readonly string[]): boolean =>
+    list.some((w) => wordSet.has(w));
+  const name = (ghostName ?? "").toLowerCase().trim();
+  const addressed =
+    (name.length > 0 && wordSet.has(name)) ||
+    wordSet.has("ghost") ||
+    wordSet.has("ghostie");
+  const firstPerson =
+    hasWord(UTTERANCE_FIRST_PERSON_WORDS) || words[0] === "feeling";
+  let kind: GhostUtteranceKind = "unknown";
+  if (
+    hasPhrase(UTTERANCE_PRESENCE_PHRASES) ||
+    hasWord(UTTERANCE_PRESENCE_WORDS)
+  ) {
+    kind = "presence";
+  } else if (
+    hasPhrase(UTTERANCE_FAREWELL_PHRASES) ||
+    hasWord(UTTERANCE_FAREWELL_WORDS)
+  ) {
+    kind = "farewell";
+  } else if (
+    hasPhrase(UTTERANCE_FEELING_PHRASES) ||
+    (firstPerson && hasWord(UTTERANCE_EXPERIENCER_WORDS))
+  ) {
+    kind = "feeling";
+  } else if (
+    hasPhrase(UTTERANCE_APPRECIATION_PHRASES) ||
+    hasWord(UTTERANCE_APPRECIATION_WORDS)
+  ) {
+    kind = "appreciation";
+  } else if (hasWord(UTTERANCE_AMBIENCE_WORDS)) {
+    kind = "ambience";
+  }
+  return { kind, addressed };
+}
+
+interface UtteranceCandidate {
+  decision: GhostDecision;
+  ruleId: string;
+}
+
+const utteranceSignature = (d: GhostDecision): string =>
+  `${d.intent}|${d.pattern_id ?? ""}|${d.draw_shape ?? ""}`;
+
+/**
+ * The response candidates for one reading in one digest, ordered
+ * best-first. Every candidate is built through the shared
+ * validator (so the fabric's gates apply) and capped at
+ * utterance scale. The list always holds at least two distinct
+ * signatures when it holds any — a repeat must be able to differ.
+ */
+function utteranceCandidates(
+  kind: GhostUtteranceKind,
+  s: GhostScenario
+): UtteranceCandidate[] {
+  const out: UtteranceCandidate[] = [];
+  const push = (c: UtteranceCandidate | null): void => {
+    if (!c) return;
+    if (out.some((o) => utteranceSignature(o.decision) === utteranceSignature(c.decision))) {
+      return;
+    }
+    out.push(c);
+  };
+  const cand = (
+    ruleId: string,
+    intent: GhostIntent,
+    intensity: number,
+    linger_s: number,
+    extra?: { pattern_id?: GhostPatternId; draw_shape?: GhostDrawShape }
+  ): UtteranceCandidate | null => {
+    const decision = validateGhostDecision(
+      {
+        mood_shift: null,
+        intent,
+        pattern_id: extra?.pattern_id ?? null,
+        draw_shape: extra?.draw_shape ?? null,
+        note_name: null,
+        intensity: Math.min(intensity, UTTERANCE_MAX_INTENSITY),
+        linger_s,
+      },
+      s
+    );
+    return decision ? { decision, ruleId } : null;
+  };
+
+  const t = s.temperament;
+  const company = s.other_ghosts.length > 0;
+  const lively =
+    company ||
+    s.room_energy_trend === "rising" ||
+    s.seconds_since_human_touch < 15 ||
+    s.verbs_seen.length > 0;
+  const quiet = s.seconds_since_human_touch;
+  const quietLong = quiet >= 60;
+  const pettedNow = s.pets_in_last_5s >= 2;
+  const restful = t === "sleepy" || s.room_energy_trend === "falling";
+  const drawShapeFor: GhostDrawShape | null =
+    t === "playful"
+      ? "spiral"
+      : t === "curious"
+        ? "ring"
+        : t === "affectionate"
+          ? "heart"
+          : null;
+  // Drawing is a candidate only where the fabric allows it AND
+  // the moment is the draw overlay's own territory: a settled
+  // lull, not a lively room and not the deep of a long quiet.
+  const drawWindow =
+    fabricAllowsDraw(s) &&
+    drawShapeFor !== null &&
+    quiet >= 20 &&
+    quiet < 120 &&
+    !lively;
+
+  switch (kind) {
+    case "ambience": {
+      if (pettedNow) {
+        // Petted and spoken to in the same breath: warmth is
+        // shared back first — company is the loudest fact here.
+        push(cand("utterance-ambience-petted-mirror", "mirror", 0.6, 7));
+      }
+      if (lively) {
+        if (t === "playful") {
+          push(cand("utterance-ambience-lively-play", "play", 0.6, 4, {
+            pattern_id: company ? "chase_loop" : "solo_zigzag",
+          }));
+        } else if (t === "curious") {
+          push(cand("utterance-ambience-lively-sniff", "sniff", 0.55, 5));
+        } else if (t === "affectionate") {
+          push(cand("utterance-ambience-lively-mirror", "mirror", 0.5, 6));
+        } else if (t === "sassy") {
+          push(cand("utterance-ambience-lively-idle", "idle", 0.3, 2));
+        } else {
+          push(cand("utterance-ambience-lively-drift", "drift", 0.25, 6));
+        }
+      } else if (quietLong && restful) {
+        // A resting room, a resting ghost: it settles in deeper.
+        push(cand("utterance-ambience-quiet-nap", "nap", 0.18, 20));
+      }
+      if (drawWindow && drawShapeFor) {
+        push(cand("utterance-ambience-draw", "draw", 0.5, 6, {
+          draw_shape: drawShapeFor,
+        }));
+      }
+      if (!lively) {
+        push(cand("utterance-ambience-drift", "drift", 0.3, 6));
+      }
+      break;
+    }
+    case "feeling": {
+      if (pettedNow || company) {
+        push(cand("utterance-feeling-mirror", "mirror", 0.55, 6));
+      }
+      if (t === "playful" && lively) {
+        push(cand("utterance-feeling-play", "play", 0.5, 4, {
+          pattern_id: "solo_zigzag",
+        }));
+      }
+      if (quietLong) {
+        // Someone feeling something, alone with the ghost: it
+        // comes close and stays — presence, not performance.
+        push(cand("utterance-feeling-close-drift", "drift", 0.32, 7));
+      }
+      if (t === "sleepy") {
+        push(cand("utterance-feeling-nap", "nap", 0.2, 12));
+      }
+      if (t === "sassy") {
+        push(cand("utterance-feeling-idle", "idle", 0.28, 2));
+      }
+      push(cand("utterance-feeling-sniff", "sniff", 0.5, 4));
+      break;
+    }
+    case "presence": {
+      if (t === "curious") {
+        push(cand("utterance-presence-curious", "sniff", 0.55, 5));
+      } else if (t === "playful") {
+        push(cand("utterance-presence-playful", "play", 0.55, 4, {
+          pattern_id: company ? "chase_loop" : "solo_zigzag",
+        }));
+      } else if (t === "affectionate") {
+        push(cand("utterance-presence-affectionate", "mirror", 0.5, 5));
+      } else if (t === "sleepy") {
+        push(cand("utterance-presence-sleepy", "drift", 0.3, 5));
+      } else {
+        push(cand("utterance-presence-sassy", "idle", 0.3, 2));
+      }
+      push(cand("utterance-presence-mirror", "mirror", 0.45, 5));
+      break;
+    }
+    case "appreciation": {
+      if (t === "affectionate" && pettedNow) {
+        // The one utterance heart: praised while being petted,
+        // by the temperament whose heart is its native answer.
+        push(cand("utterance-appreciation-heart", "heart", 0.6, 6));
+      }
+      if (t === "playful") {
+        push(cand("utterance-appreciation-play", "play", 0.55, 4, {
+          pattern_id: "solo_zigzag",
+        }));
+      } else if (t === "affectionate") {
+        push(cand("utterance-appreciation-mirror", "mirror", 0.55, 6));
+      } else if (t === "curious") {
+        push(cand("utterance-appreciation-sniff", "sniff", 0.5, 4));
+      } else if (t === "sleepy") {
+        push(cand("utterance-appreciation-drift", "drift", 0.25, 5));
+      } else {
+        push(cand("utterance-appreciation-idle", "idle", 0.3, 2));
+      }
+      break;
+    }
+    case "farewell": {
+      if (t === "affectionate") {
+        push(cand("utterance-farewell-mirror", "mirror", 0.5, 6));
+      } else if (t === "playful") {
+        push(cand("utterance-farewell-play", "play", 0.45, 3.5, {
+          pattern_id: "solo_zigzag",
+        }));
+      } else if (t === "curious") {
+        push(cand("utterance-farewell-sniff", "sniff", 0.45, 4));
+      } else if (t === "sleepy") {
+        push(cand("utterance-farewell-nap", "nap", 0.16, 18));
+      } else {
+        push(cand("utterance-farewell-idle", "idle", 0.28, 2));
+      }
+      // It follows a little way toward the door, whatever else.
+      push(cand("utterance-farewell-follow", "drift", 0.35, 9));
+      break;
+    }
+    default:
+      break;
+  }
+
+  // Generic alternates, appended for every kind: a repeat hearing
+  // always has somewhere different to land (acknowledging small
+  // is a valid intelligent response — deliberate restraint).
+  push(cand("utterance-alt-mirror", "mirror", 0.42, 5));
+  push(cand("utterance-alt-drift", "drift", 0.26, 6));
+  push(cand("utterance-alt-idle", "idle", 0.24, 2));
+  return out;
+}
+
+/**
+ * The utterance overlay (Slice 33): the on-device floor's answer
+ * to a heard utterance, or null when this overlay honestly has
+ * none — no utterance in the scenario (every legacy scenario),
+ * a low-confidence hearing, a moment a startle owns, or words
+ * with no defensible reading. Narrow by construction, like the
+ * draw and note overlays: it keys on scenario.utterance, which
+ * no dataset scenario carries, so the battery cannot move.
+ */
+export function utteranceDecisionFor(
+  scenario: GhostScenario
+): { decision: GhostDecision; ruleId: string } | null {
+  const u = scenario.utterance;
+  if (!u) return null;
+  if (
+    typeof u.asr_confidence === "number" &&
+    u.asr_confidence < UTTERANCE_CONFIDENCE_FLOOR
+  ) {
+    return null;
+  }
+  if (scenario.nearby_splat_intensity >= 0.7) return null;
+  const reading = parseUtteranceReading(
+    u.text,
+    scenario.ghost_identity?.name
+  );
+  if (reading.kind === "unknown") return null;
+  const candidates = utteranceCandidates(reading.kind, scenario);
+  if (candidates.length === 0) return null;
+  const idx = Math.min(
+    Math.max(0, Math.floor(u.repeats)),
+    candidates.length - 1
+  );
+  return candidates[idx];
+}
+
+export type GhostUtteranceOutcome =
+  | { kind: "decision"; decision: GhostDecision; ruleId: string }
+  | { kind: "uncertain"; reason: "low-confidence" | "no-reading" };
+
+/**
+ * The router's utterance verdict: a decision, or an honest
+ * "uncertain" the caller performs as in-character puzzlement.
+ * A readable utterance whose moment the overlay yields (a loud
+ * splat owns the room) falls to the ambient floor — the table
+ * answers the ROOM, which is the defensible response to it.
+ */
+export function decideUtteranceOutcome(
+  scenario: GhostScenario
+): GhostUtteranceOutcome {
+  const u = scenario.utterance;
+  if (!u) return { kind: "uncertain", reason: "no-reading" };
+  if (
+    typeof u.asr_confidence === "number" &&
+    u.asr_confidence < UTTERANCE_CONFIDENCE_FLOOR
+  ) {
+    return { kind: "uncertain", reason: "low-confidence" };
+  }
+  const reading = parseUtteranceReading(
+    u.text,
+    scenario.ghost_identity?.name
+  );
+  if (reading.kind === "unknown") {
+    return { kind: "uncertain", reason: "no-reading" };
+  }
+  const over = utteranceDecisionFor(scenario);
+  if (over) {
+    return { kind: "decision", decision: over.decision, ruleId: over.ruleId };
+  }
+  const floor = decideOnDevice(scenario);
+  return { kind: "decision", decision: floor.decision, ruleId: floor.ruleId };
+}
+
+/**
+ * The utterance note for the model tiers (Slice 33): what was
+ * said, by whom, how sure the hearing is, and the comprehension
+ * law — situational, never lexical; proportional; and an honest
+ * escape hatch (reply UNCERTAIN) that no fake act may bypass.
+ * Rides buildSparkMessages only when the scenario carries an
+ * utterance, so ambient deliberations are byte-unchanged.
+ */
+export function describeUtteranceForSpark(
+  scenario: GhostScenario
+): string | null {
+  const u = scenario.utterance;
+  if (!u) return null;
+  const who =
+    u.speaker === "primary"
+      ? "its primary"
+      : u.speaker === "guest"
+        ? "a guest in the room"
+        : "someone in the room";
+  const conf =
+    typeof u.asr_confidence === "number"
+      ? ` The transcription confidence is ${u.asr_confidence.toFixed(2)}; a low score means the words themselves are unsure — weigh that.`
+      : "";
+  const again =
+    u.repeats > 0
+      ? ` This was said before in this session (${u.repeats + 1} hearings now): the repetition is itself context — do not simply repeat the earlier response.`
+      : "";
+  return (
+    `Someone just spoke — an utterance, not a command: ${who} said "${u.text}". ` +
+    "The ghost cannot answer in words; your decision IS its answer. " +
+    "Comprehension here is situational, not lexical: choose the response that is defensible from the WHOLE scenario — temperament, room energy, company, recent events, the fabric's rules — never a fixed reaction to a single word; the same sentence in a different room state must earn a different answer. " +
+    "Keep it proportional: an ambient remark earns an ambient-scale answer, well under a startle's. " +
+    "If the words are garbled, or no reading of them is defensible from this scenario, reply with exactly the word UNCERTAIN and nothing else — a hesitant ghost is honest; a confident random act is a lie." +
+    conf +
+    again
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1332,6 +1900,15 @@ export function buildSparkMessages(
         `The ghost's stamina reads ${Math.round(stamina)}/100 — it is tired from working. ` +
         "Favor restful intents (nap, idle, a gentle drift) over play, within the decision contract.",
     });
+  }
+  // Utterances (Slice 33): what someone just said, and the
+  // comprehension law for answering it — situational, never a
+  // word-to-action mapping, with UNCERTAIN as the honest reply.
+  // Only when the scenario carries an utterance; ambient
+  // deliberations' messages are byte-unchanged.
+  const utteranceNote = describeUtteranceForSpark(scenario);
+  if (utteranceNote) {
+    messages.push({ role: "system", content: utteranceNote });
   }
   for (const ex of GHOST_BRAIN_FEW_SHOT) {
     messages.push({

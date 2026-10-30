@@ -82,7 +82,15 @@ export type SpeechErrorCode = "denied" | "no-speech" | "failed";
 
 export interface SpeechRecognitionCallbacks {
   onInterim?: (text: string) => void;
-  onFinal?: (text: string) => void;
+  /**
+   * The final transcript, plus the recognizer's confidence for
+   * it when the engine reports one (Slice 33: the score rides to
+   * the ghost's state digest, where a low score biases toward
+   * uncertainty instead of fake comprehension). Engines that do
+   * not score report 0 or nothing — both are passed on as
+   * undefined ("unscored"), never as zero ("garbled").
+   */
+  onFinal?: (text: string, confidence?: number) => void;
   onError?: (code: SpeechErrorCode) => void;
   /** Fires exactly once when the session is over, however it ended. */
   onEnd?: () => void;
@@ -123,11 +131,25 @@ export function startSpeechRecognition(
     if (ended) return;
     let finalText = "";
     let interimText = "";
+    let finalConfidence: number | undefined;
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
       const text = result?.[0]?.transcript ?? "";
-      if (result?.isFinal) finalText += text;
-      else interimText += text;
+      if (result?.isFinal) {
+        finalText += text;
+        // The weakest final alternative is the honest score for
+        // the whole utterance. A reported 0 means the engine
+        // does not score — it is not evidence of a garble.
+        const c = result?.[0]?.confidence;
+        if (typeof c === "number" && Number.isFinite(c) && c > 0) {
+          finalConfidence =
+            finalConfidence === undefined
+              ? Math.min(1, c)
+              : Math.min(finalConfidence, c);
+        }
+      } else {
+        interimText += text;
+      }
     }
     if (finalText.trim()) {
       if (handledFinal) return;
@@ -137,7 +159,7 @@ export function startSpeechRecognition(
       } catch {
         // The engine may already have ended the session.
       }
-      cb.onFinal?.(finalText.trim());
+      cb.onFinal?.(finalText.trim(), finalConfidence);
       finish();
     } else if (interimText) {
       cb.onInterim?.(interimText);
