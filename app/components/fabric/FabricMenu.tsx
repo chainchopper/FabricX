@@ -6,7 +6,9 @@
  * "F" anchor. Seven sections, in this order, and every control in
  * the menu lives in exactly one of them:
  *
- *   FABRICS — the drawer (Slice 19): every fabric as a card. In a
+ *   FABRICS — the drawer (Slice 19): every fabric as a card in a
+ *   horizontal thumbnail gallery (Slice 32 — one rail, however
+ *   many fabrics exist; the editor renders below the rail). In a
  *   hosted session the fabric is host-led — the host picks and
  *   edits (settings + guest rules) from the cards, guests follow
  *   and are told, and a guest picking a different card is warned
@@ -154,6 +156,7 @@ import type {
 } from "../../../src/types/experience";
 import { useSoundfontPianoStatus } from "../../../src/audio/soundfontPiano";
 import LintSimulatorCard from "./LintSimulatorCard";
+import FabricThumb, { THUMB_W } from "./FabricThumb";
 import {
   clearStageCharacter,
   getStageCharacterState,
@@ -569,6 +572,14 @@ export default function FabricMenu() {
   const [editLayerId, setEditLayerId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [leaveWarn, setLeaveWarn] = useState<ExperienceLayer | null>(null);
+
+  // The gallery's one open editor (Slice 32): the fabric whose
+  // editor renders below the rail, resolved from the registry.
+  // Null when no card is being edited (or it left the registry).
+  const editExp =
+    editLayerId != null
+      ? state.availableExperiences.find((e) => e.id === editLayerId) ?? null
+      : null;
 
   // Your Ghostie (Slice 20): the Home replaces the section list
   // inside this same sheet while open — the F-menu stays the one
@@ -1765,7 +1776,7 @@ export default function FabricMenu() {
           </View>
         ) : (
           <>
-        {/* ---------------- FABRICS (Slice 19) ---------------- */}
+        {/* ----------- FABRICS (Slice 19 · gallery Slice 32) ----------- */}
         <SectionHeader>FABRICS</SectionHeader>
         {/* Hotfix 2.6: the role, in plain words, where he looks —
             the resolved session role (roleResolution via the
@@ -1847,7 +1858,30 @@ export default function FabricMenu() {
           </View>
         ) : null}
 
-        <View style={{ gap: spacing.sm, marginBottom: spacing.sm }}>
+        {/* Slice 32 — THE GALLERY. The fabrics are one horizontal
+            rail of thumbnail cards (FabricThumb draws each
+            fabric's own scene), however many fabrics exist — the
+            section is one rail tall and the menu no longer swells
+            with the registry. The card body keeps Slice 19's
+            meaning exactly (onFabricCard: host-led picks, guest
+            leave-warning, follower toasts on host change); the
+            doors keep theirs (ID card for everyone, editor for
+            the host side). The one open editor renders BELOW the
+            rail at full width instead of inflating its card. */}
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToInterval={THUMB_W + spacing.md}
+          snapToAlignment="start"
+          style={{ marginBottom: spacing.sm }}
+          contentContainerStyle={{
+            gap: spacing.md,
+            paddingVertical: spacing.xs,
+            paddingRight: spacing.lg,
+          }}
+        >
           {state.availableExperiences.map((exp) => {
             const isActive = exp.id === active?.id;
             const isSessionFabric =
@@ -1863,15 +1897,15 @@ export default function FabricMenu() {
                 : "Yours to open";
             const canEdit = session.role !== "guest";
             const editing = editLayerId === exp.id;
-            const fields = LAYER_EDIT_FIELDS[exp.id] ?? [];
             return (
               <View
                 key={exp.id}
                 style={{
+                  width: THUMB_W,
                   borderWidth: 1,
                   borderColor: isActive || isSessionFabric ? colors.accent : colors.line,
                   borderRadius: radius.card,
-                  padding: spacing.md,
+                  overflow: "hidden",
                   backgroundColor: isActive ? colors.accentDim : "transparent",
                 }}
               >
@@ -1882,45 +1916,82 @@ export default function FabricMenu() {
                   accessibilityState={{ selected: isActive }}
                   accessibilityLabel={`Open ${exp.name}`}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-                    <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-                      {exp.name}
-                    </Text>
+                  <View style={{ position: "relative" }}>
+                    <FabricThumb layerId={exp.id} />
                     <View
                       style={{
+                        position: "absolute",
+                        top: spacing.sm,
+                        left: spacing.sm,
                         borderWidth: 1,
                         borderColor: colors.line,
                         borderRadius: radius.pill,
                         paddingVertical: 2,
                         paddingHorizontal: 8,
+                        backgroundColor: "rgba(8,12,15,0.72)",
                       }}
                     >
-                      <Text style={{ color: colors.textDim, fontSize: typeScale.caption, fontWeight: "700", letterSpacing: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: typeScale.caption, fontWeight: "700", letterSpacing: 1 }}>
                         {canvasBadge(exp)}
                       </Text>
                     </View>
+                    {isSessionFabric && !isActive ? (
+                      <View
+                        style={{
+                          position: "absolute",
+                          top: spacing.sm,
+                          right: spacing.sm,
+                          borderRadius: radius.pill,
+                          paddingVertical: 2,
+                          paddingHorizontal: 8,
+                          backgroundColor: colors.accent,
+                        }}
+                      >
+                        <Text style={{ color: "#06202a", fontSize: typeScale.caption, fontWeight: "800", letterSpacing: 1 }}>
+                          SESSION
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
-                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}>
-                    {exp.blurb ?? exp.description}
-                  </Text>
-                  <Text
-                    style={{
-                      color: isActive || isSessionFabric ? colors.accent : colors.textDim,
-                      fontSize: typeScale.caption,
-                      fontWeight: "700",
-                      marginTop: spacing.xs,
-                    }}
-                  >
-                    {cardState}
-                  </Text>
+                  <View style={{ padding: spacing.md, paddingBottom: spacing.sm }}>
+                    <Text
+                      numberOfLines={1}
+                      style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}
+                    >
+                      {exp.name}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2, height: 32 }}
+                    >
+                      {exp.blurb ?? exp.description}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: isActive || isSessionFabric ? colors.accent : colors.textDim,
+                        fontSize: typeScale.caption,
+                        fontWeight: "700",
+                        marginTop: spacing.xs,
+                      }}
+                    >
+                      {cardState}
+                    </Text>
+                  </View>
                 </Pressable>
 
                 {/* Slice 22: the card's doors — Edit (host-side)
-                    and the fabric's ID card (everyone). The card
-                    body above keeps its Slice 19 meaning: it
-                    opens/switches the fabric. These are separate
-                    targets; no ambiguous pixels. */}
-                <View style={{ flexDirection: "row", gap: spacing.lg }}>
+                    and the fabric's ID card (everyone). Separate
+                    targets from the card body; no ambiguous pixels. */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: spacing.lg,
+                    paddingHorizontal: spacing.md,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.line,
+                  }}
+                >
                   <Pressable
                     pointerEvents="auto"
                     onPress={() =>
@@ -1931,7 +2002,7 @@ export default function FabricMenu() {
                     }
                     accessibilityRole="button"
                     accessibilityLabel={`Open ${exp.name}'s ID card`}
-                    style={{ paddingVertical: 6 }}
+                    style={{ paddingVertical: 10 }}
                   >
                     <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
                       ID card ›
@@ -1943,7 +2014,7 @@ export default function FabricMenu() {
                       onPress={() => openEditor(exp)}
                       accessibilityRole="button"
                       accessibilityLabel={`${editing ? "Close" : "Edit"} ${exp.name} settings`}
-                      style={{ paddingVertical: 6 }}
+                      style={{ paddingVertical: 10 }}
                     >
                       <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
                         {editing ? "Close editor" : "Edit fabric ›"}
@@ -1951,95 +2022,122 @@ export default function FabricMenu() {
                     </Pressable>
                   ) : null}
                 </View>
-
-                {canEdit && editing ? (
-                  <View style={{ marginTop: spacing.xs }}>
-                    {fields.length === 0 ? (
-                      <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
-                        No quick settings for this fabric — its controls
-                        live in THIS LAYER while it is loaded.
-                      </Text>
-                    ) : (
-                      fields.map((field) => {
-                        if (field.kind === "bool") {
-                          const raw = editValues[field.key];
-                          const value =
-                            typeof raw === "boolean" ? raw : field.defaultValue;
-                          return (
-                            <ToggleRow
-                              key={field.key}
-                              label={field.label}
-                              value={value}
-                              onPress={() => applyEditField(exp, field, !value)}
-                            />
-                          );
-                        }
-                        const raw = editValues[field.key];
-                        const value =
-                          typeof raw === "string" ? raw : field.defaultValue;
-                        return (
-                          <View key={field.key} style={{ marginBottom: spacing.sm }}>
-                            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600", marginBottom: spacing.xs }}>
-                              {field.label}
-                            </Text>
-                            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
-                              {field.options.map((opt) => {
-                                const selected = value === opt.value;
-                                return (
-                                  <Pressable
-                                    key={opt.value}
-                                    pointerEvents="auto"
-                                    onPress={() => applyEditField(exp, field, opt.value)}
-                                    accessibilityRole="radio"
-                                    accessibilityState={{ selected }}
-                                    style={{
-                                      paddingVertical: 7,
-                                      paddingHorizontal: 12,
-                                      borderRadius: radius.pill,
-                                      borderWidth: 1,
-                                      borderColor: selected ? colors.accent : colors.line,
-                                      backgroundColor: selected ? colors.accentDim : "transparent",
-                                    }}
-                                  >
-                                    <Text style={{ color: selected ? colors.accent : colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
-                                      {opt.label}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          </View>
-                        );
-                      })
-                    )}
-
-                    {/* Session guest rules for this fabric. For
-                        the host they go live with the next fabric
-                        broadcast; solo, they are saved for when
-                        you host. Rules only ever restrict guests —
-                        the session mode still applies first. */}
-                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.xs, marginBottom: spacing.xs }}>
-                      Guest rules {session.role === "host" ? "— live for this room" : "— apply when you host"}
-                    </Text>
-                    {FABRIC_RULE_KEYS.map((key) => (
-                      <ToggleRow
-                        key={key}
-                        label={FABRIC_RULE_LABEL[key]}
-                        value={rulesFor(exp.id)[key]}
-                        onPress={() => setRule(exp.id, key, !rulesFor(exp.id)[key])}
-                      />
-                    ))}
-                    <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-                      Rules only ever restrict guests. The session mode
-                      (PEOPLE, below) applies first and cannot be widened
-                      from here.
-                    </Text>
-                  </View>
-                ) : null}
               </View>
             );
           })}
-        </View>
+        </ScrollView>
+
+        {/* The one open editor, below the rail (Slice 32): the
+            same Slice 19 editor — the fabric's curated per-layer
+            quick settings plus its session guest rules — at full
+            menu width for the one fabric being edited, instead of
+            swelling whichever card it belonged to. */}
+        {session.role !== "guest" && editExp ? (
+          <View
+            style={{
+              ...cardStyle,
+              borderColor: colors.accentLine,
+              marginBottom: spacing.md,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+              <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                {`Editing ${editExp.name}`}
+              </Text>
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => openEditor(editExp)}
+                accessibilityRole="button"
+                accessibilityLabel={`Close ${editExp.name} settings`}
+                style={{ paddingVertical: 6, paddingHorizontal: 4 }}
+              >
+                <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                  Close
+                </Text>
+              </Pressable>
+            </View>
+            {(LAYER_EDIT_FIELDS[editExp.id] ?? []).length === 0 ? (
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                No quick settings for this fabric — its controls
+                live in THIS LAYER while it is loaded.
+              </Text>
+            ) : (
+              (LAYER_EDIT_FIELDS[editExp.id] ?? []).map((field) => {
+                if (field.kind === "bool") {
+                  const raw = editValues[field.key];
+                  const value =
+                    typeof raw === "boolean" ? raw : field.defaultValue;
+                  return (
+                    <ToggleRow
+                      key={field.key}
+                      label={field.label}
+                      value={value}
+                      onPress={() => applyEditField(editExp, field, !value)}
+                    />
+                  );
+                }
+                const raw = editValues[field.key];
+                const value =
+                  typeof raw === "string" ? raw : field.defaultValue;
+                return (
+                  <View key={field.key} style={{ marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600", marginBottom: spacing.xs }}>
+                      {field.label}
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
+                      {field.options.map((opt) => {
+                        const selected = value === opt.value;
+                        return (
+                          <Pressable
+                            key={opt.value}
+                            pointerEvents="auto"
+                            onPress={() => applyEditField(editExp, field, opt.value)}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected }}
+                            style={{
+                              paddingVertical: 7,
+                              paddingHorizontal: 12,
+                              borderRadius: radius.pill,
+                              borderWidth: 1,
+                              borderColor: selected ? colors.accent : colors.line,
+                              backgroundColor: selected ? colors.accentDim : "transparent",
+                            }}
+                          >
+                            <Text style={{ color: selected ? colors.accent : colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                              {opt.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+
+            {/* Session guest rules for this fabric. For the host
+                they go live with the next fabric broadcast; solo,
+                they are saved for when you host. Rules only ever
+                restrict guests — the session mode still applies
+                first. */}
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700", marginTop: spacing.xs, marginBottom: spacing.xs }}>
+              Guest rules {session.role === "host" ? "— live for this room" : "— apply when you host"}
+            </Text>
+            {FABRIC_RULE_KEYS.map((key) => (
+              <ToggleRow
+                key={key}
+                label={FABRIC_RULE_LABEL[key]}
+                value={rulesFor(editExp.id)[key]}
+                onPress={() => setRule(editExp.id, key, !rulesFor(editExp.id)[key])}
+              />
+            ))}
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              Rules only ever restrict guests. The session mode
+              (PEOPLE, below) applies first and cannot be widened
+              from here.
+            </Text>
+          </View>
+        ) : null}
 
         {/* ---------------- PEOPLE ---------------- */}
         <SectionHeader>PEOPLE</SectionHeader>
