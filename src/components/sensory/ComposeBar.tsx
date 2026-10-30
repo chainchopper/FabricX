@@ -113,13 +113,25 @@ export default function ComposeBar() {
     };
   }, []);
 
-  const submitText = (raw: string) => {
+  const submitText = (raw: string, confidence?: number | null) => {
     const text = raw.trim();
     if (!text || composing) return;
     setSource(null);
     setPuzzled(null);
     setComposing(true);
-    window.dispatchEvent(new CustomEvent(FABRIC_COMPOSE_EVENT, { detail: text }));
+    // Slice 33: a voice final that carried the recognizer's
+    // confidence dispatches the object detail ({ text, confidence,
+    // via }) so the canvas can hand the score to the ghost's
+    // utterance sense. Typed text — and unscored voice finals —
+    // keep the plain-string detail every existing listener knows.
+    window.dispatchEvent(
+      new CustomEvent(FABRIC_COMPOSE_EVENT, {
+        detail:
+          typeof confidence === "number"
+            ? { text, confidence, via: "voice" }
+            : text,
+      })
+    );
     setPrompt("");
     // Backstop: if composition produced nothing, the canvas reports a
     // null state — but never hang the input on a lost event.

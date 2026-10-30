@@ -100,16 +100,23 @@ import type { GhostSfxKind } from "./useGhostSfx";
 import type {
   GhostDecision,
   GhostFabricContext,
+  GhostGestureReading,
   GhostScenario,
   GhostScenarioOther,
+  GhostUtteranceContext,
+  GhostUtteranceSpeaker,
 } from "./GhostBrain";
 import {
   GHOST_PIANO_LAYER_ID,
   ghostNoteName,
   ghostNoteNumber,
   isGhostNoteName,
+  parseUtteranceReading,
   sanitizeFabricContext,
+  sanitizeGestureReadings,
+  sanitizeUtteranceContext,
   seedTraitsForTemperament,
+  UTTERANCE_CONFIDENCE_FLOOR,
 } from "./GhostBrain";
 import { validateRecipe, type Recipe } from "../ai/RecipeCore";
 import {
@@ -303,6 +310,84 @@ export function ghostNoteAsk(
   return null;
 }
 
+/*
+ * Slice 33 ("Understands"): is this prompt an UTTERANCE — words
+ * spoken into the room — rather than an ask the other routes own?
+ * The claim is deliberately conservative in both directions:
+ *
+ *   - The ask paths keep their asks. Heartbeat, verb and note
+ *     asks are excluded outright (they are also routed earlier —
+ *     this is the belt to their braces), imperative-led prompts
+ *     ("draw a heart", "make it rain") stay the composer's, and
+ *     request questions ("can you…", "would you…") stay asks.
+ *   - What remains is claimed when it READS as an utterance
+ *     (parseUtteranceReading finds a kind) — or when it is at
+ *     least shaped like a statement (a subject, more than one
+ *     word, not a question): an unreadable STATEMENT still
+ *     belongs to the ghost, which answers it with honest
+ *     uncertainty in character instead of letting a nonsense
+ *     remark be dressed up as a composed pattern.
+ *
+ * Feeling-words that are the generic interpreter's home turf are
+ * NOT claimed on shape alone: "gentle rain on a lake" has no
+ * subject and stays a composition; "i love the rain" is a person
+ * speaking and is the ghost's to acknowledge.
+ */
+const UTTERANCE_REQUEST_WORDS: ReadonlySet<string> = new Set([
+  "draw", "paint", "make", "create", "play", "show", "give",
+  "send", "summon", "compose", "build", "put", "spawn", "start",
+  "stop", "sing", "dance", "turn", "set", "add", "light", "tell",
+  "color", "colour", "do", "go", "let", "lets", "let's",
+]);
+const UTTERANCE_REQUEST_PAIRS: ReadonlySet<string> = new Set([
+  "can you", "could you", "will you", "would you", "shall we",
+  "you should",
+]);
+const UTTERANCE_SUBJECT_WORDS: ReadonlySet<string> = new Set([
+  "i", "i'm", "im", "it", "it's", "this", "that", "we", "we're",
+  "you", "there", "the", "he", "she", "they", "my",
+]);
+
+export function ghostUtteranceClaim(
+  prompt: string,
+  ghostName?: string | null
+): boolean {
+  const text = (prompt ?? "").trim();
+  if (!text) return false;
+  if (isGhostHeartbeatRequest(text, ghostName ?? null)) return false;
+  if (ghostVerbAsk(text, ghostName ?? null)) return false;
+  if (ghostNoteAsk(text, ghostName ?? null)) return false;
+  const words = text.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  if (words.length < 2) return false;
+  // Find the lead word past any address ("Boop, …", "ghost, …")
+  // and politeness ("please …"): the lead is what decides
+  // whether this was phrased as an order.
+  const name = (ghostName ?? "").toLowerCase().trim();
+  let lead = 0;
+  while (
+    lead < words.length &&
+    (words[lead] === "please" ||
+      words[lead] === "ghost" ||
+      words[lead] === "ghostie" ||
+      (name.length > 0 && words[lead] === name))
+  ) {
+    lead++;
+  }
+  if (lead >= words.length) return false;
+  if (UTTERANCE_REQUEST_WORDS.has(words[lead])) return false;
+  if (
+    lead + 1 < words.length &&
+    UTTERANCE_REQUEST_PAIRS.has(`${words[lead]} ${words[lead + 1]}`)
+  ) {
+    return false;
+  }
+  if (parseUtteranceReading(text, ghostName).kind !== "unknown") {
+    return true;
+  }
+  if (text.endsWith("?")) return false;
+  return words.some((w) => UTTERANCE_SUBJECT_WORDS.has(w));
+}
+
 export type GhostMode = "solo" | "session";
 
 export type GhostTemperament =
@@ -437,6 +522,18 @@ const STARTLE_RADIUS = 0.26;
  */
 const DELIBERATION_MIN_MS = 10_000;
 /**
+ * Utterance pacing (Slice 33). Words are answered promptly — a
+ * remark acknowledged a full deliberation-window later reads as
+ * ignored — so a pending utterance opens its own deliberation
+ * window on this shorter floor. The floor still exists (two
+ * utterances back-to-back deliberate once each, never in a burst)
+ * and the repeat window is the spec's "said twice in one minute"
+ * with room to spare: inside it, the same words heard again are
+ * counted, and the count rides the scenario as context.
+ */
+const UTTERANCE_MIN_INTERVAL_MS = 2_000;
+const UTTERANCE_REPEAT_WINDOW_MS = 90_000;
+/**
  * The DRAW tool's price and pace (Slice 23). A drawn shape is one
  * performance — priced at 6 emit slots against the same 16/10s
  * budget every splat pays (a play pattern is 8, a heartbeat
@@ -560,6 +657,16 @@ interface SocialState {
  */
 export type GhostActResult = "performed" | "refused" | "unavailable";
 
+/**
+ * The utterance sense's verdict (Slice 33): "heard" — the words
+ * landed and a deliberation will answer them; "uncertain" — the
+ * hearing was too garbled to deliberate on, and the ghost has
+ * already answered with in-character puzzlement; "unavailable" —
+ * no ghost here to hear (off, dismissing, destroyed), so the
+ * caller falls back to its ordinary path, as every ask route does.
+ */
+export type GhostUtteranceResult = "heard" | "uncertain" | "unavailable";
+
 export class GhostPeer {
   private options: GhostPeerOptions;
   private rng: () => number;
@@ -665,9 +772,28 @@ export class GhostPeer {
   private lastHumanNote: string | null = null;
   /** The last note this ghost itself played ("play that again"). */
   private lastPlayedNote: string | null = null;
+  /**
+   * Utterance sense state (Slice 33): the latest heard utterance
+   * awaiting its deliberation (consumed by exactly one), the
+   * repeat memory (same words within the window count up), and
+   * the last utterance-driven deliberation's time (its pace).
+   */
+  private pendingUtterance: GhostUtteranceContext | null = null;
+  private lastUtteranceKey: string | null = null;
+  private lastUtteranceAt = 0;
+  private lastUtteranceRepeats = 0;
+  private lastUtteranceDeliberationAt = 0;
   /** Scenario journal, in the dataset's event vocabulary. */
   private eventJournal: { label: string; at: number }[] = [];
   private verbsSeenLog: { id: string; at: number }[] = [];
+  /**
+   * Slice 34 (Layer B1): recent gesture-token readings, in the
+   * v2 digest shape + their arrival time. The scenario snapshot
+   * carries the fresh ones (45s) as `gestures`; like every sense
+   * log it is pruned on read and capped on write — a digest field,
+   * not a history.
+   */
+  private gestureLog: (GhostGestureReading & { at: number })[] = [];
   /** Human interaction timestamps (energy trend), pruned at 90s. */
   private humanEventTimes: number[] = [];
   /** Strongest nearby splat + when (decays over ~20s in snapshots). */
@@ -1413,6 +1539,47 @@ export class GhostPeer {
   }
 
   /**
+   * A gesture TOKEN, READ (Slice 34, "Senses" Layer B1). The hands
+   * engine's vocabulary tracker (src/hands/gestureVocabulary) turns
+   * the local user's hand into tokens — open_palm, pinch, point,
+   * finger_draw, wave, palm_push, the signs — and LegacyFluid
+   * forwards each fired token here. This is a SENSE, like
+   * noteHandSign: nothing is emitted, nothing is spent, no gate is
+   * consulted. The reading lands in two places the brain reads:
+   * the event journal ("gesture open_palm", the dataset's plain
+   * event style) and the gesture log, which buildScenario carries
+   * into the scenario's v2 `gestures` field — so both brain tiers
+   * deliberate in a room where a hand just spoke, in the same
+   * digest where Slice 33's utterances will land. Readings are
+   * clamped through GhostBrain's sanitizer (the vocabulary
+   * allowlist lives there): an out-of-vocabulary token is ignored,
+   * and "none" — the vocabulary's word for a present-but-unread
+   * hand — is deliberately NOT recorded: camera noise is not
+   * company, and journaling it would mark deliberation dirty on
+   * every unreadable frame's behalf. Being gestured at IS company,
+   * so a real token wakes and timestamps like any activity.
+   */
+  noteGesture(reading: {
+    token: string;
+    hand?: string;
+    confidence?: number;
+    held_s?: number;
+  }): void {
+    if (this.destroyed) return;
+    if (!reading || reading.token === "none") return;
+    const clean = sanitizeGestureReadings([reading]);
+    if (clean.length === 0) return;
+    const now = Date.now();
+    this.gestureLog.push({ ...clean[0], at: now });
+    if (this.gestureLog.length > 8) {
+      this.gestureLog = this.gestureLog.filter((g) => now - g.at < 45_000);
+    }
+    this.noteUserActivity();
+    this.journal(`gesture ${clean[0].token}`, now);
+    this.markDeliberationDirty();
+  }
+
+  /**
    * A human played a note at the piano (Slice 31). LegacyFluid
    * forwards bus note-ons here while the Piano layer is front —
    * local keys and remote peers' notes alike (both ride the
@@ -1435,6 +1602,144 @@ export class GhostPeer {
     this.noteUserActivity();
     this.journal(`human played ${note}`, now);
     this.markDeliberationDirty();
+  }
+
+  /**
+   * Someone SAID something (Slice 33, "Understands"). The voice
+   * path and the typed path both land here (LegacyFluid routes a
+   * claimed utterance), tagged with the transcription confidence
+   * when the hearing path reported one. This is a SENSE, like
+   * noteHandSign and noteHumanNote — but a sense with an
+   * immediate reflex of its own, because the layer's contract is
+   * acknowledge-before-acting:
+   *
+   *   1. ACKNOWLEDGE at ghost scale, now: a soft ear-perk lean
+   *      toward the speaker and two small signature splats (the
+   *      acknowledgment beat in acknowledgeUtterance). Skipping
+   *      it would read as a trigger, not understanding.
+   *   2. REMEMBER: the utterance becomes the pending context the
+   *      next deliberation's scenario carries (buildScenario),
+   *      and repetition is counted — the same words inside the
+   *      window are a NEW fact ("said it again"), and the count
+   *      rides along so no tier may answer a repeat identically.
+   *   3. DELIBERATE promptly: the tick's utterance window opens
+   *      on UTTERANCE_MIN_INTERVAL_MS, not the ambient 10s floor.
+   *
+   * Failure honesty is decided HERE, at the sense, for the case
+   * no brain may paper over: a hearing whose reported confidence
+   * is under the floor is not deliberated on at all — the ghost
+   * performs puzzlement (expressPuzzlement: the ear-tilt and
+   * question-ripple) and the verdict is "uncertain". Garbled
+   * words that carry no confidence score still deliberate; the
+   * brain's own reading decides uncertainty there.
+   */
+  noteUtterance(
+    text: string,
+    opts?: { confidence?: number | null; speaker?: GhostUtteranceSpeaker }
+  ): GhostUtteranceResult {
+    if (this.destroyed || !this.enabled || this.dismissing) {
+      return "unavailable";
+    }
+    const heard = sanitizeUtteranceContext({
+      text,
+      asr_confidence: opts?.confidence ?? null,
+      speaker: opts?.speaker ?? "primary",
+      repeats: 0,
+    });
+    if (!heard) return "unavailable";
+    const now = Date.now();
+    // Being spoken to is company: wake and timestamp the contact.
+    this.noteUserActivity();
+    if (
+      heard.asr_confidence !== null &&
+      heard.asr_confidence < UTTERANCE_CONFIDENCE_FLOOR
+    ) {
+      this.journal("couldn't make that out", now);
+      this.markDeliberationDirty();
+      this.expressPuzzlement();
+      return "uncertain";
+    }
+    const key = heard.text.toLowerCase();
+    const repeats =
+      this.lastUtteranceKey === key &&
+      now - this.lastUtteranceAt < UTTERANCE_REPEAT_WINDOW_MS
+        ? this.lastUtteranceRepeats + 1
+        : 0;
+    this.lastUtteranceKey = key;
+    this.lastUtteranceAt = now;
+    this.lastUtteranceRepeats = repeats;
+    this.pendingUtterance = { ...heard, repeats };
+    this.journal(repeats > 0 ? "said it again" : "someone spoke", now);
+    this.acknowledgeUtterance(now);
+    this.options.onPerformance?.(
+      repeats > 0 ? "heard an utterance — again" : "heard an utterance"
+    );
+    this.markDeliberationDirty();
+    return "heard";
+  }
+
+  /** The freshest contact's last point, or the canvas center. */
+  private freshestContactPoint(now: number): { x: number; y: number } {
+    let tx = 0.5;
+    let ty = 0.46;
+    let freshestAt = 0;
+    for (const c of this.contacts.values()) {
+      if (c.lastAt > freshestAt && c.points.length > 0) {
+        freshestAt = c.lastAt;
+        const p = c.points[c.points.length - 1];
+        tx = p.x;
+        ty = p.y;
+      }
+    }
+    if (now - freshestAt > 60_000) {
+      tx = 0.5;
+      ty = 0.46;
+    }
+    return { x: tx, y: ty };
+  }
+
+  /**
+   * The acknowledgment beat (Slice 33, variation rule 3): the
+   * first beat of any utterance response, at ghost scale — a
+   * gentle lean toward whoever spoke and two soft splats in the
+   * ghost's own color (a dot at the body, a smaller one up and
+   * to the side: an ear perking). Smaller than puzzlement's
+   * ripple — this ghost HEARD you; it is the substantive answer
+   * that deliberation owes, not this. Through schedule() +
+   * emit(), so presence gates and the emit budgets bind exactly
+   * as they do for every other act.
+   */
+  private acknowledgeUtterance(now: number): void {
+    if (!this.canAct()) return;
+    this.options.onSfx?.("sniff");
+    const target = this.freshestContactPoint(now);
+    this.position.x = clamp01(
+      this.position.x + (target.x - this.position.x) * 0.12
+    );
+    this.position.y = clamp01(
+      this.position.y + (target.y - this.position.y) * 0.12
+    );
+    this.schedule(0, () => {
+      if (!this.canAct()) return;
+      this.emit({
+        position: { x: this.position.x, y: this.position.y },
+        force: { x: 0, y: -30 },
+        pressure: 0.24,
+        color: this.sigColor,
+      });
+    });
+    this.schedule(240, () => {
+      if (!this.canAct()) return;
+      this.emit({
+        position: {
+          x: clamp01(this.position.x + 0.03),
+          y: clamp01(this.position.y - 0.035),
+        },
+        force: { x: 6, y: -16 },
+        pressure: 0.17,
+        color: this.sigColor,
+      });
+    });
   }
 
   /**
@@ -2135,12 +2440,20 @@ export class GhostPeer {
     // Ghost Brain: the deliberation window. Reflexes never wait on
     // this — when the window opens and context changed, the host gets
     // a snapshot and answers asynchronously via applyBrainDecision.
+    // Slice 33: a pending utterance opens the window on its own
+    // shorter floor (UTTERANCE_MIN_INTERVAL_MS) — words are answered
+    // promptly or they read as ignored — and is consumed by exactly
+    // the deliberation that carries it.
+    const utteranceDue =
+      this.pendingUtterance !== null &&
+      now - this.lastUtteranceDeliberationAt >= UTTERANCE_MIN_INTERVAL_MS;
     if (
       this.options.onDeliberate &&
       this.enabled &&
       !this.dismissing &&
-      now - this.lastDeliberationAt >= DELIBERATION_MIN_MS &&
-      this.deliberationDirty
+      ((now - this.lastDeliberationAt >= DELIBERATION_MIN_MS &&
+        this.deliberationDirty) ||
+        utteranceDue)
     ) {
       this.lastDeliberationAt = now;
       this.deliberationDirty = false;
@@ -2150,7 +2463,12 @@ export class GhostPeer {
       );
       this.deliberationTimes.push(now);
       try {
-        this.options.onDeliberate(this.buildScenario(now));
+        const scenario = this.buildScenario(now);
+        if (scenario.utterance) {
+          this.pendingUtterance = null;
+          this.lastUtteranceDeliberationAt = now;
+        }
+        this.options.onDeliberate(scenario);
       } catch {
         // A host-side routing failure must never hurt the reflexes.
       }
@@ -2297,6 +2615,18 @@ export class GhostPeer {
       }
     });
     const fabric = this.currentFabricContext();
+    // Slice 34: fresh gesture readings ride the scenario in the
+    // v2 shape; the key is omitted entirely when the sense has
+    // been quiet (absence is information — see GhostBrain).
+    const gestures: GhostGestureReading[] = this.gestureLog
+      .filter((g) => now - g.at < 45_000)
+      .slice(-3)
+      .map(({ token, hand, confidence, held_s }) => ({
+        token,
+        hand,
+        confidence,
+        held_s,
+      }));
     return {
       temperament: this.temperament,
       seconds_since_human_touch: Math.round((now - this.lastActivityAt) / 100) / 10,
@@ -2318,6 +2648,13 @@ export class GhostPeer {
         seed_traits: seedTraitsForTemperament(this.temperament),
       },
       ...(fabric ? { fabric } : {}),
+      ...(gestures.length > 0 ? { gestures } : {}),
+      // Slice 33: the pending utterance, when one is waiting —
+      // attached verbatim (it was sanitized at the sense) and
+      // consumed by the tick's deliberation, never replayed.
+      ...(this.pendingUtterance
+        ? { utterance: this.pendingUtterance }
+        : {}),
     };
   }
 

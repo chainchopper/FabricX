@@ -114,7 +114,7 @@ function announceUnheard(): void {
 }
 
 export function useComposeVoice(
-  onFinal: (text: string) => void
+  onFinal: (text: string, confidence?: number | null) => void
 ): ComposeVoice {
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -204,11 +204,17 @@ export function useComposeVoice(
     if (!speechRecognitionCtor()) return false;
     const session = startSpeechRecognition(language, {
       onInterim: (text) => setInterim(text),
-      onFinal: (text) => {
+      onFinal: (text, confidence) => {
         setInterim("");
         setListening(false);
         speechRef.current = null;
-        onFinalRef.current(text);
+        // Slice 33: the recognizer's confidence rides along when
+        // it reported one (unscored = null, never zero) — the
+        // canvas hands it to the ghost's utterance sense, where
+        // a low score biases toward honest uncertainty. The
+        // capture/transcription paths report no score; their
+        // finals enter unscored, like typed text.
+        onFinalRef.current(text, confidence ?? null);
       },
       onError: (code) => {
         speechRef.current = null;

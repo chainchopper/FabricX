@@ -25,6 +25,17 @@
  *   input; the hold's act IS the ghost hearing it (a held palm is
  *   a request for stillness, answered in the ghost's own world).
  *
+ * - GESTURE TOKENS (Slice 34, Layer B1): every frame's facts also
+ *   feed the gesture-vocabulary tracker (gestureVocabulary.ts),
+ *   which fires FABRIC_GESTURE_EVENT readings — the v2 token
+ *   language the ghost's digest reads (open_palm, pinch, point,
+ *   finger_draw, wave, palm_push, …). A token is a SENSE, not an
+ *   act: it never paints, never fires a verb; the ghost reads it
+ *   and decides. The same frames drive B2's pinch-grab: a pinch
+ *   closes on the fluid at the fingertip and holds it (grab
+ *   start/move/end hand inputs) while the pinch-press stroke
+ *   behavior above is unchanged.
+ *
  * PRIVACY: detection is on-device, full stop. Frames go from the
  * camera element into the landmarker and nowhere else; landmarks
  * live for one frame's arithmetic and are dropped. Nothing in this
@@ -66,14 +77,22 @@ import {
   isPointPose,
   landmarkToCanvas,
   palmCentroidCanvas,
+  pinchRatio,
   LM,
   type CanvasPoint,
   type HandLandmarks,
 } from "./handGeometry";
 import {
+  createGestureTracker,
+  isThumbsDownPose,
+  type GestureObservation,
+} from "./gestureVocabulary";
+import {
+  FABRIC_GESTURE_EVENT,
   FABRIC_HAND_INPUT_EVENT,
   FABRIC_HAND_SIGN_EVENT,
   publishHands,
+  type GestureDetail,
   type HandInputDetail,
   type HandSignDetail,
 } from "./handsStore";
@@ -101,7 +120,12 @@ export interface HandLandmarkerLike {
   detectForVideo: (
     video: unknown,
     timestampMs: number
-  ) => { landmarks?: HandLandmarks[] };
+  ) => {
+    landmarks?: HandLandmarks[];
+    /** MediaPipe's handedness report, when the build returns it. */
+    handedness?: { categoryName?: string }[][];
+    handednesses?: { categoryName?: string }[][];
+  };
   close?: () => void;
 }
 
@@ -193,11 +217,32 @@ export interface HandsEngine {
   /**
    * One frame's decision path, exposed for the check script:
    * feed it landmarks (or null) and a timestamp; every dispatch
-   * and store publish the live loop would make, it makes.
+   * and store publish the live loop would make, it makes. The
+   * optional hand label is the landmarker-reported handedness,
+   * carried into Slice 34's gesture readings.
    */
-  processFrame: (lm: HandLandmarks | null, now: number) => void;
+  processFrame: (
+    lm: HandLandmarks | null,
+    now: number,
+    hand?: "left" | "right" | "unknown"
+  ) => void;
   readonly running: boolean;
 }
+
+/** Slice 34: the observation for a frame with no hand in it. */
+const ABSENT_OBSERVATION: GestureObservation = {
+  handPresent: false,
+  firedSign: null,
+  thumbsDownPose: false,
+  pinched: false,
+  pinchRatioValue: 1,
+  pointPose: false,
+  drawing: false,
+  palmOpen: false,
+  centroid: null,
+  push: null,
+  hand: "unknown",
+};
 
 export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
   const now = deps.now ?? (() => performance.now());
@@ -218,6 +263,13 @@ export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
   const palmSmoother = createPointSmoother(0.5);
   const signTracker = createSignTracker(600, 150);
   const pushTracker = createPalmPushTracker(1.15, 700, 120);
+  // Slice 34 (Layer B1): the gesture-vocabulary tracker reads the
+  // same per-frame facts this engine computes and fires token
+  // readings (see gestureVocabulary for the language + honesty
+  // rules). Slice 34 (B2): the pinch-grab state — the fingertip's
+  // last grab point while a pinch holds.
+  const gestureTracker = createGestureTracker();
+  let grabPoint: CanvasPoint | null = null;
 
   let landmarker: HandLandmarkerLike | null = null;
   let video: unknown = null;
@@ -250,13 +302,31 @@ export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
     // to the ghost, whose world stills around a held palm.
   }
 
-  function processFrame(lm: HandLandmarks | null, nowMs: number): void {
+  function processFrame(
+    lm: HandLandmarks | null,
+    nowMs: number,
+    hand: "left" | "right" | "unknown" = "unknown"
+  ): void {
     if (!lm || lm.length < 21) {
       publishHands({ handPresent: false, tip: null, pinched: false });
       tipSmoother.reset();
       palmSmoother.reset();
       signTracker.sample(null, nowMs);
       pushTracker.sample(null, nowMs);
+      gestureTracker.sample(ABSENT_OBSERVATION, nowMs);
+      if (grabPoint) {
+        // The hand left mid-grab: the hold ends where it was.
+        emitInput({
+          kind: "grab",
+          source: "hand",
+          phase: "end",
+          x: grabPoint.x,
+          y: grabPoint.y,
+          dx: 0,
+          dy: 0,
+        });
+        grabPoint = null;
+      }
       prevTip = null;
       wasPinched = false;
       return;
@@ -290,6 +360,7 @@ export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
     }
 
     // Point-draw / pinch-press.
+    let drewThisFrame = false;
     if (isPointPose(lm)) {
       if (prevTip) {
         const dx = tip.x - prevTip.x;
@@ -306,6 +377,7 @@ export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
             dy,
             pinched,
           });
+          drewThisFrame = true;
         }
       }
       prevTip = tip;
@@ -313,6 +385,82 @@ export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
       prevTip = null;
     }
     wasPinched = pinched;
+
+    // Slice 34 (B2): the pinch-grab. A pinch anywhere closes on
+    // the fluid at the fingertip; while it holds, the held point
+    // travels with the hand; release (or the hand leaving) ends
+    // it. Grab inputs ride the same hand-input seam as strokes —
+    // LegacyFluid answers them through the send funnel, so a grab
+    // lands on every screen in the room like a touch does.
+    if (pinched && !grabPoint) {
+      grabPoint = { ...tip };
+      emitInput({
+        kind: "grab",
+        source: "hand",
+        phase: "start",
+        x: tip.x,
+        y: tip.y,
+        dx: 0,
+        dy: 0,
+      });
+    } else if (pinched && grabPoint) {
+      const dx = tip.x - grabPoint.x;
+      const dy = tip.y - grabPoint.y;
+      if (Math.hypot(dx, dy) > STROKE_MIN_DELTA) {
+        grabPoint = { ...tip };
+        emitInput({
+          kind: "grab",
+          source: "hand",
+          phase: "move",
+          x: tip.x,
+          y: tip.y,
+          dx,
+          dy,
+        });
+      }
+    } else if (!pinched && grabPoint) {
+      emitInput({
+        kind: "grab",
+        source: "hand",
+        phase: "end",
+        x: grabPoint.x,
+        y: grabPoint.y,
+        dx: 0,
+        dy: 0,
+      });
+      grabPoint = null;
+    }
+
+    // Slice 34 (B1): the frame's facts become gesture tokens. The
+    // tracker fires at most one reading per frame, on the edge —
+    // a held sign, a pinch closing, a draw beginning, a push, a
+    // wave's second flip, a point dwelling. Dispatched on the
+    // gesture event for the ghost (LegacyFluid's noteGesture
+    // sense) and published to the store for the overlay/menu.
+    const observation: GestureObservation = {
+      handPresent: true,
+      firedSign: fired,
+      thumbsDownPose: isThumbsDownPose(lm),
+      pinched,
+      pinchRatioValue: pinchRatio(lm),
+      pointPose: isPointPose(lm),
+      drawing: drewThisFrame,
+      palmOpen: isPalmOpen(lm),
+      centroid,
+      push,
+      hand,
+    };
+    for (const reading of gestureTracker.sample(observation, nowMs)) {
+      publishHands({ lastGesture: { token: reading.token, at: Date.now() } });
+      const detail: GestureDetail = {
+        token: reading.token,
+        hand: reading.hand,
+        confidence: reading.confidence,
+        held_s: reading.held_s,
+        source: "hand",
+      };
+      deps.dispatch(FABRIC_GESTURE_EVENT, detail);
+    }
   }
 
   const tick = (): void => {
@@ -330,7 +478,15 @@ export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
       lastDetectAt = t;
       try {
         const res = landmarker.detectForVideo(v, t);
-        processFrame(res?.landmarks?.[0] ?? null, t);
+        // Handedness, as the model reports it (the digest carries
+        // it as context for the gesture reading; unknown when the
+        // build returns none).
+        const hd =
+          res?.handedness?.[0]?.[0]?.categoryName ??
+          res?.handednesses?.[0]?.[0]?.categoryName;
+        const hand =
+          hd === "Left" ? "left" : hd === "Right" ? "right" : "unknown";
+        processFrame(res?.landmarks?.[0] ?? null, t, hand);
       } catch {
         // A failed frame is dropped, never fatal: detection
         // hiccups (a GPU context blink, a mid-stream resolution
@@ -379,8 +535,10 @@ export function createHandsEngine(deps: HandsEngineDeps): HandsEngine {
       livePublished = false;
       prevTip = null;
       wasPinched = false;
+      grabPoint = null;
       signTracker.reset();
       pushTracker.reset();
+      gestureTracker.reset();
       publishHands({ handPresent: false, tip: null, pinched: false });
     },
     processFrame,

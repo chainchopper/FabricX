@@ -55,6 +55,13 @@
  *   The canvas also supplies the fabric-awareness read
  *   (getFabricContext) the peer stamps into each scenario, and the
  *   draw sink (onDrawRecipe) for the DRAW tool's performances.
+ * - Understands (Slice 33): a deliberation whose scenario carries
+ *   an utterance (GhostPeer.noteUtterance pends it; the tick fires
+ *   promptly) routes as comprehension — the same tiers, the
+ *   utterance outcome as floor, and honest uncertainty performed
+ *   in character when no tier can defend a reading. See
+ *   routeDeliberation's utterance branch and GhostBrain.ts's
+ *   Utterances section for the contract.
  *
  * The caller (LegacyFluid) supplies the sinks: `inject` renders the
  * ghost on this client through the multi-user hook's injection seam,
@@ -76,6 +83,7 @@ import {
   isGhostPeerId,
   type GhostActResult,
   type GhostIdentity,
+  type GhostUtteranceResult,
   type GhostVerbAskId,
 } from "./GhostPeer";
 import {
@@ -84,11 +92,14 @@ import {
   consultDeviceBrain,
   consultSparkBrain,
   decideOnDevice,
+  decideUtteranceOutcome,
   parseGhostPersonality,
   STAMINA_TIRED_BELOW,
+  UTTERANCE_CONFIDENCE_FLOOR,
   type GhostDecision,
   type GhostFabricContext,
   type GhostScenario,
+  type GhostUtteranceSpeaker,
 } from "./GhostBrain";
 import {
   isOnDeviceBrainReady,
@@ -391,6 +402,107 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         // GhostBrain.ts's Personality section for the table stakes.
         const personality = await getGhostPersonality();
         const traits = parseGhostPersonality(personality);
+        // Slice 33 ("Understands"): a deliberation carrying an
+        // utterance is routed as COMPREHENSION, not ambience.
+        // The tiers are the standing ones — the utterance rides
+        // the scenario into the same consults, with its prose
+        // note in the prompt (buildSparkMessages) — but the
+        // floor is the utterance outcome, not the ambient table:
+        // when no tier produces a defensible reading, the
+        // verdict is uncertainty, performed in character
+        // (expressPuzzlement), never a fabricated act and never
+        // silence pretending to be comprehension. The
+        // acknowledgment beat already happened at the sense
+        // (GhostPeer.noteUtterance); what is decided here is the
+        // substantive response. A model tier's gate refusal does
+        // NOT end the routing here (the ambient path's early
+        // return): the floor answers another way by construction
+        // — its draw candidates are only built where the fabric
+        // allows drawing — so the rules win over the idea and
+        // the words still get their honest answer.
+        if (scenario.utterance) {
+          const utt = scenario.utterance;
+          const heardSuffix =
+            (personality ? " · personality heard" : "") +
+            (utt.repeats > 0 ? " · said again" : "");
+          if (
+            typeof utt.asr_confidence === "number" &&
+            utt.asr_confidence < UTTERANCE_CONFIDENCE_FLOOR
+          ) {
+            // Belt and braces: the sense intercepts a garbled
+            // hearing before it can pend. If one reaches
+            // deliberation anyway, it is not comprehended here.
+            peer.expressPuzzlement();
+            publishBrain({
+              source: "table",
+              tierLabel: "Understands",
+              lastText: "heard it garbled — it tilted its head",
+              lastAt: Date.now(),
+            });
+            return;
+          }
+          const tier = await getGhostBrainTier();
+          if (tier === "spark-cloud") {
+            const config = await loadLLMConfig();
+            if (config) {
+              const service = getLLMService(config);
+              const decision = await consultSparkBrain(
+                scenario,
+                (messages, opts) =>
+                  service.chat(messages, opts).then((r) => r.text),
+                6_000,
+                personality,
+                stamina
+              );
+              if (decision) {
+                applyGated(decision, "spark", "Spark", heardSuffix);
+                return;
+              }
+              // No usable reply — including an honest UNCERTAIN:
+              // the floor reads the words itself, below.
+            }
+            // No cloud resolved: the floor decides, exactly as
+            // the ambient path's keyless case does.
+          } else if (isOnDeviceBrainReady()) {
+            const deviceDecision = await consultDeviceBrain(
+              scenario,
+              (messages, opts) =>
+                onDeviceChat(messages, opts).then((t) => t ?? ""),
+              8_000,
+              personality,
+              stamina
+            );
+            if (deviceDecision) {
+              applyGated(
+                deviceDecision,
+                "device",
+                "On-device model",
+                heardSuffix
+              );
+              return;
+            }
+            // No usable reply: fall through to the floor.
+          } else {
+            noteBrainWanted();
+          }
+          const outcome = decideUtteranceOutcome(scenario);
+          if (outcome.kind === "decision") {
+            const { decision, suffix } = withBiases(outcome.decision);
+            applyGated(decision, "table", "Understands", suffix + heardSuffix);
+          } else {
+            peer.expressPuzzlement();
+            publishBrain({
+              source: "table",
+              tierLabel: "Understands",
+              lastText:
+                outcome.reason === "low-confidence"
+                  ? "heard it garbled — it tilted its head"
+                  : "no honest reading of that — it tilted its head",
+              lastAt: Date.now(),
+            });
+          }
+          return;
+        }
         const tier = await getGhostBrainTier();
         if (tier === "spark-cloud") {
           const config = await loadLLMConfig();
@@ -726,6 +838,27 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteHumanNote(note);
   }, []);
 
+  /**
+   * Slice 33 ("Understands"): someone said something — the
+   * utterance sense. The peer acknowledges immediately, counts
+   * repetition, and pends the words for a prompt deliberation;
+   * the verdict says whether they landed, were too garbled to
+   * deliberate on (puzzlement already performed), or found no
+   * ghost to hear them.
+   */
+  const noteUtterance = useCallback(
+    (
+      text: string,
+      opts?: {
+        confidence?: number | null;
+        speaker?: GhostUtteranceSpeaker;
+      }
+    ): GhostUtteranceResult => {
+      return peerRef.current?.noteUtterance(text, opts) ?? "unavailable";
+    },
+    []
+  );
+
   /*
    * Slice 31 drive-by: the three wrappers below existed on
    * GhostPeer since Slices 28/30 but were never exposed on this
@@ -740,6 +873,19 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   const noteHandSign = useCallback((sign: string): void => {
     peerRef.current?.noteHandSign(sign);
   }, []);
+
+  /** Slice 34: a gesture token was read (Layer B1 — a sense). */
+  const noteGesture = useCallback(
+    (reading: {
+      token: string;
+      hand?: string;
+      confidence?: number;
+      held_s?: number;
+    }): void => {
+      peerRef.current?.noteGesture(reading);
+    },
+    []
+  );
 
   /** Slice 30: ask this ghost to touch/tap/poke a seen region. */
   const answerTouchAt = useCallback(
@@ -807,7 +953,9 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     answerNoteAgain,
     answerArpeggio,
     noteHumanNote,
+    noteUtterance,
     noteHandSign,
+    noteGesture,
     answerTouchAt,
     answerDrawAround,
     expressPuzzlement,
