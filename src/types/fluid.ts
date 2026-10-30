@@ -31,7 +31,7 @@ export interface FluidInteraction {
   verb?: string;
   /**
    * Slice 12: a first-class EVENT kind for interactions that are
-   * not strokes and not verbs — currently only "shake" (see
+   * not strokes and not verbs — "shake" (see
    * src/sensors/useDeviceMotion): one deliberate shake of the
    * sender's phone, delivered as a single interaction whose
    * position is the bloom center and whose force is zero (the
@@ -40,8 +40,20 @@ export interface FluidInteraction {
    * sensor data never leaves the sender's device. Optional and
    * additive: older clients neither send nor require it and render
    * a kind they don't know as a harmless zero-force splat.
+   *
+   * Slice 34 (Layer B3) adds "tilt": a phone joined to the room as
+   * a senses-only CONTROLLER leans, and the lean is delivered as
+   * interactions whose position/force carry the same geometry the
+   * sender's own tilt splat would have used (see
+   * src/sensors/controllerStore) — receivers render the generic
+   * splat path, so the room's screens lean while the controller's
+   * own screen stays a dark control surface. A controller's tilt
+   * is a DELIBERATE role the user joined in the menu, not a
+   * stream: Slice 12's law (raw motion data never leaves the
+   * device) is untouched — samples stay home; only these
+   * splat-geometry events travel, exactly like a shake.
    */
-  kind?: "shake";
+  kind?: "shake" | "tilt";
   /**
    * Slice 28: WHICH KIND OF HAND made this interaction — "hand"
    * for camera-gesture input (src/hands: a fingertip tracked in

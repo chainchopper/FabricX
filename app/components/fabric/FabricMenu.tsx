@@ -177,6 +177,14 @@ import {
   type MotionPublicState,
 } from "../../../src/sensors/motionState";
 import {
+  ensureControllerLoaded,
+  getControllerSnapshot,
+  requestControllerCalibration,
+  setControllerRole,
+  subscribeController,
+  type ControllerSnapshot,
+} from "../../../src/sensors/controllerStore";
+import {
   getHandsSnapshot,
   subscribeHands,
   type HandsSnapshot,
@@ -1272,6 +1280,23 @@ export default function FabricMenu() {
   };
   const handsAppliesHere =
     state.activeExperience?.id === "sam-see" ||
+    state.activeExperience?.id === "default-fluid";
+
+  // "Controller" — Slice 34 (Layer B3). NOT a per-layer setting:
+  // the role is this DEVICE's stance toward the room (stored in
+  // controllerStore, persisted on the device), so it renders in
+  // this section — beside the senses it redirects — but writes to
+  // the controller store, never to the layer config. It applies on
+  // the Fluid Fabric, where this device's tilt/shake/hands have a
+  // room to drive.
+  const [controllerUi, setControllerUi] = useState<ControllerSnapshot>(() =>
+    getControllerSnapshot()
+  );
+  useEffect(() => {
+    ensureControllerLoaded();
+    return subscribeController(setControllerUi);
+  }, []);
+  const controllerAppliesHere =
     state.activeExperience?.id === "default-fluid";
 
   const openPanel = (name: DrawerName) => {
@@ -3359,6 +3384,64 @@ export default function FabricMenu() {
                 : handsInLayer && handsUi.phase === "unsupported"
                   ? "Hand tracking couldn't start on this device, so this layer stays touch-driven here. Nothing else changes."
                   : "Point to draw in the air. Pinch to press. ✋ hold stills the room, ✌ peace cheers, 👍 sends a heart, ✊ clears a ripple — and your ghostie sees the signs too. Your camera is read on this device only: nothing is sent or stored."}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Controller — Slice 34 (Layer B3). This device joins the
+            room as a senses-only controller: its tilt, shake and
+            hand gestures are delivered to the room as events while
+            the experience renders on the OTHER screens, and this
+            screen becomes a dark control surface. The role is the
+            device's own stance (controllerStore), not a layer
+            setting and not a session power — it binds nobody else
+            and one tap stands it down. Calibration registers this
+            phone's natural grip as the shared space's neutral: the
+            captured angles stay on this device like all raw motion;
+            only the lean's events ever travel. */}
+        {controllerAppliesHere ? (
+          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              Controller
+            </Text>
+            <BoolPillRow
+              value={controllerUi.role === "controller"}
+              onPick={(next: boolean) => {
+                noteActivity();
+                setControllerRole(next ? "controller" : "screen");
+              }}
+              labelPrefix="Controller"
+            />
+            {controllerUi.role === "controller" ? (
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => {
+                  noteActivity();
+                  requestControllerCalibration();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Calibrate my grip"
+                style={{
+                  alignSelf: "flex-start",
+                  paddingVertical: 8,
+                  paddingHorizontal: 14,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: colors.accent,
+                  backgroundColor: colors.accentDim,
+                }}
+              >
+                <Text style={{ color: colors.accent, fontSize: typeScale.body, fontWeight: "700" }}>
+                  Calibrate my grip
+                </Text>
+              </Pressable>
+            ) : null}
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {controllerUi.role === "controller"
+                ? controllerUi.calibration
+                  ? `Driving the room. Your grip (β ${controllerUi.calibration.beta0.toFixed(0)}° / γ ${controllerUi.calibration.gamma0.toFixed(0)}°) is the shared space's neutral — recalibrate any time from the control surface. Stand down here or there whenever you want this screen back.`
+                  : "Driving the room — this screen goes dark as a control surface, and your tilt, shake and gestures land on the other screens. Calibrate from the control surface so your natural grip becomes the room's neutral."
+                : "Join as a controller and this phone becomes the room's senses: tilt to stir the big screen, shake to bloom it, gesture at it — while this screen rests. Why look at your screen when the fabric is on five others?"}
             </Text>
           </View>
         ) : null}
