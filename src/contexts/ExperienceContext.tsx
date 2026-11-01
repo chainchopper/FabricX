@@ -190,6 +190,47 @@ const builtin: ExperienceLayer[] = [
       },
     },
   },
+  {
+    // The Fold (Slice 36): Fabric's distributed-compute fabric,
+    // built on GenX components. The fluid is its ground (the
+    // sam-see precedent — its own experience, its own rules); a
+    // bounty board posts jobs, the host allocates, opted-in
+    // devices genuinely compute checksummed shards of the room's
+    // LifePacket field, the allocator verifies by recompute, and
+    // a bridged GenX node-controller reports into the same field.
+    // Its own room ("genx"): a fold is a room of its own. Idle
+    // contract: "breathe" — the field's entities drift and the
+    // fold coheres slowly in the quiet; nothing self-starts work
+    // a device did not opt into.
+    id: "genx-fold",
+    name: "The Fold",
+    blurb: "One job, every screen in the room — folded together.",
+    description:
+      "Distributed compute across the room's devices using GenX components: bounty jobs sharded, computed, verified and settled as Juice on one shared field, with a real GenX node reporting in.",
+    type: "genx-fold" as ExperienceType,
+    version: "1.0.0",
+    author: "Fanalogy",
+    capabilities: { ...defaultCapabilities, ar: false, camera: false, midi: false },
+    idleBehavior: "breathe",
+    configDefaults: {
+      common: {
+        backgroundColor: "#0b1020",
+        particleDensity: 0.6,
+        audioVolume: 0.7,
+        hapticIntensity: 0.8,
+        renderMode: "default",
+      } as any,
+      specific: {
+        roomId: "genx",
+        // THIS LAYER: lending is opt-in, default OFF — a device
+        // computes only when its owner turned lending on
+        // (Slice 12's law), and the GenX node bridge polls only
+        // an address the owner typed here.
+        lendDevice: false,
+        genxNodeUrl: "",
+      },
+    },
+  },
 ];
 
 function reducer(state: ExperienceState, action: ExperienceAction): ExperienceState {

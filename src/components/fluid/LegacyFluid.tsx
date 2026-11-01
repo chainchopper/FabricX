@@ -125,6 +125,8 @@ import {
   type ControllerSnapshot,
 } from "../../sensors/controllerStore";
 import ControllerSurface from "./ControllerSurface";
+import GenxLayer from "../genx/GenxLayer";
+import { subscribeGenx } from "../../genx/genxStore";
 
 interface LegacyFluidProps {
   /**
@@ -220,6 +222,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     sendInteraction,
     sendRecipe,
     sendRecipeAs,
+    sendGenx,
     injectRemoteInteraction,
     humanPeers,
   } = useFluidMultiUser(roomId);
@@ -1256,6 +1259,25 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
   }, []);
 
+  // Slice 36 ("The Fold"): the compute field's digest is a sense
+  // for the ghost, forwarded on change like the gesture tokens —
+  // it lands in the scenario's `genx` field (GhostPeer.noteGenx),
+  // where fold progress, node arrivals and shard stalls inform
+  // deliberation. Forwarded only while the Fold is the loaded
+  // fabric: elsewhere the sense is absent, and absence is the
+  // legacy behavior, byte-for-byte.
+  useEffect(() => {
+    let lastKey = "";
+    return subscribeGenx((snap) => {
+      if (experienceRef.current?.id !== "genx-fold") return;
+      const s = snap.sense;
+      const key = `${s.nodesOnline}|${s.fieldLoad.toFixed(2)}|${s.missionProgress.toFixed(3)}|${s.shardsDone}/${s.shardsTotal}|${s.fahOnline}|${s.stalled}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      ghostRef.current.noteGenx(s);
+    });
+  }, []);
+
   // Slice 24: Warm Welcome. The rewards feed dispatches
   // FABRIC_WARM_WELCOME_EVENT when a guest joins this client's
   // hosted session and the power-up is earned; the answer is the
@@ -2116,6 +2138,30 @@ brain   ${diagBrain}`}
             ×
           </button>
         </div>
+      ) : null}
+      {/* Slice 36 ("The Fold"): the distributed-compute fabric's
+          layer — the bounty board, the node card, and the
+          microcosm driver ride over the fluid (the layer's
+          ground, sam-see precedent) while the Fold is the loaded
+          experience. Its settings (lend this device, node
+          address) live in THIS LAYER and reach it through the
+          layer config, like every other layer's own truths. */}
+      {state.activeExperience?.id === "genx-fold" ? (
+        <GenxLayer
+          userId={userId}
+          lendDevice={
+            (state.experienceConfig?.specific as Record<string, unknown> | undefined)
+              ?.lendDevice === true
+          }
+          nodeUrl={
+            String(
+              ((state.experienceConfig?.specific as Record<string, unknown> | undefined)
+                ?.genxNodeUrl as string) ?? ""
+            )
+          }
+          sendGenx={sendGenx}
+          injectInteraction={injectRemoteInteraction}
+        />
       ) : null}
       {/* Slice 34 (Layer B3): the controller surface — while this
           phone is joined as a senses-only controller, the canvas

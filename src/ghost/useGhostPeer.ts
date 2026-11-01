@@ -73,6 +73,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FluidInteraction } from "../types/fluid";
+import type { GenxSenseSnapshot } from "../genx/genxTypes";
 import { getJSON, setJSON } from "../../app/utils/storage";
 import { getLLMService } from "../services/LLMService";
 import { loadLLMConfig } from "../ai/PatternComposer";
@@ -887,6 +888,11 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     []
   );
 
+  /** Slice 36: the compute field's digest moved (The Fold — a sense). */
+  const noteGenx = useCallback((snapshot: GenxSenseSnapshot): void => {
+    peerRef.current?.noteGenx(snapshot);
+  }, []);
+
   /** Slice 30: ask this ghost to touch/tap/poke a seen region. */
   const answerTouchAt = useCallback(
     (
@@ -956,6 +962,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteUtterance,
     noteHandSign,
     noteGesture,
+    noteGenx,
     answerTouchAt,
     answerDrawAround,
     expressPuzzlement,

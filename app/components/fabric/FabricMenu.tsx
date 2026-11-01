@@ -189,6 +189,12 @@ import {
   subscribeHands,
   type HandsSnapshot,
 } from "../../../src/hands/handsStore";
+import {
+  ensureGenxPrefsLoaded,
+  getGenxSnapshot,
+  subscribeGenx,
+  type GenxSnapshot,
+} from "../../../src/genx/genxStore";
 import { requestFirstBreath } from "../../../src/onboarding/onboardingStore";
 import { patternPlayer } from "../../../src/ai/PatternPlayer";
 import { FABRIC_PLAY_PATTERN_EVENT } from "../../../src/ai/PatternComposer";
@@ -1298,6 +1304,47 @@ export default function FabricMenu() {
   }, []);
   const controllerAppliesHere =
     state.activeExperience?.id === "default-fluid";
+
+  // "The Fold" — Slice 36. THIS LAYER's own settings, in the
+  // layer config like every other layer's truths: lending is this
+  // device's opt-in to compute (default OFF — Slice 12's law),
+  // and the node address is where this device's bridge polls a
+  // real GenX node-controller. The probe verdict + lifetime Juice
+  // are read from the genx store (the layer's engine writes the
+  // probe; the store settles Juice from verified room ledgers) —
+  // the menu renders them, it does not compute them.
+  const [genxUi, setGenxUi] = useState<GenxSnapshot>(() => getGenxSnapshot());
+  useEffect(() => {
+    void ensureGenxPrefsLoaded();
+    return subscribeGenx(setGenxUi);
+  }, []);
+  const genxAppliesHere = state.activeExperience?.id === "genx-fold";
+  const lendInLayer =
+    (state.experienceConfig.specific as any)?.lendDevice === true;
+  const setLendInLayer = (next: boolean) => {
+    noteActivity();
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        lendDevice: next,
+      },
+    });
+  };
+  const nodeUrlInLayer = String(
+    ((state.experienceConfig.specific as any)?.genxNodeUrl as string) ?? ""
+  );
+  const [nodeUrlDraft, setNodeUrlDraft] = useState<string | null>(null);
+  const commitNodeUrl = () => {
+    if (nodeUrlDraft === null) return;
+    noteActivity();
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        genxNodeUrl: nodeUrlDraft.trim().slice(0, 200),
+      },
+    });
+    setNodeUrlDraft(null);
+  };
 
   const openPanel = (name: DrawerName) => {
     noteActivity();
@@ -3384,6 +3431,75 @@ export default function FabricMenu() {
                 : handsInLayer && handsUi.phase === "unsupported"
                   ? "Hand tracking couldn't start on this device, so this layer stays touch-driven here. Nothing else changes."
                   : "Point to draw in the air. Pinch to press. ✋ hold stills the room, ✌ peace cheers, 👍 sends a heart, ✊ clears a ripple — and your ghostie sees the signs too. Your camera is read on this device only: nothing is sent or stored."}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* The Fold — Slice 36. This device's stance toward the
+            room's compute field: lending is opt-in and off by
+            default (a device computes only when its owner says
+            so), and the node address points this device's bridge
+            at a real GenX node-controller — polled read-only,
+            its reports labelled node-reported, its FAH status
+            stated exactly as the node reports it. The probe line
+            is the bridge's own verdict (reachable / blocked /
+            offline): a browser that cannot read a LAN node says
+            so here instead of pretending the node is down. */}
+        {genxAppliesHere ? (
+          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              The Fold — this device
+            </Text>
+            <BoolPillRow
+              value={lendInLayer}
+              onPick={(next: boolean) => setLendInLayer(next)}
+              labelPrefix="Lend this device"
+            />
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {lendInLayer
+                ? "Lending: when you join a bounty, this device benchmarks itself on the real shard workload, computes the shards it is assigned, and earns Juice only for shards the host verifies by recomputing them."
+                : "Not lending. This device can watch the fold, follow bounties and spectate — it computes nothing and earns nothing. Battery and heat are yours; nothing runs here until you turn this on."}
+            </Text>
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+              GenX node address
+            </Text>
+            <TextInput
+              pointerEvents="auto"
+              value={nodeUrlDraft ?? nodeUrlInLayer}
+              onChangeText={setNodeUrlDraft}
+              onEndEditing={commitNodeUrl}
+              onSubmitEditing={commitNodeUrl}
+              placeholder="192.168.1.20:3005 or http://node.local:3005"
+              placeholderTextColor={colors.textDim}
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={200}
+              style={{
+                color: colors.text,
+                fontSize: 16,
+                borderWidth: 1,
+                borderColor: colors.line,
+                borderRadius: radius.card,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+              }}
+            />
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              {nodeUrlInLayer
+                ? genxUi.probe.state === "reachable"
+                  ? `Probe: reachable — the node at ${genxUi.probe.url} answers and this browser may read it. Its status rides into the field on the node card.`
+                  : genxUi.probe.state === "blocked"
+                    ? `Probe: blocked — ${genxUi.probe.detail}`
+                    : genxUi.probe.state === "offline"
+                      ? `Probe: offline — ${genxUi.probe.detail}`
+                      : "Probe: checking the address…"
+                : "No node set. The room fold runs without one; a node adds its Folding@home status and its provider jobs (the board's node cards) to the same field."}
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
+              Your Juice — {genxUi.juiceLifetime.toFixed(1)} earned from verified
+              shards across every room this device has folded in. Juice is the
+              fold's own record: it settles only when a host's recompute
+              verifies your work.
             </Text>
           </View>
         ) : null}
