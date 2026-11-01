@@ -27,7 +27,7 @@ const SYSTEM_PROMPTS = {
 
 export default function AIChatDrawer() {
   const { back, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("ai-chat");
+  const { tx, width, parked } = getAnim("ai-chat");
   const haptics = useHaptics();
   const audio = useAudioCues();
 
@@ -98,7 +98,7 @@ export default function AIChatDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0,
@@ -106,6 +106,7 @@ export default function AIChatDrawer() {
         left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >

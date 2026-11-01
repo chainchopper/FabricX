@@ -45,7 +45,7 @@ interface Clip {
 
 export default function StudioDrawer() {
   const { back, closeAll, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("studio");
+  const { tx, width, parked } = getAnim("studio");
   const haptics = useHaptics();
   const audio = useAudioCues();
   const { state } = useExperience();
@@ -172,12 +172,13 @@ export default function StudioDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0, bottom: 0, left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >

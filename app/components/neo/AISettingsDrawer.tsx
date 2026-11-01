@@ -113,7 +113,7 @@ const defaultConfig: AIServiceConfig = {
 
 export default function AISettingsDrawer() {
   const { back, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("ai-settings");
+  const { tx, width, parked } = getAnim("ai-settings");
   const haptics = useHaptics();
   const audio = useAudioCues();
   const toast = useToast();
@@ -277,7 +277,7 @@ export default function AISettingsDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0,
@@ -285,6 +285,7 @@ export default function AISettingsDrawer() {
         left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >
@@ -295,7 +296,7 @@ export default function AISettingsDrawer() {
           bottom: 0,
           left: 0,
           width,
-          backgroundColor: "rgba(10,14,28,0.96)",
+          backgroundColor: "#0a0e1c",
           paddingTop: 56,
         }}
       >
@@ -565,7 +566,7 @@ export default function AISettingsDrawer() {
                       placeholderTextColor="rgba(148,163,184,0.5)"
                       secureTextEntry={!showApiKey}
                       style={{
-                        backgroundColor: "rgba(15,23,42,0.7)",
+                        backgroundColor: "#0f172a",
                         borderWidth: 1,
                         borderColor: "rgba(148,163,184,0.3)",
                         borderRadius: 10,
@@ -595,7 +596,7 @@ export default function AISettingsDrawer() {
                       placeholder="https://api.meta.ai/v1 or http://localhost:11434/v1"
                       placeholderTextColor="rgba(148,163,184,0.5)"
                       style={{
-                        backgroundColor: "rgba(15,23,42,0.7)",
+                        backgroundColor: "#0f172a",
                         borderWidth: 1,
                         borderColor: "rgba(148,163,184,0.3)",
                         borderRadius: 10,
@@ -624,7 +625,7 @@ export default function AISettingsDrawer() {
                       placeholder="gpt-4"
                       placeholderTextColor="rgba(148,163,184,0.5)"
                       style={{
-                        backgroundColor: "rgba(15,23,42,0.7)",
+                        backgroundColor: "#0f172a",
                         borderWidth: 1,
                         borderColor: "rgba(148,163,184,0.3)",
                         borderRadius: 10,
@@ -743,7 +744,7 @@ export default function AISettingsDrawer() {
                       placeholderTextColor="rgba(148,163,184,0.5)"
                       secureTextEntry={!showApiKey}
                       style={{
-                        backgroundColor: "rgba(15,23,42,0.7)",
+                        backgroundColor: "#0f172a",
                         borderWidth: 1,
                         borderColor: "rgba(148,163,184,0.3)",
                         borderRadius: 10,
@@ -764,7 +765,7 @@ export default function AISettingsDrawer() {
                       placeholder="OpenAI-compatible base (e.g. https://api.meta.ai/v1)"
                       placeholderTextColor="rgba(148,163,184,0.5)"
                       style={{
-                        backgroundColor: "rgba(15,23,42,0.7)",
+                        backgroundColor: "#0f172a",
                         borderWidth: 1,
                         borderColor: "rgba(148,163,184,0.3)",
                         borderRadius: 10,
@@ -890,7 +891,7 @@ export default function AISettingsDrawer() {
                         placeholderTextColor="rgba(148,163,184,0.5)"
                         secureTextEntry={!showApiKey}
                         style={{
-                          backgroundColor: "rgba(15,23,42,0.7)",
+                          backgroundColor: "#0f172a",
                           borderWidth: 1,
                           borderColor: "rgba(148,163,184,0.3)",
                           borderRadius: 10,
@@ -912,7 +913,7 @@ export default function AISettingsDrawer() {
                         placeholder="https://..."
                         placeholderTextColor="rgba(148,163,184,0.5)"
                         style={{
-                          backgroundColor: "rgba(15,23,42,0.7)",
+                          backgroundColor: "#0f172a",
                           borderWidth: 1,
                           borderColor: "rgba(148,163,184,0.3)",
                           borderRadius: 10,
@@ -1039,7 +1040,7 @@ export default function AISettingsDrawer() {
                         placeholderTextColor="rgba(148,163,184,0.5)"
                         secureTextEntry={!showApiKey}
                         style={{
-                          backgroundColor: "rgba(15,23,42,0.7)",
+                          backgroundColor: "#0f172a",
                           borderWidth: 1,
                           borderColor: "rgba(148,163,184,0.3)",
                           borderRadius: 10,
@@ -1061,7 +1062,7 @@ export default function AISettingsDrawer() {
                         placeholder="https://..."
                         placeholderTextColor="rgba(148,163,184,0.5)"
                         style={{
-                          backgroundColor: "rgba(15,23,42,0.7)",
+                          backgroundColor: "#0f172a",
                           borderWidth: 1,
                           borderColor: "rgba(148,163,184,0.3)",
                           borderRadius: 10,

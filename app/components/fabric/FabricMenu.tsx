@@ -62,6 +62,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  Dimensions,
   Platform,
   Pressable,
   ScrollView,
@@ -167,6 +168,8 @@ import {
 } from "../../../src/dancer/stageCharacter";
 import {
   TRAUMA_IDLES,
+  TRAUMA_IDLE_NONE,
+  resolveBuiltinBind,
   traumaIdleDef,
   type TraumaIdleId,
 } from "../../../src/dancer/traumaCharacter";
@@ -311,6 +314,11 @@ function ToggleRow({
 // = live/session, ghostLine = the ghost's) and any pressed fill.
 // The fabric cards and the Ghostie door already had this shape;
 // the rest of the menu converged onto it in the doctrine pass.
+// Slice 37: the menu sheet's height cap, in device pixels —
+// 78% of the real window height (see the sheet style for why a
+// percentage string is not trusted with this job).
+const menuMaxHeight = Math.round(Dimensions.get("window").height * 0.78);
+
 const cardStyle = {
   borderWidth: 1,
   borderRadius: radius.card,
@@ -1201,10 +1209,17 @@ export default function FabricMenu() {
   };
   // The built-in character (Trauma, Slice 25): the layer setting
   // holds the idle pick; the slot store holds the live binding.
-  // traumaIdleDef coerces an unset value to the default (MMA) so
-  // the pills always have a current pick to show.
+  // Slice 37 semantics (traumaCharacter.resolveBuiltinBind): an
+  // UNSET pick means the stage binds the default idle (Trauma,
+  // MMA) on mount — the pills show that default as the current
+  // pick because it now IS what the stage does. Restore
+  // mannequin stores the explicit "none" instead of clearing to
+  // undefined (the old behavior made "wants the bare figure"
+  // indistinguishable from "never picked", and the stage bound
+  // nothing for both).
   const stageTraumaIdleRaw = (state.experienceConfig.specific as any)
     ?.stageTraumaIdle;
+  const stageBuiltinBind = resolveBuiltinBind(stageTraumaIdleRaw);
   const stageTraumaIdle = traumaIdleDef(stageTraumaIdleRaw).id;
   const bindTraumaIdle = (next: TraumaIdleId) => {
     noteActivity();
@@ -1222,6 +1237,17 @@ export default function FabricMenu() {
       specific: {
         ...(state.experienceConfig.specific as any),
         stageTraumaIdle: undefined,
+      },
+    });
+  };
+  // Restore mannequin (Slice 37): store the EXPLICIT bare-figure
+  // pick so the stage keeps the mannequin on purpose — clearing
+  // to undefined would now rebind the default on the next mount.
+  const restoreMannequin = () => {
+    updateConfig({
+      specific: {
+        ...(state.experienceConfig.specific as any),
+        stageTraumaIdle: TRAUMA_IDLE_NONE,
       },
     });
   };
@@ -1586,7 +1612,15 @@ export default function FabricMenu() {
         zIndex: 115,
         width: 348,
         maxWidth: "92%",
-        maxHeight: "78%",
+        // Slice 37: a NUMBER, not "78%". The percentage resolved
+        // against the sheet's containing block — a box the
+        // in-app webview misreports while its chrome animates —
+        // so the cap silently failed on device and the sheet ran
+        // past the screen's bottom edge, its one internal scroll
+        // reading as an endless list poured over the stage
+        // (Terrell's Nov 1 panel shot). A pixel cap computed from
+        // the window always caps.
+        maxHeight: menuMaxHeight,
         backgroundColor: colors.sheet,
         borderColor: colors.line,
         borderWidth: 1,
@@ -3219,7 +3253,12 @@ export default function FabricMenu() {
                   pointerEvents="auto"
                   onPress={() => {
                     noteActivity();
-                    clearStageTraumaIdle();
+                    // Slice 37: restore stores the explicit
+                    // "none" pick (restoreMannequin) — the stage
+                    // now treats UNSET as "bind the default", so
+                    // clearing would bring Trauma back on the
+                    // next mount instead of keeping the figure.
+                    restoreMannequin();
                     clearStageCharacter();
                   }}
                   accessibilityRole="button"
@@ -3245,13 +3284,17 @@ export default function FabricMenu() {
             <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
               {TRAUMA_IDLES.map((def) => {
                 // Lit when this idle is bound right now — or when
-                // it's the layer's remembered pick and the slot is
-                // still empty (the stage binds it on mount).
+                // it's the pick the stage will bind on mount and
+                // the slot is still empty. Slice 37: that includes
+                // the UNSET case, which now resolves to the
+                // default idle (resolveBuiltinBind) — the pill
+                // finally tells the truth about what an untouched
+                // stage shows. The old condition required a stored
+                // string, so the pill claimed MMA while the stage
+                // bound nothing.
                 const selected =
                   charUi.url === def.url ||
-                  (charUi.url === null &&
-                    typeof stageTraumaIdleRaw === "string" &&
-                    stageTraumaIdle === def.id);
+                  (charUi.url === null && stageBuiltinBind?.id === def.id);
                 return (
                   <Pressable
                     key={def.id}
@@ -3283,12 +3326,13 @@ export default function FabricMenu() {
               })}
             </View>
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-              Trauma ships with the stage — pick an idle and your
-              ghostie wears him, washed in its hue with its name tag
-              flying. The idle loops on its own (it IS how he rests),
-              and your notes still move his body over it, band by
-              band. The layer remembers the pick; restore the
-              mannequin to forget it.
+              Trauma ships with the stage — he's the default: pick
+              an idle and your ghostie wears him, washed in its hue
+              with its name tag flying. The idle loops on its own
+              (it IS how he rests), and your notes still move his
+              body over it, band by band. The layer remembers the
+              pick; restore the mannequin to stand the bare figure
+              instead.
             </Text>
 
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>

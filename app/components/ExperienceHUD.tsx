@@ -44,7 +44,10 @@ import {
  * the canvas is the only thing on screen — touch anywhere restores.
  *
  * All wiring is unchanged: ComposeBar still talks to the single
- * persistent canvas through its window events. Verbs arrive through
+ * persistent canvas through its window events — on the canvases
+ * that own those events. Slice 37: the Dancer Stage is the one
+ * exception (its canvas replaces the fluid listener), so the bar
+ * is not mounted there; see the ComposeBar call site below. Verbs arrive through
  * the same FABRIC_VERB_EVENT they always did underneath — but since
  * Hotfix 2.8 they are dispatched by the ask bar's ghost route, by
  * held hand signs, and by profile-card hearts, never by a button
@@ -254,8 +257,16 @@ export default function ExperienceHUD() {
             FABRIC_VERB_EVENT funnel this row fed, so no capability
             left with it. VerbBar.tsx is retired, not deleted. */}
         {/* Pattern composer (Slice 4): describe a feeling, Spark composes
-            a pattern the whole session plays. */}
-        <ComposeBar />
+            a pattern the whole session plays. Slice 37: NOT on the
+            Dancer Stage — the stage's canvas replaces the fluid that
+            owns the compose event, so the bar's mic dispatched into
+            the void there (Terrell: "doesn't respond either way")
+            while its text field still stole the scene's focus. A
+            dead control is worse than none: the stage's playable
+            surface is its key strip above; asking belongs to the
+            fluid canvas, by voice, and to the Companion panel, by
+            typing. */}
+        {isDancerStage ? null : <ComposeBar />}
         {/* The ghost's resident chip used to sit here (Slice 2's
             GhostIndicator). Cleanup 2 retired it — Terrell: the
             bottom-middle ghostie menu "has no purpose at this

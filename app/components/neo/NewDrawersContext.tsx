@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Platform } from "react-native";
+import { Animated, Dimensions, Easing, Platform } from "react-native";
 import { usePreferences } from "../../context/PreferencesContext";
 
 type DrawerName =
@@ -23,6 +23,11 @@ type DrawerAnim = {
   width: number;
 };
 
+// What getAnim hands a drawer: the anim pair plus whether the drawer
+// is parked — fully closed, snapped to exactly -width, and cut from
+// rendering and touches (see parkedMap below).
+type DrawerHandle = DrawerAnim & { parked: boolean };
+
 type NewDrawersCtx = {
   openName: DrawerName | null;
   history: DrawerName[];
@@ -30,7 +35,7 @@ type NewDrawersCtx = {
   toggle: (name: DrawerName) => void;
   closeAll: () => void;
   back: () => void;
-  getAnim: (name: DrawerName) => DrawerAnim;
+  getAnim: (name: DrawerName) => DrawerHandle;
   getIconTx: (name: DrawerName) => Animated.Value;
   requestIconExpand: (byUser?: boolean) => void;
 };
@@ -61,13 +66,83 @@ export function NewDrawersProvider({ children }: { children: React.ReactNode }) 
   const [history, setHistory] = useState<DrawerName[]>([]);
   const { iconsAutoHide, iconsAutoHideTimeoutSec, iconsLockMode } = usePreferences();
 
+  // Slice 37: drawer widths are capped at the actual window width.
+  // The fixed 420px sheets are wider than a phone's viewport
+  // (~390px), which pushed sheet content off the right edge, left
+  // card text cut at the left after the slide-in, and stranded
+  // dead margins beside the sheet (Terrell's Nov 1 panel shot). A
+  // drawer never exceeds the screen it lands on.
+  const widthsRef = useRef<Record<DrawerName, number>>(
+    (() => {
+      const cap =
+        Math.round(Dimensions.get("window").width) || Number.POSITIVE_INFINITY;
+      return ALL.reduce(
+        (acc, n) => {
+          acc[n] = Math.min(WIDTHS[n], cap);
+          return acc;
+        },
+        {} as Record<DrawerName, number>
+      );
+    })()
+  );
+
   // Drawer panel anims
   const panelsRef = useRef<Record<DrawerName, DrawerAnim>>(
     ALL.reduce((acc, n) => {
-      acc[n] = { tx: new Animated.Value(-WIDTHS[n]), width: WIDTHS[n] };
+      acc[n] = {
+        tx: new Animated.Value(-widthsRef.current[n]),
+        width: widthsRef.current[n],
+      };
       return acc;
     }, {} as Record<DrawerName, DrawerAnim>)
   );
+
+  // Parked = the drawer's REAL closed state (Slice 37 amendment,
+  // Terrell's correction, Nov 1). Before this, "closed" meant only
+  // that an Animated value was supposed to be resting at exactly
+  // -width: every drawer stayed mounted, rendered and touchable, and
+  // on web the slide is JS-driven from the same thread the WebGL
+  // stage saturates, with no completion snap — so a close that never
+  // ran to its end left a live panel hiding at the screen's edge
+  // with no menu open (his Nov 1 screenshot: no menu was open; the
+  // mess at the edge was closed drawers failing to be closed).
+  // A parked drawer renders display:none and takes no touches; it
+  // un-parks the moment it starts opening.
+  const [parkedMap, setParkedMap] = useState<Record<DrawerName, boolean>>(
+    () =>
+      ALL.reduce(
+        (acc, n) => {
+          acc[n] = true;
+          return acc;
+        },
+        {} as Record<DrawerName, boolean>
+      )
+  );
+  const intentRef = useRef<Record<DrawerName, "open" | "closed">>(
+    ALL.reduce(
+      (acc, n) => {
+        acc[n] = "closed";
+        return acc;
+      },
+      {} as Record<DrawerName, "open" | "closed">
+    )
+  );
+  const parkTimerRef = useRef<Record<DrawerName, number | null>>(
+    ALL.reduce(
+      (acc, n) => {
+        acc[n] = null;
+        return acc;
+      },
+      {} as Record<DrawerName, number | null>
+    )
+  );
+
+  const parkDrawer = (name: DrawerName) => {
+    // Snap to the exact closed value first: the parked state must
+    // never depend on where an animation happened to stop.
+    panelsRef.current[name].tx.setValue(-panelsRef.current[name].width);
+    setParkedMap((m) => (m[name] ? m : { ...m, [name]: true }));
+  };
 
   // Icon edge-attachment anims (each icon has its own X so we can stagger close)
   const iconsRef = useRef<Record<DrawerName, Animated.Value>>(
@@ -84,17 +159,44 @@ export function NewDrawersProvider({ children }: { children: React.ReactNode }) 
   const doubleTapRef = useRef<number>(0);
 
   // Expose for buttons
-  const getAnim = (name: DrawerName) => panelsRef.current[name];
+  const getAnim = (name: DrawerName): DrawerHandle => ({
+    ...panelsRef.current[name],
+    parked: parkedMap[name],
+  });
   const getIconTx = (name: DrawerName) => iconsRef.current[name];
 
   const animatePanelTo = (name: DrawerName, toOpen: boolean) => {
     const { tx, width } = panelsRef.current[name];
+    intentRef.current[name] = toOpen ? "open" : "closed";
+    if (parkTimerRef.current[name]) {
+      window.clearTimeout(parkTimerRef.current[name]!);
+      parkTimerRef.current[name] = null;
+    }
+    if (toOpen) {
+      // Un-park first: the drawer must be rendered before it slides.
+      setParkedMap((m) => (m[name] ? { ...m, [name]: false } : m));
+    }
     Animated.timing(tx, {
       toValue: toOpen ? 0 : -width,
       duration: toOpen ? 260 : 200,
       easing: toOpen ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
       useNativeDriver: Platform.OS !== 'web',
-    }).start();
+    }).start(({ finished }) => {
+      if (!toOpen && finished && intentRef.current[name] === "closed") {
+        parkDrawer(name);
+      }
+    });
+    if (!toOpen) {
+      // Safety net: if the timing is superseded or its frames are
+      // starved past its own duration, the completion callback may
+      // never fire — park anyway once the close should long be over.
+      // The intent guard keeps this from ever parking a drawer that
+      // has since been re-opened.
+      parkTimerRef.current[name] = window.setTimeout(() => {
+        parkTimerRef.current[name] = null;
+        if (intentRef.current[name] === "closed") parkDrawer(name);
+      }, 450) as unknown as number;
+    }
   };
 
   // Icons: open instantly to current drawer width; close staggered after last drawer closes.
@@ -130,7 +232,7 @@ export function NewDrawersProvider({ children }: { children: React.ReactNode }) 
 
     // Icons: open instantly to that panel width
     setIconsCollapsed(false);
-    setIconsOpenInstant(WIDTHS[name]);
+    setIconsOpenInstant(widthsRef.current[name]);
     lastActivityRef.current = Date.now();
     if (collapseTimerRef.current) {
       window.clearTimeout(collapseTimerRef.current);
@@ -176,7 +278,7 @@ export function NewDrawersProvider({ children }: { children: React.ReactNode }) 
       animatePanelTo(current, false);
       animatePanelTo(prev, true);
       setOpenName(prev);
-      setIconsOpenInstant(WIDTHS[prev]);
+      setIconsOpenInstant(widthsRef.current[prev]);
       lastActivityRef.current = Date.now();
       if (collapseTimerRef.current) {
         window.clearTimeout(collapseTimerRef.current);
@@ -252,7 +354,7 @@ export function NewDrawersProvider({ children }: { children: React.ReactNode }) 
       getIconTx: (name: DrawerName) => iconsRef.current[name],
       requestIconExpand,
     }),
-    [openName, history, open, toggle, closeAll, back, requestIconExpand]
+    [openName, history, open, toggle, closeAll, back, requestIconExpand, parkedMap]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

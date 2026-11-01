@@ -20,7 +20,7 @@ interface ShopItem {
 
 export default function ShopDrawer() {
   const { back, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("shop");
+  const { tx, width, parked } = getAnim("shop");
   const haptics = useHaptics();
   const audio = useAudioCues();
   // Sample items/credits only render when the demo-data flag is on (Slice 1).
@@ -154,12 +154,13 @@ export default function ShopDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0, bottom: 0, left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >

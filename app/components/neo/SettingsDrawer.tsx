@@ -10,7 +10,7 @@ import VisionAIDrawerButton from "./VisionAIDrawerButton";
 
 export default function SettingsDrawer() {
   const { back, getAnim, open } = useNewDrawers();
-  const { tx, width } = getAnim("settings");
+  const { tx, width, parked } = getAnim("settings");
   const haptics = useHaptics();
   const audio = useAudioCues();
 
@@ -35,12 +35,13 @@ export default function SettingsDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0, bottom: 0, left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >

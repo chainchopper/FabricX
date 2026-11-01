@@ -37,8 +37,12 @@
  *   user picked, and this stage rebinds that same-origin GLB
  *   whenever it mounts with an empty slot. A picked custom file
  *   is session state (an object URL); the built-in is a URL the
- *   layer itself can hold, so the pick survives reloads until
- *   "Restore mannequin" clears the setting.
+ *   layer itself can hold, so the pick survives reloads. Slice
+ *   37: an UNSET pick binds the DEFAULT idle (Trauma, MMA) —
+ *   Trauma is the resident character, the mannequin is the
+ *   fallback — and "Restore mannequin" now stores the explicit
+ *   "none" pick (traumaCharacter.resolveBuiltinBind) so the bare
+ *   figure is a choice, not the accident of an empty setting.
  *
  * DOM side (this file) owns the cast bookkeeping: one
  * DancerDriver per participant (created lazily, pruned when they
@@ -62,7 +66,13 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { Canvas } from "@react-three/fiber";
 import { useExperience } from "../contexts/ExperienceContext";
 import { noteBus } from "../../shared/utils/noteBus";
@@ -85,8 +95,10 @@ import { useIdentitySnapshot } from "../identity/useIdentity";
 import {
   getStageCharacterState,
   setStageCharacterRemote,
+  subscribeStageCharacter,
+  type StageCharacterState,
 } from "./stageCharacter";
-import { traumaIdleDef } from "./traumaCharacter";
+import { resolveBuiltinBind } from "./traumaCharacter";
 import { displayNameFor } from "../identity/identityStore";
 import {
   getGhostPublicState,
@@ -123,24 +135,39 @@ export default function DancerStage({
   const drift = specific.stageCameraDrift !== false;
   const themeHue = stageThemeHue(specific.stageTheme);
   // THIS LAYER's built-in character pick: an idle id from the
-  // Trauma catalog, or null when the layer never picked one.
+  // Trauma catalog, the explicit "none" (Restore mannequin), or
+  // null when the layer never picked one.
   const traumaIdleSetting =
     typeof specific.stageTraumaIdle === "string"
       ? specific.stageTraumaIdle
       : null;
 
-  // Rebind the layer's built-in character on mount (see header):
+  // Bind the layer's built-in character on mount (see header):
   // only into an EMPTY slot — a character the user bound this
   // session (either idle, or their own picked file) is never
-  // overridden. A failed load reports through the slot and the
-  // mannequin keeps the stage; the URL stays in the store, so
-  // this never retry-loops.
+  // overridden. Slice 37: the resolution is resolveBuiltinBind —
+  // unset binds the DEFAULT idle (Trauma, MMA); only the explicit
+  // "none" pick keeps the bare figure. (The old gate returned
+  // early on unset, so no pick meant no character, forever —
+  // while the menu's pills showed MMA as the apparent pick.) A
+  // failed load reports through the slot, the mannequin keeps
+  // the stage, and the failure pill below shows it on stage; the
+  // URL stays in the store, so this never retry-loops.
   useEffect(() => {
-    if (!traumaIdleSetting) return;
+    const def = resolveBuiltinBind(traumaIdleSetting);
+    if (!def) return;
     if (getStageCharacterState().url) return;
-    const def = traumaIdleDef(traumaIdleSetting);
     setStageCharacterRemote(def.url, def.characterName);
   }, [traumaIdleSetting]);
+
+  // Slice 37: the slot's live state, for the failure pill — a
+  // bind that fails must be visible HERE, on the stage, not only
+  // as a status line inside the settings panel (which is itself
+  // two taps away and was a stacked mess in the same report).
+  const [charState, setCharState] = useState<StageCharacterState>(() =>
+    getStageCharacterState()
+  );
+  useEffect(() => subscribeStageCharacter(setCharState), []);
 
   const fx = useMemo(createStageFx, []);
   const fxRef = useRef(fx);
@@ -326,7 +353,7 @@ export default function DancerStage({
   }
 
   return (
-    <View style={styles.fill}>
+    <View style={[styles.fill, webViewportHeight]}>
       <Canvas
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: false }}
@@ -342,9 +369,38 @@ export default function DancerStage({
         />
       </Canvas>
       <ToneEngine />
+      {/* Slice 37: a failed character bind, visible on stage.
+          Until now the failure lived only as a status line in
+          THIS LAYER's settings — the stage silently kept the
+          mannequin and read as "my character is ignored". The
+          pill is honest, small, and gone the moment a character
+          binds. pointerEvents none: it reports, it never blocks. */}
+      {charState.status === "failed" ? (
+        <View pointerEvents="none" style={styles.charFailWrap}>
+          <View style={styles.charFailPill}>
+            <Text style={styles.charFailText}>
+              Character didn’t load — showing the fallback figure
+            </Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
+
+// Slice 37 (web): pin the stage to the DYNAMIC viewport height.
+// The absolute-inset chain sizes against the layout viewport;
+// when iOS strands the page after the keyboard closes (the old
+// on-canvas compose field's focus theft did exactly this —
+// Hotfix 2.3's note), the layout box stays keyboard-short and
+// the canvas ended ~60% down over unstyled white page (Terrell's
+// Nov 1 shot). 100dvh tracks the viewport the user actually
+// sees, so the stage reaches the bottom of the screen in every
+// state; the stage's own background rides the same box, so no
+// white can show beneath the canvas either.
+const webViewportHeight = (
+  Platform.OS === "web" ? { height: "100dvh" } : null
+) as ViewStyle | null;
 
 const styles = StyleSheet.create({
   fill: {
@@ -356,4 +412,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#070a12",
   },
   note: { color: "#8fa3b8", fontSize: 13, margin: 24 },
+  charFailWrap: {
+    position: "absolute",
+    top: 72,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  charFailPill: {
+    maxWidth: "88%",
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.55)",
+    backgroundColor: "rgba(12,10,18,0.92)",
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  charFailText: { color: "#fecaca", fontSize: 12, fontWeight: "600" },
 });
