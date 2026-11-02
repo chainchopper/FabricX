@@ -441,6 +441,13 @@ export interface GhostScenario {
    * behavior is untouched.
    */
   utterance?: GhostUtteranceContext;
+  /**
+   * Slice 36: what the room's compute field is doing (see
+   * GhostGenxContext). Absent whenever the Fold is not the
+   * loaded fabric or the field has nothing to report, so every
+   * legacy scenario and the whole v1 dataset stay byte-identical.
+   */
+  genx?: GhostGenxContext;
 }
 
 /** Who said the utterance, as far as this client honestly knows. */
@@ -498,6 +505,85 @@ export function sanitizeUtteranceContext(
       ? Math.max(0, Math.floor(rec.repeats))
       : 0;
   return { text, asr_confidence: conf, speaker, repeats };
+}
+
+/* ------------------------------------------------------------------ */
+/* GenX sense (Slice 36, "The Fold")                                   */
+/* ------------------------------------------------------------------ */
+/*
+ * The v2 sense field for the distributed-compute fabric (dataset
+ * schema v2 gains `genx` in this change): the ghost's digest of
+ * the room's compute field — how many contributors are in it,
+ * how much of the joined power is mid-shard, the active fold's
+ * verified progress, whether a bridged GenX node's Folding@home
+ * is online (the node's own report), and how many shards have
+ * gone quiet past the stall window. Every number is derived from
+ * the field state (src/genx/fieldState.senseSnapshotOf): counts
+ * and ratios of real events, never impressions.
+ *
+ * Like `fabric`, `gestures` and `utterance`, the field is ABSENT
+ * whenever the sense has nothing to report — which is every
+ * legacy/dataset scenario and every room where the Fold is not
+ * the loaded fabric — so absence changes nothing, anywhere.
+ *
+ * The two one-shot flags are the peer's transition marks
+ * (GhostPeer.noteGenx sets them on the completion / stall-onset
+ * transitions and buildScenario consumes them exactly once):
+ * they let the on-device overlay answer an EVENT (the fold just
+ * finished; a shard just stalled) instead of re-answering a
+ * state on every deliberation while it holds.
+ */
+export interface GhostGenxContext {
+  /** Contributors in the field: joined devices + a reporting node. */
+  nodes_online: number;
+  /** 0..1 — share of joined devices currently mid-shard. */
+  field_load: number;
+  /** 0..1 — verified shards / total shards of the active fold. */
+  mission_progress: number;
+  shards_done: number;
+  shards_total: number;
+  /** A bridged GenX node's FAH reports ONLINE. */
+  fah_online: boolean;
+  /** Shards silent past the stall window right now. */
+  stalled: number;
+  /** One-shot: the fold completed since the last deliberation. */
+  fold_just_completed: boolean;
+  /** One-shot: a shard crossed into stalled since the last deliberation. */
+  shard_just_stalled: boolean;
+}
+
+/**
+ * Clamp an unknown value to a GhostGenxContext, or null when it
+ * is not one — the sanitizeFabricContext discipline: garbled
+ * field data must never reach the brain as fact. Counts clamp
+ * to sane ranges, ratios to [0,1], done never exceeds total,
+ * and the one-shot flags pass only as strict booleans.
+ */
+export function sanitizeGenxContext(
+  raw: unknown
+): GhostGenxContext | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const int = (v: unknown, hi: number): number =>
+    typeof v === "number" && Number.isFinite(v)
+      ? Math.min(hi, Math.max(0, Math.floor(v)))
+      : 0;
+  const ratio = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v)
+      ? Math.min(1, Math.max(0, v))
+      : 0;
+  const shardsTotal = int(rec.shards_total, 4096);
+  return {
+    nodes_online: int(rec.nodes_online, 256),
+    field_load: ratio(rec.field_load),
+    mission_progress: ratio(rec.mission_progress),
+    shards_done: Math.min(int(rec.shards_done, 4096), shardsTotal),
+    shards_total: shardsTotal,
+    fah_online: rec.fah_online === true,
+    stalled: int(rec.stalled, 4096),
+    fold_just_completed: rec.fold_just_completed === true,
+    shard_just_stalled: rec.shard_just_stalled === true,
+  };
 }
 
 /** Decision — the dataset's output schema, verbatim. */
@@ -1007,6 +1093,70 @@ export function noteDecisionFor(
   return { decision, ruleId: `note-answer-${scenario.temperament}` };
 }
 
+/* ------------------------------------------------------------------ */
+/* The GenX overlay (Slice 36)                                         */
+/* ------------------------------------------------------------------ */
+/*
+ * The ghost does not compute and does not allocate — it NOTICES
+ * the field, the way it notices a hand or a voice. This overlay
+ * answers only the two discrete events the peer marks one-shot
+ * on the scenario:
+ *
+ *   - the fold just completed (every shard the room was working
+ *     on reached its verdict): the ghost celebrates with the
+ *     room — a play, in its own hue, through the ordinary emit
+ *     budgets. A completion with failed shards still celebrates
+ *     the verified work; the ledger, not the ghost, keeps the
+ *     exact count.
+ *   - a shard just stalled (its device went quiet mid-work):
+ *     the ghost attends — a sniff toward the field, curiosity
+ *     at the gap. It cannot reassign the shard (the allocator
+ *     does that, on the same stall fact, through the room
+ *     protocol); it can only notice, which is a peer's job.
+ *
+ * Neither answer is a draw or a note, so no fabric rule gates
+ * them; the shared validator and the peer's budgets bind them
+ * exactly as they bind every other decision. A scenario without
+ * the genx field — every legacy scenario — never reaches here.
+ */
+export function genxDecisionFor(
+  scenario: GhostScenario
+): { decision: GhostDecision; ruleId: string } | null {
+  const genx = scenario.genx;
+  if (!genx) return null;
+  if (genx.fold_just_completed && genx.shards_total > 0) {
+    const decision = validateGhostDecision(
+      {
+        mood_shift: null,
+        intent: "play",
+        pattern_id: null,
+        draw_shape: null,
+        note_name: null,
+        intensity: 0.65,
+        linger_s: 4,
+      },
+      scenario
+    );
+    if (decision) return { decision, ruleId: "genx-fold-complete" };
+  }
+  if (genx.shard_just_stalled && genx.stalled > 0) {
+    const decision = validateGhostDecision(
+      {
+        mood_shift: null,
+        intent: "sniff",
+        pattern_id: null,
+        draw_shape: null,
+        note_name: null,
+        intensity: 0.5,
+        linger_s: 3,
+      },
+      scenario
+    );
+    if (decision) return { decision, ruleId: "genx-shard-stalled" };
+  }
+  return null;
+}
+
 /**
  * The on-device brain: the utterance overlay answers first when
  * someone just spoke (Slice 33 — it is the most specific stimulus
@@ -1030,6 +1180,12 @@ export function decideOnDevice(scenario: GhostScenario): {
   try {
     const note = noteDecisionFor(scenario);
     if (note) return note;
+  } catch {
+    // The overlay must never take the table down with it.
+  }
+  try {
+    const genx = genxDecisionFor(scenario);
+    if (genx) return genx;
   } catch {
     // The overlay must never take the table down with it.
   }

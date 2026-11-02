@@ -100,6 +100,7 @@ import type { GhostSfxKind } from "./useGhostSfx";
 import type {
   GhostDecision,
   GhostFabricContext,
+  GhostGenxContext,
   GhostGestureReading,
   GhostScenario,
   GhostScenarioOther,
@@ -113,11 +114,13 @@ import {
   isGhostNoteName,
   parseUtteranceReading,
   sanitizeFabricContext,
+  sanitizeGenxContext,
   sanitizeGestureReadings,
   sanitizeUtteranceContext,
   seedTraitsForTemperament,
   UTTERANCE_CONFIDENCE_FLOOR,
 } from "./GhostBrain";
+import type { GenxSenseSnapshot } from "../genx/genxTypes";
 import { validateRecipe, type Recipe } from "../ai/RecipeCore";
 import {
   DEFAULT_GHOST_SHARED_SETTINGS,
@@ -794,6 +797,18 @@ export class GhostPeer {
    * not a history.
    */
   private gestureLog: (GhostGestureReading & { at: number })[] = [];
+  /**
+   * Slice 36 (The Fold): the latest genx field digest + when it
+   * landed. The scenario carries it as `genx` while fresh (45s —
+   * the gesture window). The one-shot transition marks are set by
+   * noteGenx on the completion / stall-onset transitions and are
+   * consumed by exactly one buildScenario, the pendingUtterance
+   * discipline: an event is answered once, not on every tick
+   * while its state holds.
+   */
+  private genxDigest: { ctx: GhostGenxContext; at: number } | null = null;
+  private genxFoldJustCompleted = false;
+  private genxShardJustStalled = false;
   /** Human interaction timestamps (energy trend), pruned at 90s. */
   private humanEventTimes: number[] = [];
   /** Strongest nearby splat + when (decays over ~20s in snapshots). */
@@ -1577,6 +1592,66 @@ export class GhostPeer {
     this.noteUserActivity();
     this.journal(`gesture ${clean[0].token}`, now);
     this.markDeliberationDirty();
+  }
+
+  /**
+   * The compute field moved (Slice 36, "The Fold"). LegacyFluid
+   * forwards the field's digest (src/genx's senseSnapshotOf, via
+   * the genx store) whenever it changes while the Fold is the
+   * loaded fabric. This is a SENSE, like noteGesture: nothing is
+   * emitted, nothing is spent, no gate is consulted. The digest
+   * is clamped through GhostBrain's sanitizer — the field's
+   * numbers arrive as untrusted wire-derived data like any
+   * other — and lands in the scenario's v2 `genx` field, so both
+   * brain tiers deliberate in a room whose fold they can feel.
+   *
+   * TRANSITIONS are journaled in the dataset's event style and
+   * marked one-shot for the overlay: the fold completing
+   * ("the fold is complete"), a shard crossing into stalled
+   * ("a shard went quiet"), a bridged node's FAH coming online
+   * ("a folding node is reporting"). Steady states journal
+   * nothing — the digest rides the scenario, the journal carries
+   * only what CHANGED, and a ghost that re-announced the field's
+   * progress every few seconds would be chatter, not company.
+   */
+  noteGenx(snapshot: GenxSenseSnapshot): void {
+    if (this.destroyed) return;
+    const clean = sanitizeGenxContext({
+      nodes_online: snapshot?.nodesOnline,
+      field_load: snapshot?.fieldLoad,
+      mission_progress: snapshot?.missionProgress,
+      shards_done: snapshot?.shardsDone,
+      shards_total: snapshot?.shardsTotal,
+      fah_online: snapshot?.fahOnline,
+      stalled: snapshot?.stalled,
+      fold_just_completed: false,
+      shard_just_stalled: false,
+    });
+    if (!clean) return;
+    const now = Date.now();
+    const prev = this.genxDigest?.ctx ?? null;
+    this.genxDigest = { ctx: clean, at: now };
+    if (!prev) return;
+    let marked = false;
+    if (
+      clean.shards_total > 0 &&
+      clean.mission_progress >= 1 &&
+      prev.mission_progress < 1
+    ) {
+      this.genxFoldJustCompleted = true;
+      this.journal("the fold is complete", now);
+      marked = true;
+    }
+    if (clean.stalled > prev.stalled) {
+      this.genxShardJustStalled = true;
+      this.journal("a shard went quiet", now);
+      marked = true;
+    }
+    if (clean.fah_online && !prev.fah_online) {
+      this.journal("a folding node is reporting", now);
+      marked = true;
+    }
+    if (marked) this.markDeliberationDirty();
   }
 
   /**
@@ -2627,6 +2702,22 @@ export class GhostPeer {
         confidence,
         held_s,
       }));
+    // Slice 36: the genx field digest, while fresh (45s — the
+    // gesture window). The one-shot transition marks ride this
+    // one snapshot and are consumed by it: the next deliberation
+    // sees the field's state, not a replay of its events.
+    const genx: GhostGenxContext | null =
+      this.genxDigest && now - this.genxDigest.at < 45_000
+        ? {
+            ...this.genxDigest.ctx,
+            fold_just_completed: this.genxFoldJustCompleted,
+            shard_just_stalled: this.genxShardJustStalled,
+          }
+        : null;
+    if (genx) {
+      this.genxFoldJustCompleted = false;
+      this.genxShardJustStalled = false;
+    }
     return {
       temperament: this.temperament,
       seconds_since_human_touch: Math.round((now - this.lastActivityAt) / 100) / 10,
@@ -2655,6 +2746,9 @@ export class GhostPeer {
       ...(this.pendingUtterance
         ? { utterance: this.pendingUtterance }
         : {}),
+      // Slice 36: the compute field's digest (see above); the
+      // key is omitted entirely when the sense is quiet or stale.
+      ...(genx ? { genx } : {}),
     };
   }
 

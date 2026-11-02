@@ -13,6 +13,7 @@
  *   dancer-stage    spotlights, floor ripples, the dancer's silhouette
  *   sam-see         a camera frame with SAM's boxes over a scene
  *   camera-effects  aperture rings and a prism trail
+ *   genx-fold       scattered motes resolving toward a helix — the fold forming
  *
  * Scenes are plain Views — no image assets, no new dependencies —
  * so they stay crisp at any size and can never go stale against a
@@ -367,6 +368,59 @@ function EffectsScene() {
   );
 }
 
+/**
+ * The Fold — GenX's own visual contract (its Visualizer): atoms
+ * start scattered and resolve toward the form as progress
+ * climbs. Here: loose motes at the edges, a helix of dye
+ * resolving through the middle — one job, every screen, forming.
+ */
+function FoldScene() {
+  // The helix: two strands of motes winding through the frame.
+  const helixA = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+    const x = 34 + i * 20;
+    const y = 59 + Math.sin(i * 0.9) * 26;
+    return { x, y };
+  });
+  const helixB = helixA.map((p, i) => ({
+    x: p.x,
+    y: 59 - Math.sin(i * 0.9) * 26,
+  }));
+  return (
+    <>
+      <Blob left={-30} top={-40} size={130} color={HUES.cyan} opacity={0.28} />
+      <Blob left={140} top={58} size={100} color={HUES.violet} opacity={0.24} />
+      {/* Scattered motes — the field at 0%, not yet a shape. */}
+      <Blob left={12} top={10} size={5} color="#FFFFFF" opacity={0.5} />
+      <Blob left={52} top={96} size={5} color={HUES.amber} opacity={0.55} />
+      <Blob left={168} top={12} size={6} color={HUES.cyan} opacity={0.5} />
+      <Blob left={188} top={88} size={5} color="#FFFFFF" opacity={0.45} />
+      <Blob left={8} top={84} size={6} color={HUES.magenta} opacity={0.4} />
+      {/* The resolving helix — progress made visible as form. */}
+      {helixA.map((p, i) => (
+        <Blob key={`a${i}`} left={p.x} top={p.y} size={i % 2 ? 7 : 9} color={HUES.cyan} opacity={0.95} />
+      ))}
+      {helixB.map((p, i) => (
+        <Blob key={`b${i}`} left={p.x} top={p.y} size={i % 2 ? 9 : 7} color={HUES.violet} opacity={0.9} />
+      ))}
+      {/* Rungs where the strands meet — shards locking in. */}
+      {[1, 3, 5].map((i) => (
+        <View
+          key={`r${i}`}
+          style={{
+            position: "absolute",
+            left: helixA[i].x + 3,
+            top: Math.min(helixA[i].y, helixB[i].y),
+            width: 2,
+            height: Math.abs(helixA[i].y - helixB[i].y),
+            backgroundColor: "#FFFFFF",
+            opacity: 0.35,
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 /** Stable hue pair for an unregistered fabric id. */
 function hashHues(id: string): [string, string] {
   let h = 0;
@@ -408,6 +462,7 @@ const SCENES: Record<string, () => React.ReactElement> = {
   "dancer-stage": () => <StageScene />,
   "sam-see": () => <SeeScene />,
   "camera-effects": () => <EffectsScene />,
+  "genx-fold": () => <FoldScene />,
 };
 
 /**

@@ -59,6 +59,8 @@ import {
 import { StrokeBatcher, type StrokePoint } from "../services/strokeBatch";
 import { validateRecipe, type Recipe } from "../ai/RecipeCore";
 import { recipeBus } from "../ai/RecipePlayer";
+import { ingestGenxWire } from "../genx/genxStore";
+import type { GenxWireMessage } from "../genx/genxTypes";
 
 type TransportMsg =
   | { type: "fluid-interaction"; data: FluidInteraction }
@@ -173,7 +175,19 @@ type TransportMsg =
       layerId: string;
       byName: string;
       rules: FabricRules;
-    };
+    }
+  // Slice 36 ("The Fold"): the distributed-compute family. A
+  // bounty board (postings + joins), a room-fold mission (spec +
+  // assignments from its allocator, progress/results/verdicts),
+  // a bridged GenX node's sanitized readings, and node-job
+  // status. Payloads are untrusted until the genx store's
+  // sanitizers clamp them and its reducer enforces origin law
+  // (only a mission's allocator assigns or verifies). Compute is
+  // coordination, not a send-kind: the family is not fabric-gated
+  // (Slice 19's rules govern draw/verbs/notes; allocation is
+  // room state, and the allocator-only origin law is enforced
+  // receiver-side). Additive: older clients ignore every type.
+  | GenxWireMessage;
 
 /** How long a BroadcastChannel peer counts as present after last contact. */
 const BC_PEER_TTL_MS = 6000;
@@ -1153,6 +1167,16 @@ export function useFluidMultiUser(roomId: string) {
             byName: valid.byName,
           });
         }
+      } else if (msg.type.startsWith("genx-")) {
+        // Slice 36: the compute family. The hook does no field
+        // math — the payload goes to the genx store, whose
+        // sanitizers clamp it and whose reducer enforces origin
+        // law before any of it becomes field truth. Receiving is
+        // ungated, like notes and recipes: a view-only guest
+        // still SEES the fold it is lending its device to.
+        if (typeof msg.from !== "string" || msg.from === userId) return;
+        noteBcPeer(msg.from);
+        ingestGenxWire(msg as GenxWireMessage);
       }
     },
     [userId, noteBcPeer, notePeerJoin, acceptRemote, updateStatus]
@@ -1629,6 +1653,24 @@ export function useFluidMultiUser(roomId: string) {
     [userId, sendRecipeAs]
   );
 
+  /**
+   * Slice 36: send ONE genx message to the room. The caller
+   * builds the payload WITHOUT `from` (stamped here, like every
+   * other family) and dispatches the same event into the local
+   * genx store, so the sender's own field folds its own word
+   * through the same reducer its peers apply. Not fabric-gated
+   * (compute is not a send-kind — see the TransportMsg note);
+   * origin law is enforced by every receiver's reducer.
+   */
+  const sendGenx = useCallback(
+    (msg: Omit<GenxWireMessage, "from">) => {
+      const full = { ...msg, from: userId } as GenxWireMessage;
+      postRef.current(full as TransportMsg);
+      ingestGenxWire(full);
+    },
+    [userId]
+  );
+
   // Hotfix 1.9: per-sender sequence + the stroke batcher. The
   // batcher holds ONLY local-human, verb-less stroke points (the
   // engine's per-frame input, via the { batch: true } opt-in) for a
@@ -1844,6 +1886,8 @@ export function useFluidMultiUser(roomId: string) {
      * ride sendInteraction under the ghost's id.
      */
     sendRecipeAs,
+    /** Slice 36: one genx message to the room (+ the local store). */
+    sendGenx,
     injectRemoteInteraction,
     humanPeers,
     /** Human userIds heard from in this room (Slice 5, pass-control). */
