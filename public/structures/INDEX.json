@@ -1,0 +1,48 @@
+[
+  {
+    "id": "4HHB",
+    "name": "Human Deoxyhemoglobin",
+    "source": "rcsb",
+    "file": "structures/4HHB.pdb",
+    "originUrl": "https://files.rcsb.org/download/4HHB.pdb",
+    "fetchedDate": "2026-11-02",
+    "sha256": "abf382e0fd84b53bd4c08b373d37c0d7fe9fbe1a9a9c3851b2f5f2fbbe627101",
+    "chains": [
+      {
+        "id": "A",
+        "residues": 141
+      },
+      {
+        "id": "B",
+        "residues": 146
+      },
+      {
+        "id": "C",
+        "residues": 141
+      },
+      {
+        "id": "D",
+        "residues": 146
+      }
+    ],
+    "totalResidues": 574,
+    "ligands": 4
+  },
+  {
+    "id": "AF-P01308",
+    "name": "Human Insulin — AlphaFold prediction (AF-P01308-F1, model v6)",
+    "source": "alphafold",
+    "file": "structures/AF-P01308.pdb",
+    "originUrl": "https://alphafold.ebi.ac.uk/files/AF-P01308-F1-model_v6.pdb",
+    "fetchedDate": "2026-11-02",
+    "sha256": "fe62888f30a158bc3a4ee162dceb0b91501ac83213f4c8972d90e12c5a480122",
+    "chains": [
+      {
+        "id": "A",
+        "residues": 110
+      }
+    ],
+    "totalResidues": 110,
+    "ligands": 0
+  }
+]

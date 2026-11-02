@@ -72,6 +72,15 @@ export interface GenxBountyDef {
   framework: string | null;
   /** Job parameter payload for node jobs (e.g. { sequence }); null for room jobs. */
   params: Record<string, string> | null;
+  /**
+   * The real structure this job is about — a bundled structure
+   * id (structures.ts registry: "4HHB", "AF-P01308") or null
+   * for jobs with no structure (Slice 39). Cards and the
+   * molecular layer resolve it against the registry; an id
+   * that resolves to nothing is a data error, never a render
+   * of an invented molecule.
+   */
+  structureId: string | null;
   /** Computed at post time from the job spec; null when unknowable. */
   totalWorkUnits: number | null;
   /** Computed at post time from the job spec; null when unknowable. */

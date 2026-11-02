@@ -57,6 +57,12 @@ export interface GenxCardData {
   verifiedWork: number;
   /** Juice actually earned so far by the room (verified only). */
   juiceEarned: number;
+  /**
+   * The bundled structure this job is about (structures.ts
+   * registry id), carried from the def — the molecular layer
+   * resolves it; null for structureless jobs (Slice 39).
+   */
+  structureId: string | null;
 }
 
 export function bountyCardData(
@@ -93,6 +99,7 @@ export function bountyCardData(
     contributors,
     verifiedWork,
     juiceEarned,
+    structureId: def.structureId ?? null,
   };
 }
 

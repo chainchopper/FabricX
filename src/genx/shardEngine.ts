@@ -31,6 +31,13 @@ import {
   computeTile,
   type TileSpec,
 } from "./lifeField";
+import {
+  bundledStructureMeta,
+  HEMOGLOBIN_STRUCTURE_ID,
+  INSULIN_STRUCTURE_ID,
+  structureJuicePool,
+  structureWorkUnits,
+} from "./structures";
 import type {
   GenxBountyDef,
   GenxMissionSpec,
@@ -237,17 +244,20 @@ export const INSULIN_A_CHAIN = "GIVEQCCTSICSLYQLENYCN";
 
 export const ROOM_FOLD_JOB_ID = "bounty-room-fold-1";
 export const NODE_ESMFOLD_JOB_ID = "bounty-node-esmfold-1";
+export const STRUCTURE_FOLD_JOB_ID = "bounty-structure-fold-1";
 
 /**
  * The board's seed bounties, posted by Fanalogy on the room's
  * behalf (Terrell's direction: institutional sponsors and
- * ourselves first). Both are REAL jobs with real execution
- * paths: the Room Fold runs on the room's own devices; the
- * sequence job submits through a bridged GenX node's
- * /jobs/submit to its ESMFold provider (framework id "esmfold",
- * confirmed from the node's provider registry code). Their
- * work/pool figures are computed from the templates above; the
- * node job's are null — its cost is the node's to report.
+ * ourselves first). All are REAL jobs with real referents: the
+ * Room Fold runs on the room's own devices; the sequence job
+ * submits through a bridged GenX node's /jobs/submit to its
+ * ESMFold provider (framework id "esmfold", confirmed from the
+ * node's provider registry code); the structure job's target
+ * is a real bundled molecule (structures.ts) whose shards are
+ * its own residue ranges. Their work/pool figures are computed
+ * from the templates above; the node job's are null — its cost
+ * is the node's to report.
  */
 export function buildSeedBounties(
   postedBy: string,
@@ -261,6 +271,10 @@ export function buildSeedBounties(
     startedAt: at,
   });
   const totalWork = missionTotalWork(template);
+  // The hemoglobin job's figures come from the bundled
+  // structure's verified registry entry (parser-computed
+  // counts), through structures.ts's stated formulas.
+  const hemo = bundledStructureMeta(HEMOGLOBIN_STRUCTURE_ID);
   return [
     {
       id: ROOM_FOLD_JOB_ID,
@@ -272,6 +286,7 @@ export function buildSeedBounties(
       form: "helix",
       framework: null,
       params: null,
+      structureId: null,
       totalWorkUnits: totalWork,
       juicePool: juicePoolFor(totalWork),
       createdAt: at,
@@ -286,8 +301,24 @@ export function buildSeedBounties(
       form: "complex",
       framework: "esmfold",
       params: { sequence: INSULIN_A_CHAIN },
+      structureId: INSULIN_STRUCTURE_ID,
       totalWorkUnits: null,
       juicePool: null,
+      createdAt: at,
+    },
+    {
+      id: STRUCTURE_FOLD_JOB_ID,
+      kind: "room-fold",
+      title: "Fold Hemoglobin — room fold",
+      summary:
+        "A real target for the room: human deoxyhemoglobin (RCSB 4HHB) — 574 residues across 4 chains, 4 heme groups, experimentally determined. Shards are residue ranges of the molecule (structures.ts); each range's target shape is the structure's own measured Cα trace, bundled with this app.",
+      postedBy,
+      form: "complex",
+      framework: null,
+      params: null,
+      structureId: HEMOGLOBIN_STRUCTURE_ID,
+      totalWorkUnits: hemo ? structureWorkUnits(hemo.totalResidues) : null,
+      juicePool: hemo ? structureJuicePool(hemo.totalResidues) : null,
       createdAt: at,
     },
   ];
