@@ -15,7 +15,7 @@ export default function LayerDrawer() {
   const toast = useToast();
   const { openName, back, getAnim } = useNewDrawers();
 
-  const { tx, width } = getAnim("layer"); // tx: -width (closed) to 0 (open)
+  const { tx, width, parked } = getAnim("layer"); // tx: -width (closed) to 0 (open)
   const isOpen = openName === "layer";
 
   // Realtime preview (low res) via dataURL updated while open
@@ -139,9 +139,10 @@ export default function LayerDrawer() {
         left: 0,
         width,
         transform: [{ translateX: tx }],
-        zIndex: 84,
+        display: parked ? "none" : "flex",
+        zIndex: 200,
       }}
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
     >
       <View
         style={{
@@ -150,7 +151,7 @@ export default function LayerDrawer() {
           bottom: 0,
           left: 0,
           width,
-          backgroundColor: "rgba(6,10,22,0.96)",
+          backgroundColor: "#060a16",
           paddingTop: 56,
           paddingHorizontal: 16,
         }}
@@ -182,7 +183,7 @@ export default function LayerDrawer() {
             style={{
               width: 320,
               height: 180,
-              backgroundColor: "rgba(2,8,23,0.6)",
+              backgroundColor: "#020817",
               borderColor: "rgba(34,211,238,0.35)",
               borderWidth: 1,
               borderRadius: 10,

@@ -9,12 +9,35 @@
  * free by design (no drei in this tree): plain three + 2D canvas.
  */
 import React, { useEffect, useMemo } from "react";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
 const LABEL_HEIGHT = 0.3; // world units
 const FONT_PX = 46;
 const PAD_X = 30;
 const DOT_R = 11;
+
+/**
+ * Chrome avoidance (Slice 37): the Essence — the device's
+ * identity card — owns the top-right corner as DOM chrome and
+ * always paints over the canvas (its mount sits at zIndex 70;
+ * the whole canvas branch is zIndex 0). A rig's name tag that
+ * drifted into that corner was half-eaten by the card: Terrell's
+ * Nov 1 shot has Boop's tag sitting BEHIND the Essence, its pill
+ * arc and name bleeding around the card's edges — two pieces of
+ * chrome pretending to share one corner. The tag now YIELDS:
+ * this maps its projected screen position (NDC: x right, y up,
+ * both -1..1) to a target opacity — full everywhere else, faded
+ * to a ghost inside the Essence's corner, ramped on both axes so
+ * the fade is a glide, not a pop. Pure math so the check can
+ * prove the yield without a GPU.
+ */
+export function labelOpacityForNdc(x: number, y: number): number {
+  const ramp = (v: number, lo: number, hi: number) =>
+    Math.min(1, Math.max(0, (v - lo) / (hi - lo)));
+  const intoCorner = ramp(x, 0.02, 0.3) * ramp(y, 0.5, 0.7);
+  return 1 - 0.88 * intoCorner;
+}
 
 function makeLabelSprite(name: string, hue: number): THREE.Sprite {
   const label = name.trim() || "Ghostie";
@@ -82,5 +105,17 @@ export default function RigLabel({
     },
     [sprite]
   );
+  // The yield, applied per frame: project the tag's world
+  // position and ease its opacity toward the corner verdict.
+  // The tag never moves or resizes — it simply gets out of the
+  // Essence's way while it passes through its corner.
+  const probe = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    if (!sprite.parent) return;
+    sprite.getWorldPosition(probe).project(camera);
+    const target = labelOpacityForNdc(probe.x, probe.y);
+    const mat = sprite.material;
+    mat.opacity += (target - mat.opacity) * 0.18;
+  });
   return <primitive object={sprite} position={[0, 2.06, 0]} />;
 }

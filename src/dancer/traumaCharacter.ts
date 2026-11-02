@@ -91,6 +91,35 @@ export function traumaIdleDef(value: unknown): TraumaIdleDef {
   return found ?? TRAUMA_IDLES.find((d) => d.id === DEFAULT_TRAUMA_IDLE_ID)!;
 }
 
+/**
+ * The explicit "no built-in character" pick: THIS LAYER stores
+ * this string in `specific.stageTraumaIdle` when the user chooses
+ * the bare figure (Restore mannequin). It is a real stored value,
+ * distinct from the setting being UNSET — unset means "no choice
+ * made yet", and the stage's default (below) applies instead.
+ * Before Slice 37, Restore mannequin and Load character both
+ * cleared the setting to undefined, so "never picked", "picked my
+ * own file" and "wants the bare figure" were indistinguishable —
+ * and the stage read all three as "bind nothing".
+ */
+export const TRAUMA_IDLE_NONE = "none";
+
+/**
+ * Resolve a stored `specific.stageTraumaIdle` value to the
+ * built-in the stage binds on mount (Slice 37):
+ *   - "none"       -> null (explicit bare figure; never bind)
+ *   - a catalog id -> that idle's def
+ *   - unset/other  -> the DEFAULT idle (Trauma, MMA). Terrell,
+ *     Nov 1: Trauma is the stage's resident character — he asked
+ *     for "my gltf guy" twice while the unset gate kept the
+ *     marshmallow man on stage. The mannequin is the FALLBACK
+ *     (a failed bind, an explicit "none"), never the default.
+ */
+export function resolveBuiltinBind(value: unknown): TraumaIdleDef | null {
+  if (value === TRAUMA_IDLE_NONE) return null;
+  return traumaIdleDef(value);
+}
+
 // ---------------------------------------------------------------------------
 // Base64 transport (Slice 26): the built-in GLBs ride the repo as
 // base64 text because the repo's write path cannot carry binaries.

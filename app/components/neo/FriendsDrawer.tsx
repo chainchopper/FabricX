@@ -8,7 +8,7 @@ import { peerColor } from "../../../shared/utils/peerColor";
 
 export default function FriendsDrawer() {
   const { back, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("friends");
+  const { tx, width, parked } = getAnim("friends");
 
   const { state } = useExperience();
   const roomId = useMemo(() => {
@@ -61,12 +61,13 @@ export default function FriendsDrawer() {
   if (Platform.OS !== "web") {
     return (
       <Animated.View
-        pointerEvents="box-none"
+        pointerEvents={parked ? "none" : "box-none"}
         style={{
           position: "absolute",
           top: 0, bottom: 0, left: 0,
           width,
           transform: [{ translateX: tx }],
+          display: parked ? "none" : "flex",
           zIndex: 200,
         }}
       >
@@ -90,12 +91,13 @@ export default function FriendsDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0, bottom: 0, left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >

@@ -21,7 +21,7 @@ import SocialFeedDrawer from "./SocialFeedDrawer";
 
 export default function NeoLocker() {
   const { back, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("neo");
+  const { tx, width, parked } = getAnim("neo");
   const haptics = useHaptics();
   const audio = useAudioCues();
   const [activeTab, setActiveTab] = useState<"controls" | "social" | "swarm">("controls");
@@ -40,12 +40,13 @@ export default function NeoLocker() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0, bottom: 0, left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >

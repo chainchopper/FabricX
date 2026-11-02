@@ -19,7 +19,7 @@ interface Plugin {
 
 export default function PluginsDrawer() {
   const { back, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("plugins");
+  const { tx, width, parked } = getAnim("plugins");
   const haptics = useHaptics();
   const audio = useAudioCues();
   
@@ -136,12 +136,13 @@ export default function PluginsDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0, bottom: 0, left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >
@@ -149,7 +150,7 @@ export default function PluginsDrawer() {
         style={{
           position: "absolute",
           top: 0, bottom: 0, left: 0, width,
-          backgroundColor: "rgba(6,10,22,0.96)",
+          backgroundColor: "#060a16",
           paddingTop: 56,
         }}
       >
@@ -241,7 +242,7 @@ export default function PluginsDrawer() {
                       borderRadius: 12,
                       borderWidth: 1,
                       borderColor: plugin.enabled ? "rgba(34,211,238,0.5)" : "rgba(148,163,184,0.25)",
-                      backgroundColor: "rgba(2,8,23,0.5)",
+                      backgroundColor: "#020817",
                     }}
                   >
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
@@ -315,7 +316,7 @@ export default function PluginsDrawer() {
                       borderRadius: 12,
                       borderWidth: 1,
                       borderColor: "rgba(148,163,184,0.25)",
-                      backgroundColor: "rgba(2,8,23,0.5)",
+                      backgroundColor: "#020817",
                     }}
                   >
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
@@ -372,7 +373,7 @@ export default function PluginsDrawer() {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: "rgba(34,211,238,0.25)",
-                  backgroundColor: "rgba(2,8,23,0.5)",
+                  backgroundColor: "#020817",
                 }}
               >
                 <Text style={{ color: "white", fontWeight: "700", marginBottom: 8 }}>Plugin SDK</Text>
@@ -414,7 +415,7 @@ export default function PluginsDrawer() {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: "rgba(148,163,184,0.25)",
-                  backgroundColor: "rgba(2,8,23,0.5)",
+                  backgroundColor: "#020817",
                 }}
               >
                 <Text style={{ color: "white", fontWeight: "700", marginBottom: 8 }}>Resources</Text>

@@ -4,6 +4,7 @@ import { useNewDrawers } from "./NewDrawersContext";
 import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import { useDemoData } from "../../utils/demoMode";
+import { FABRIC_COMPOSE_EVENT } from "../../../src/ai/PatternComposer";
 
 interface Message {
   id: string;
@@ -20,7 +21,7 @@ interface Suggestion {
 
 export default function CompanionDrawer() {
   const { back, getAnim } = useNewDrawers();
-  const { tx, width } = getAnim("companion");
+  const { tx, width, parked } = getAnim("companion");
   const haptics = useHaptics();
   const audio = useAudioCues();
   // Canned suggestions only render when the demo-data flag is on (Slice 1).
@@ -32,7 +33,7 @@ export default function CompanionDrawer() {
     {
       id: "1",
       role: "assistant",
-      content: "Hi! I'm your Fabric AI companion. I can help you create experiences, answer questions, and guide you through features. How can I assist you today?",
+      content: "Ask here, in words, and the fabric hears it — the same ask you'd speak over the canvas ('show me your heartbeat', 'it's cold in here'). Its answer plays out on the canvas, and your ghostie hears the ask too.",
       timestamp: new Date(),
     },
   ]);
@@ -54,34 +55,47 @@ export default function CompanionDrawer() {
   };
 
   const handleSend = () => {
-    if (!input.trim()) return;
-    
+    const text = input.trim();
+    if (!text) return;
+
     haptics.impactLight();
     audio.click();
-    
+
     // Add user message
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      content: text,
       timestamp: new Date(),
     };
-    
+
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    
-    // Simulate AI response
-    setTimeout(() => {
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: `I understand you want to ${input}. Let me help you with that. [This is a demo response - real AI integration coming soon!]`,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-      haptics.impactLight();
-      audio.success();
-    }, 1000);
+
+    // Slice 37: a typed ask is REAL. It dispatches the same
+    // FABRIC_COMPOSE_EVENT the canvas ask bar's voice path uses,
+    // so the fabric — and the ghost's utterance sense (Slice 33)
+    // — hears a typed ask exactly like a spoken one. Typing
+    // moved here from the canvas bar precisely because focus
+    // theft costs nothing inside a panel. The old simulated
+    // reply is gone: it answered nothing while dressing that up
+    // as a conversation (Terrell's standing rule — no fake
+    // functionality). The reply below states only what actually
+    // happened; the fabric's answer plays on the canvas.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(FABRIC_COMPOSE_EVENT, { detail: text })
+      );
+    }
+    const aiMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      role: "assistant",
+      content: `Asked the fabric: “${text}” — watch the canvas; that's where the answer happens.`,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, aiMsg]);
+    haptics.impactLight();
+    audio.success();
   };
 
   const handleSuggestion = (suggestion: Suggestion) => {
@@ -92,12 +106,13 @@ export default function CompanionDrawer() {
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={parked ? "none" : "box-none"}
       style={{
         position: "absolute",
         top: 0, bottom: 0, left: 0,
         width,
         transform: [{ translateX: tx }],
+        display: parked ? "none" : "flex",
         zIndex: 200,
       }}
     >
@@ -105,7 +120,7 @@ export default function CompanionDrawer() {
         style={{
           position: "absolute",
           top: 0, bottom: 0, left: 0, width,
-          backgroundColor: "rgba(6,10,22,0.96)",
+          backgroundColor: "#060a16",
           paddingTop: 56,
         }}
       >
@@ -210,7 +225,7 @@ export default function CompanionDrawer() {
             </ScrollView>
 
             {/* Input */}
-            <View style={{ paddingHorizontal: 16, paddingVertical: 12, backgroundColor: "rgba(2,8,23,0.8)" }}>
+            <View style={{ paddingHorizontal: 16, paddingVertical: 12, backgroundColor: "#020817" }}>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <TextInput
                   value={input}
@@ -283,7 +298,7 @@ export default function CompanionDrawer() {
                     borderRadius: 12,
                     borderWidth: 1,
                     borderColor: "rgba(148,163,184,0.25)",
-                    backgroundColor: "rgba(2,8,23,0.5)",
+                    backgroundColor: "#020817",
                   }}
                 >
                   <Text style={{ color: "white", fontSize: 14 }}>💡 {suggestion.text}</Text>
@@ -296,7 +311,7 @@ export default function CompanionDrawer() {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: "rgba(34,211,238,0.25)",
-                  backgroundColor: "rgba(2,8,23,0.5)",
+                  backgroundColor: "#020817",
                   marginTop: 8,
                 }}
               >
@@ -321,7 +336,7 @@ export default function CompanionDrawer() {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: "rgba(34,211,238,0.25)",
-                  backgroundColor: "rgba(2,8,23,0.5)",
+                  backgroundColor: "#020817",
                 }}
               >
                 <Text style={{ color: "white", fontWeight: "700", marginBottom: 8 }}>AI Model</Text>
@@ -350,7 +365,7 @@ export default function CompanionDrawer() {
                   borderRadius: 12,
                   borderWidth: 1,
                   borderColor: "rgba(148,163,184,0.25)",
-                  backgroundColor: "rgba(2,8,23,0.5)",
+                  backgroundColor: "#020817",
                 }}
               >
                 <Text style={{ color: "white", fontWeight: "700", marginBottom: 8 }}>Preferences</Text>

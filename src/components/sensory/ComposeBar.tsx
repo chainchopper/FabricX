@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Platform, Pressable, Text, TextInput, View } from "react-native";
+import { Animated, Platform, Pressable, Text, View } from "react-native";
 import {
   FABRIC_COMPOSE_EVENT,
   FABRIC_COMPOSE_STATE_EVENT,
@@ -35,6 +35,20 @@ import { useComposeVoice } from "./useComposeVoice";
  * interpretation is captioned as a built-in — never dressed up as
  * open-ended model intelligence.
  *
+ * Slice 37: the TEXT FIELD IS GONE from the canvas. Terrell's
+ * Nov 1 device report: the bottom-center input "does nothing —
+ * doesn't respond either way, and clicking it makes the scene
+ * lose focus." Two truths inside that: (1) on canvases with no
+ * compose consumer (the Dancer Stage, whose canvas replaces the
+ * fluid that owns this event) the field AND the mic dispatched
+ * into the void — the HUD no longer mounts this bar there at
+ * all; (2) even where typing worked, an always-visible field on
+ * the canvas steals the scene's focus and strands the iOS page
+ * short after the keyboard closes (Hotfix 2.3's white-below
+ * bug). Voice is the canvas's input now; TYPING lives in the
+ * Companion panel, whose send dispatches this same event where
+ * focus theft costs nothing.
+ *
  * Hotfix 2.4: an ask NO path could shape is no longer captioned as
  * an error (the old "beyond the interpreter" dev captions are gone
  * from user-facing copy entirely). The canvas answers with life
@@ -63,7 +77,6 @@ export default function ComposeBar() {
   // Platform const guard is safe; never changes across renders.
   if (Platform.OS !== "web") return null;
 
-  const [prompt, setPrompt] = useState("");
   const [composing, setComposing] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const [source, setSource] = useState<
@@ -122,8 +135,10 @@ export default function ComposeBar() {
     // Slice 33: a voice final that carried the recognizer's
     // confidence dispatches the object detail ({ text, confidence,
     // via }) so the canvas can hand the score to the ghost's
-    // utterance sense. Typed text — and unscored voice finals —
-    // keep the plain-string detail every existing listener knows.
+    // utterance sense. Unscored voice finals keep the plain-string
+    // detail every existing listener knows. (Typed asks dispatch
+    // the same plain-string detail — from the Companion panel,
+    // Slice 37; nothing types on the canvas any more.)
     window.dispatchEvent(
       new CustomEvent(FABRIC_COMPOSE_EVENT, {
         detail:
@@ -132,14 +147,12 @@ export default function ComposeBar() {
             : text,
       })
     );
-    setPrompt("");
     // Backstop: if composition produced nothing, the canvas reports a
     // null state — but never hang the input on a lost event.
     if (composingTimer.current) clearTimeout(composingTimer.current);
     composingTimer.current = setTimeout(() => setComposing(false), 20_000);
   };
 
-  const submit = () => submitText(prompt);
   const voice = useComposeVoice(submitText);
 
   // Hotfix 2.5: while the mic is live the button breathes — a
@@ -176,7 +189,13 @@ export default function ComposeBar() {
 
   return (
     <View pointerEvents="auto" style={{ marginTop: 8, maxWidth: 300 }}>
-      <View style={{ flexDirection: "row", gap: 6, alignItems: "stretch" }}>
+      {/* Slice 37: voice only. The mic is the whole affordance —
+          no text field overlays the canvas, so nothing on this
+          bar can take the scene's focus or summon a keyboard
+          over it. The label beside the mic says where typing
+          went (the Companion panel) instead of pretending the
+          canvas is a form. */}
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
         <Pressable
           pointerEvents="auto"
           onPress={voice.toggle}
@@ -184,6 +203,7 @@ export default function ComposeBar() {
           accessibilityLabel={voice.listening ? "Stop listening" : "Ask by voice"}
           style={({ pressed }) => ({
             width: 38,
+            height: 38,
             borderRadius: 999,
             borderWidth: 1,
             borderColor: voice.listening
@@ -202,51 +222,13 @@ export default function ComposeBar() {
             <Text style={{ fontSize: 17 }}>{voice.listening ? "●" : "🎤"}</Text>
           </Animated.View>
         </Pressable>
-        <TextInput
-          pointerEvents="auto"
-          value={prompt}
-          onChangeText={setPrompt}
-          onSubmitEditing={submit}
-          placeholder="Ask for anything — 'show me your heartbeat'…"
-          placeholderTextColor="#64748b"
-          accessibilityLabel="Ask for a performance, by typing if you prefer"
-          style={{
-            flex: 1,
-            color: "#e5e7eb",
-            // 16px floor (Hotfix 2.3): below 16px, iOS Safari
-            // auto-zooms on focus and can strand the page scrolled
-            // with unstyled white below the app once the keyboard
-            // closes — Terrell's long-standing "typing breaks the
-            // piano layout" report. 16px is iOS's no-zoom threshold.
-            fontSize: 16,
-            backgroundColor: "rgba(34,211,238,0.08)",
-            borderColor: "rgba(34,211,238,0.45)",
-            borderWidth: 1,
-            borderRadius: 999,
-            paddingVertical: 5,
-            paddingHorizontal: 10,
-            outlineStyle: "none",
-          } as object}
-        />
-        <Pressable
-          pointerEvents="auto"
-          onPress={submit}
-          accessibilityRole="button"
-          accessibilityLabel="Compose pattern"
-          style={({ pressed }) => ({
-            backgroundColor: pressed ? "rgba(34,211,238,0.35)" : "rgba(34,211,238,0.15)",
-            borderColor: "rgba(34,211,238,0.45)",
-            borderWidth: 1,
-            borderRadius: 999,
-            paddingVertical: 5,
-            paddingHorizontal: 10,
-            justifyContent: "center",
-          })}
-        >
-          <Text style={{ color: "#e5e7eb", fontSize: 12, fontWeight: "700" }}>
-            {composing ? "Composing…" : "Compose"}
-          </Text>
-        </Pressable>
+        <Text style={{ color: "#94a3b8", fontSize: 11, flexShrink: 1 }}>
+          {composing
+            ? "Composing\u2026"
+            : voice.listening
+              ? "Listening \u2014 say it"
+              : "Ask by voice \u2014 typing lives in the Companion panel"}
+        </Text>
       </View>
       {voice.listening || voice.busy || voice.interim || voice.message ? (
         <Text
