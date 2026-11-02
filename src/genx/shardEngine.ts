@@ -40,6 +40,7 @@ import {
 } from "./structures";
 import type {
   GenxBountyDef,
+  GenxFieldState,
   GenxMissionSpec,
   GenxShardAssignment,
 } from "./genxTypes";
@@ -275,6 +276,26 @@ export const INSULIN_A_CHAIN = "GIVEQCCTSICSLYQLENYCN";
 export const ROOM_FOLD_JOB_ID = "bounty-room-fold-1";
 export const NODE_ESMFOLD_JOB_ID = "bounty-node-esmfold-1";
 export const STRUCTURE_FOLD_JOB_ID = "bounty-structure-fold-1";
+
+/**
+ * The seed defs a field is still missing (Slice 43). The seeds
+ * are the board's STANDING content — fixed templates with fixed
+ * ids — not an act of session authority, so the room hook posts
+ * whichever of these are absent from whichever client has the
+ * layer open; the reducer's createdAt dedupe makes posters
+ * converge instead of duplicating (the same def, re-posted,
+ * folds to the same board). Pure: the hook supplies the field,
+ * the poster id, and the clock.
+ */
+export function missingSeedBounties(
+  field: GenxFieldState,
+  postedBy: string,
+  at: number
+): GenxBountyDef[] {
+  return buildSeedBounties(postedBy, at).filter(
+    (def) => !field.bounties[def.id]
+  );
+}
 
 /**
  * The board's seed bounties, posted by Fanalogy on the room's
