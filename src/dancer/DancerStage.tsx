@@ -38,11 +38,14 @@
  *   whenever it mounts with an empty slot. A picked custom file
  *   is session state (an object URL); the built-in is a URL the
  *   layer itself can hold, so the pick survives reloads. Slice
- *   37: an UNSET pick binds the DEFAULT idle (Trauma, MMA) —
- *   Trauma is the resident character, the mannequin is the
- *   fallback — and "Restore mannequin" now stores the explicit
- *   "none" pick (traumaCharacter.resolveBuiltinBind) so the bare
- *   figure is a choice, not the accident of an empty setting.
+ *   38 (Terrell's correction, Nov 2): the character binds ONLY
+ *   on an explicit pick — an unset setting binds NOTHING and
+ *   the bare figure stands (Slice 37's unset→default rule was
+ *   overruled in his own words: Trauma stands somewhere only
+ *   where he chose a fabric or idle behavior that uses him).
+ *   "Restore mannequin" stores the explicit "none" pick
+ *   (traumaCharacter.resolveBuiltinBind), so the bare figure is
+ *   a recorded choice, distinct from never having picked.
  *
  * DOM side (this file) owns the cast bookkeeping: one
  * DancerDriver per participant (created lazily, pruned when they
@@ -145,14 +148,13 @@ export default function DancerStage({
   // Bind the layer's built-in character on mount (see header):
   // only into an EMPTY slot — a character the user bound this
   // session (either idle, or their own picked file) is never
-  // overridden. Slice 37: the resolution is resolveBuiltinBind —
-  // unset binds the DEFAULT idle (Trauma, MMA); only the explicit
-  // "none" pick keeps the bare figure. (The old gate returned
-  // early on unset, so no pick meant no character, forever —
-  // while the menu's pills showed MMA as the apparent pick.) A
-  // failed load reports through the slot, the mannequin keeps
-  // the stage, and the failure pill below shows it on stage; the
-  // URL stays in the store, so this never retry-loops.
+  // overridden. The resolution is resolveBuiltinBind (Slice 38):
+  // a stored catalog pick binds that idle; unset and the
+  // explicit "none" both resolve to null — no pick, no
+  // character, the bare figure stands on purpose. A failed load
+  // of an explicit pick reports through the slot, the mannequin
+  // keeps the stage, and the failure pill below shows it on
+  // stage; the URL stays in the store, so this never retry-loops.
   useEffect(() => {
     const def = resolveBuiltinBind(traumaIdleSetting);
     if (!def) return;

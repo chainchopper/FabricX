@@ -28,6 +28,14 @@
 // at a 390pt viewport, plus the park machinery (snap + render
 // cut + touch cut) that now makes closed mean closed.
 //
+// CORRECTION (Slice 38, Nov 2): for item (3), Slice 37's fix
+// overshot — it made the unset pick bind Trauma by default.
+// Terrell overruled that: the character stands only where he
+// chose a fabric or idle behavior that uses him, and the
+// initial fabric is the fluid. The bind-rule pins moved to
+// scripts/trauma-choice-check.mjs; this file keeps the wiring
+// and the asset proof.
+//
 // Run: node scripts/ui-fixes-check.mjs   (from the repo root)
 
 import { readFileSync } from "node:fs";
@@ -103,18 +111,21 @@ check("B6 Companion typing dispatches the real compose event", companion.include
 check("B7 the simulated reply is gone", !companion.includes("demo response") && !companion.includes("Simulate AI response"));
 
 // ----------------------------------------------------------------
-// C. His guy, on stage by default — resolution logic + the
-//    asset itself, proven from the repo's own parts.
+// C. His guy, on his pick — stage wiring + the asset itself,
+//    proven from the repo's own parts.
+//    Slice 38 (Nov 2): the bind-RESOLUTION pins that stood here
+//    as C1–C5 asserted Slice 37's unset→default rule, which
+//    Terrell overruled ("Trauma better not be standing anywhere
+//    unless I choose a fabric or idle behavior that uses him").
+//    The corrected rule — unset/none/unknown -> null, a stored
+//    catalog pick -> that idle — is pinned by
+//    scripts/trauma-choice-check.mjs, which owns the rule now.
+//    What stays here: the stage/menu wiring (C6–C9) and the
+//    asset proof (C10–C12), all still true under the new rule.
 // ----------------------------------------------------------------
 
 const trauma = await bundle("src/dancer/traumaCharacter.ts", "/tmp/ui37-trauma.mjs");
-const { resolveBuiltinBind, TRAUMA_IDLE_NONE, decodeBase64ToArrayBuffer } = trauma;
-
-check("C1 unset pick resolves to the Trauma MMA default", resolveBuiltinBind(undefined)?.id === "mma" && resolveBuiltinBind(undefined)?.url === "/animations/trauma-mma-idle.glb");
-check("C2 null pick also resolves to the default", resolveBuiltinBind(null)?.id === "mma");
-check("C3 an explicit bouncing pick still wins", resolveBuiltinBind("bouncing")?.id === "bouncing");
-check("C4 explicit 'none' yields the bare figure (null)", TRAUMA_IDLE_NONE === "none" && resolveBuiltinBind("none") === null);
-check("C5 an unknown stored value falls back to the default, never to nothing", resolveBuiltinBind("garbage")?.id === "mma");
+const { decodeBase64ToArrayBuffer } = trauma;
 
 const stage = read("src/dancer/DancerStage.tsx");
 check("C6 the stage binds through resolveBuiltinBind", stage.includes("resolveBuiltinBind(traumaIdleSetting)"));

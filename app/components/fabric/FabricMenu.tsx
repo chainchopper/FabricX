@@ -502,10 +502,15 @@ const LAYER_EDIT_FIELDS: Record<string, LayerEditField[]> = {
       label: "Trauma idle (built-in character)",
       kind: "choice",
       options: [
+        // Slice 38: "none" is a real option and the honest
+        // default — the card editor must not present an idle as
+        // chosen when nothing is stored (it showed MMA while
+        // the layer had never picked one).
+        { value: "none", label: "No built-in (bare figure)" },
         { value: "mma", label: "MMA idle" },
         { value: "bouncing", label: "Bouncing fight" },
       ],
-      defaultValue: "mma",
+      defaultValue: "none",
     },
   ],
   "sam-see": [
@@ -1215,14 +1220,16 @@ export default function FabricMenu() {
   };
   // The built-in character (Trauma, Slice 25): the layer setting
   // holds the idle pick; the slot store holds the live binding.
-  // Slice 37 semantics (traumaCharacter.resolveBuiltinBind): an
-  // UNSET pick means the stage binds the default idle (Trauma,
-  // MMA) on mount — the pills show that default as the current
-  // pick because it now IS what the stage does. Restore
-  // mannequin stores the explicit "none" instead of clearing to
-  // undefined (the old behavior made "wants the bare figure"
-  // indistinguishable from "never picked", and the stage bound
-  // nothing for both).
+  // Slice 38 semantics (traumaCharacter.resolveBuiltinBind,
+  // Terrell's Nov 2 correction): the stage binds ONLY a stored
+  // catalog pick — an UNSET pick binds nothing, so with no pick
+  // made, no pill below is lit and the bare figure stands; the
+  // pills light only for a pick that exists or a character
+  // actually bound. Restore mannequin stores the explicit
+  // "none" instead of clearing to undefined (Slice 37's
+  // representability fix, kept: "wants the bare figure" stays a
+  // recorded choice, distinct from "never picked" — both leave
+  // the figure bare, only one of them says so).
   const stageTraumaIdleRaw = (state.experienceConfig.specific as any)
     ?.stageTraumaIdle;
   const stageBuiltinBind = resolveBuiltinBind(stageTraumaIdleRaw);
@@ -3300,11 +3307,11 @@ export default function FabricMenu() {
                   pointerEvents="auto"
                   onPress={() => {
                     noteActivity();
-                    // Slice 37: restore stores the explicit
-                    // "none" pick (restoreMannequin) — the stage
-                    // now treats UNSET as "bind the default", so
-                    // clearing would bring Trauma back on the
-                    // next mount instead of keeping the figure.
+                    // Restore stores the explicit "none" pick
+                    // (restoreMannequin, Slice 37 — kept by
+                    // Slice 38): the bare figure is a recorded
+                    // choice, not the accident of an empty
+                    // setting, and the pills/status can say so.
                     restoreMannequin();
                     clearStageCharacter();
                   }}
@@ -3331,14 +3338,13 @@ export default function FabricMenu() {
             <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
               {TRAUMA_IDLES.map((def) => {
                 // Lit when this idle is bound right now — or when
-                // it's the pick the stage will bind on mount and
-                // the slot is still empty. Slice 37: that includes
-                // the UNSET case, which now resolves to the
-                // default idle (resolveBuiltinBind) — the pill
-                // finally tells the truth about what an untouched
-                // stage shows. The old condition required a stored
-                // string, so the pill claimed MMA while the stage
-                // bound nothing.
+                // it's the stored pick the stage will bind on
+                // mount and the slot is still empty. Slice 38:
+                // stageBuiltinBind resolves ONLY a stored catalog
+                // pick, so an untouched layer lights NO pill —
+                // the display and the stage agree that nothing
+                // was chosen. (Slice 37 lit the default here;
+                // Terrell overruled the default itself, Nov 2.)
                 const selected =
                   charUi.url === def.url ||
                   (charUi.url === null && stageBuiltinBind?.id === def.id);
@@ -3373,13 +3379,14 @@ export default function FabricMenu() {
               })}
             </View>
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-              Trauma ships with the stage — he's the default: pick
-              an idle and your ghostie wears him, washed in its hue
-              with its name tag flying. The idle loops on its own
-              (it IS how he rests), and your notes still move his
-              body over it, band by band. The layer remembers the
-              pick; restore the mannequin to stand the bare figure
-              instead.
+              Trauma ships with the stage, but he never takes it
+              uninvited: until you pick an idle here, the bare
+              figure stands. Pick one and your ghostie wears him,
+              washed in its hue with its name tag flying. The idle
+              loops on its own (it IS how he rests), and your
+              notes still move his body over it, band by band. The
+              layer remembers the pick; restore the mannequin to
+              stand the bare figure instead.
             </Text>
 
             <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>

@@ -76,15 +76,20 @@ export const TRAUMA_IDLES: readonly TraumaIdleDef[] = [
   },
 ];
 
-/** The idle a fresh stage pick starts from (Terrell: default MMA). */
+/**
+ * Catalog fallback for traumaIdleDef's coercion ONLY (an
+ * explicit-pick path normalizing a chosen id). Since Slice 38
+ * this is NOT a stage default: nothing binds on an unset pick
+ * (see resolveBuiltinBind).
+ */
 export const DEFAULT_TRAUMA_IDLE_ID: TraumaIdleId = "mma";
 
 /**
- * Coerce a stored `specific.stageTraumaIdle` value (or anything)
- * to a catalog entry: the matching idle, or the default when the
- * value is unset/unknown — the layer setting only ever holds ids
- * from this catalog, and anything else reads as "not picked yet"
- * at the call sites that care (they check for a string first).
+ * Coerce a chosen idle id (or anything) to a catalog entry: the
+ * matching idle, or the catalog fallback when the value is
+ * unset/unknown. Call sites that care about "was anything
+ * actually picked" must use resolveBuiltinBind instead — this
+ * helper always answers with SOME idle by design.
  */
 export function traumaIdleDef(value: unknown): TraumaIdleDef {
   const found = TRAUMA_IDLES.find((d) => d.id === value);
@@ -95,29 +100,33 @@ export function traumaIdleDef(value: unknown): TraumaIdleDef {
  * The explicit "no built-in character" pick: THIS LAYER stores
  * this string in `specific.stageTraumaIdle` when the user chooses
  * the bare figure (Restore mannequin). It is a real stored value,
- * distinct from the setting being UNSET — unset means "no choice
- * made yet", and the stage's default (below) applies instead.
- * Before Slice 37, Restore mannequin and Load character both
- * cleared the setting to undefined, so "never picked", "picked my
- * own file" and "wants the bare figure" were indistinguishable —
- * and the stage read all three as "bind nothing".
+ * distinct from the setting being UNSET. Before Slice 37, Restore
+ * mannequin and Load character both cleared the setting to
+ * undefined, so "never picked", "picked my own file" and "wants
+ * the bare figure" were indistinguishable — Slice 37 made "none"
+ * representable, and that representability stays.
  */
 export const TRAUMA_IDLE_NONE = "none";
 
 /**
  * Resolve a stored `specific.stageTraumaIdle` value to the
- * built-in the stage binds on mount (Slice 37):
- *   - "none"       -> null (explicit bare figure; never bind)
- *   - a catalog id -> that idle's def
- *   - unset/other  -> the DEFAULT idle (Trauma, MMA). Terrell,
- *     Nov 1: Trauma is the stage's resident character — he asked
- *     for "my gltf guy" twice while the unset gate kept the
- *     marshmallow man on stage. The mannequin is the FALLBACK
- *     (a failed bind, an explicit "none"), never the default.
+ * built-in the stage binds on mount (Slice 38 — Terrell's
+ * correction, Nov 2, overruling Slice 37's default):
+ *   - a catalog id -> that idle's def (an explicit pick binds)
+ *   - "none"       -> null (explicit bare figure)
+ *   - unset/other  -> null. NO pick, NO character.
+ * Slice 37 read Terrell's "can I get my gltf guy" as a request
+ * for a default and made unset bind Trauma (MMA). He overruled
+ * it in plain words: "Trauma better not be standing anywhere
+ * unless I choose a fabric or idle behavior that uses him."
+ * The character appears only on the user's explicit choice —
+ * a stored catalog pick, or his own loaded glTF in the slot.
+ * Anything else (never picked, a value nothing wrote on
+ * purpose) binds nothing and the bare figure stands.
  */
 export function resolveBuiltinBind(value: unknown): TraumaIdleDef | null {
-  if (value === TRAUMA_IDLE_NONE) return null;
-  return traumaIdleDef(value);
+  const found = TRAUMA_IDLES.find((d) => d.id === value);
+  return found ?? null;
 }
 
 // ---------------------------------------------------------------------------
