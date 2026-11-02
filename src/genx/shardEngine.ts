@@ -64,13 +64,22 @@ export function shardWorkUnits(spec: GenxMissionSpec): number {
 
 /** Number of shards a spec cuts into. */
 export function shardCount(spec: GenxMissionSpec): number {
+  if (spec.structure) return spec.structure.ranges.length;
   return (
     Math.ceil(spec.fieldW / spec.tileW) * Math.ceil(spec.fieldH / spec.tileH)
   );
 }
 
-/** Total work units of a mission (all shards). */
+/**
+ * Total work units of a mission (all shards). Tile missions:
+ * per-shard work × shard count. Structure missions: the sum
+ * of the ranges' residue counts (structures.ts: one work unit
+ * per residue — the same total the job's def was posted with).
+ */
 export function missionTotalWork(spec: GenxMissionSpec): number {
+  if (spec.structure) {
+    return spec.structure.ranges.reduce((a, r) => a + (r.end - r.start), 0);
+  }
   return shardWorkUnits(spec) * shardCount(spec);
 }
 
@@ -106,6 +115,7 @@ export function roomFoldSpec(args: {
     allocatorId: args.allocatorId,
     seed: args.seed >>> 0,
     ...ROOM_FOLD_FIELD,
+    structure: null,
     form: "helix",
     startedAt: args.startedAt,
   };
@@ -168,7 +178,23 @@ export function planAssignments(
   spec: GenxMissionSpec,
   workers: GenxWorkerPower[]
 ): GenxShardAssignment[] {
-  const total = shardCount(spec);
+  const ids: number[] = [];
+  for (let i = 0; i < shardCount(spec); i++) ids.push(i);
+  return planAssignmentsForShards(ids, workers);
+}
+
+/**
+ * The dealing itself, over an explicit shard-id list (Slice
+ * 41): a structure mission's shards are its range indices, a
+ * tile mission's are 0..shardCount-1 — one allocator law for
+ * both variants. Same arithmetic planAssignments has always
+ * run; the tile path delegates with its own id list.
+ */
+export function planAssignmentsForShards(
+  shardIds: number[],
+  workers: GenxWorkerPower[]
+): GenxShardAssignment[] {
+  const total = shardIds.length;
   const pool = workers
     .filter((w) => w.cellsPerSec > 0)
     .slice()
@@ -189,13 +215,13 @@ export function planAssignments(
   }
   const out: GenxShardAssignment[] = [];
   const taken = pool.map(() => 0);
-  let shardId = 0;
-  while (shardId < total) {
-    for (let i = 0; i < pool.length && shardId < total; i++) {
+  let dealtIdx = 0;
+  while (dealtIdx < total) {
+    for (let i = 0; i < pool.length && dealtIdx < total; i++) {
       if (taken[i] >= counts[i]) continue;
-      out.push({ shardId, to: pool[i].id, attempt: 1 });
+      out.push({ shardId: shardIds[dealtIdx], to: pool[i].id, attempt: 1 });
       taken[i] += 1;
-      shardId += 1;
+      dealtIdx += 1;
     }
   }
   return out;
@@ -206,9 +232,13 @@ export function planAssignments(
 /* ------------------------------------------------------------------ */
 
 /**
- * THE verifier: recompute the shard from the spec and compare
- * checksums. This is the only door from "claimed" to "verified"
- * (and therefore to Juice) in the whole fabric.
+ * THE verifier for tile missions: recompute the shard from the
+ * spec and compare checksums. This is the only door from
+ * "claimed" to "verified" (and therefore to Juice) in the
+ * whole fabric. Structure missions pass through the same door
+ * in its structure form — verifyStructureClaim
+ * (structureEngine.ts) re-runs the shard's relaxation and
+ * compares coordinate checksums; there is no second standard.
  */
 export function verifyClaim(
   spec: GenxMissionSpec,

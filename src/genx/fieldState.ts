@@ -35,6 +35,7 @@ import type {
   GenxSenseSnapshot,
   GenxShardAssignment,
   GenxShardState,
+  GenxStructureSpec,
 } from "./genxTypes";
 
 /** A shard with no word for this long counts as stalled. */
@@ -95,6 +96,10 @@ export function sanitizeBountyDef(raw: unknown): GenxBountyDef | null {
     form,
     framework: kind === "node-job" ? capStr(r.framework, 48) : null,
     params: kind === "node-job" ? params : null,
+    // The structure binding survives the wire (Slice 41): an
+    // id-shaped string only — whether it RESOLVES is the
+    // registry's question, answered at use sites.
+    structureId: isId(r.structureId) ? r.structureId : null,
     totalWorkUnits:
       typeof r.totalWorkUnits === "number" && Number.isFinite(r.totalWorkUnits) && r.totalWorkUnits > 0
         ? Math.floor(r.totalWorkUnits)
@@ -107,17 +112,74 @@ export function sanitizeBountyDef(raw: unknown): GenxBountyDef | null {
   };
 }
 
+/**
+ * The structure block of a mission spec, sanitized (Slice 41):
+ * a registry-shaped structure id, a bounded iteration count,
+ * and 1–64 residue ranges whose spans are sane (0-based,
+ * end > start, inside a generous per-chain bound, total
+ * coverage bounded). Anything malformed drops the WHOLE
+ * block's spec — a structure mission with a bent domain list
+ * must not degrade into something else.
+ */
+export function sanitizeStructureSpec(raw: unknown): GenxStructureSpec | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (!isId(r.structureId)) return null;
+  // relaxSteps is the work spec itself: a raw value that is
+  // not a finite number ≥ 1 is malformed, not clamped up — a
+  // zero-work mission must never be posted by rounding.
+  if (
+    typeof r.relaxSteps !== "number" ||
+    !Number.isFinite(r.relaxSteps) ||
+    r.relaxSteps < 1
+  ) {
+    return null;
+  }
+  const relaxSteps = clampInt(r.relaxSteps, 1, 200_000, 0);
+  if (!Array.isArray(r.ranges) || r.ranges.length === 0 || r.ranges.length > 64) {
+    return null;
+  }
+  const ranges: GenxStructureSpec["ranges"] = [];
+  let total = 0;
+  for (const entry of r.ranges) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const e = entry as Record<string, unknown>;
+    const chainId =
+      typeof e.chainId === "string" && /^[A-Za-z0-9_-]{1,8}$/.test(e.chainId)
+        ? e.chainId
+        : null;
+    if (!chainId) return null;
+    const start = clampInt(e.start, 0, 16384, -1);
+    const end = clampInt(e.end, 0, 16384, -1);
+    if (start < 0 || end <= start) return null;
+    total += end - start;
+    if (total > 16384) return null;
+    ranges.push({ chainId, start, end });
+  }
+  return { structureId: r.structureId, relaxSteps, ranges };
+}
+
 export function sanitizeMissionSpec(raw: unknown): GenxMissionSpec | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   if (!isId(r.missionId) || !isId(r.jobId) || !isId(r.allocatorId)) return null;
-  const fieldW = clampInt(r.fieldW, 8, 512, 0);
-  const fieldH = clampInt(r.fieldH, 8, 512, 0);
-  const tileW = clampInt(r.tileW, 4, 128, 0);
-  const tileH = clampInt(r.tileH, 4, 128, 0);
-  const generations = clampInt(r.generations, 1, 1_000_000, 0);
-  if (!fieldW || !fieldH || !tileW || !tileH || !generations) return null;
-  if (tileW > fieldW || tileH > fieldH) return null;
+  // A structure block, when present, must sanitize whole — and
+  // a structure mission's tile geometry is the 0 sentinel, so
+  // the tile requirements below apply only to tile missions.
+  let structure: GenxStructureSpec | null = null;
+  if (r.structure !== undefined && r.structure !== null) {
+    structure = sanitizeStructureSpec(r.structure);
+    if (!structure) return null;
+  }
+  const fieldW = clampInt(r.fieldW, structure ? 0 : 8, 512, 0);
+  const fieldH = clampInt(r.fieldH, structure ? 0 : 8, 512, 0);
+  const tileW = clampInt(r.tileW, structure ? 0 : 4, 128, 0);
+  const tileH = clampInt(r.tileH, structure ? 0 : 4, 128, 0);
+  const generations = clampInt(r.generations, structure ? 0 : 1, 1_000_000, 0);
+  if (!structure) {
+    if (!fieldW || !fieldH || !tileW || !tileH || !generations) return null;
+    if (tileW > fieldW || tileH > fieldH) return null;
+  }
   return {
     missionId: r.missionId,
     jobId: r.jobId,
@@ -128,6 +190,7 @@ export function sanitizeMissionSpec(raw: unknown): GenxMissionSpec | null {
     tileW,
     tileH,
     generations,
+    structure,
     form: r.form === "sheet" || r.form === "complex" ? r.form : "helix",
     startedAt: clampNum(r.startedAt, 0, Number.MAX_SAFE_INTEGER, 0),
   };
@@ -319,18 +382,19 @@ export function reduceField(
     case "mission": {
       // Origin law: a mission exists only on its allocator's word.
       if (ev.from !== ev.spec.allocatorId) return state;
-      const cols = Math.ceil(ev.spec.fieldW / ev.spec.tileW);
-      const rows = Math.ceil(ev.spec.fieldH / ev.spec.tileH);
       const byShard = new Map(ev.assignments.map((a) => [a.shardId, a]));
       const shards: GenxShardState[] = [];
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const shardId = row * cols + col;
+      if (ev.spec.structure) {
+        // Structure variant (Slice 41): one shard per residue
+        // range, IN RANGE ORDER — range i is shard i (Slice
+        // 40's positional binding). No tile geometry; the
+        // shard's work is its range's residue count.
+        ev.spec.structure.ranges.forEach((range, shardId) => {
           const a = byShard.get(shardId);
           shards.push({
             shardId,
-            tileX: col * ev.spec.tileW,
-            tileY: row * ev.spec.tileH,
+            tileX: 0,
+            tileY: 0,
             status: a ? "assigned" : "queued",
             assignee: a ? a.to : null,
             attempt: a ? a.attempt : 1,
@@ -338,9 +402,32 @@ export function reduceField(
             checksum: null,
             liveCells: null,
             claimedBy: null,
-            workUnits: ev.spec.tileW * ev.spec.tileH * ev.spec.generations,
+            workUnits: range.end - range.start,
             lastWordAt: ev.at,
           });
+        });
+      } else {
+        const cols = Math.ceil(ev.spec.fieldW / ev.spec.tileW);
+        const rows = Math.ceil(ev.spec.fieldH / ev.spec.tileH);
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            const shardId = row * cols + col;
+            const a = byShard.get(shardId);
+            shards.push({
+              shardId,
+              tileX: col * ev.spec.tileW,
+              tileY: row * ev.spec.tileH,
+              status: a ? "assigned" : "queued",
+              assignee: a ? a.to : null,
+              attempt: a ? a.attempt : 1,
+              progress: 0,
+              checksum: null,
+              liveCells: null,
+              claimedBy: null,
+              workUnits: ev.spec.tileW * ev.spec.tileH * ev.spec.generations,
+              lastWordAt: ev.at,
+            });
+          }
         }
       }
       const mission: GenxMissionState = {
@@ -590,6 +677,11 @@ export interface GenxTarget {
 
 export function targetsOf(mission: GenxMissionState | null): GenxTarget[] {
   if (!mission) return [];
+  // Targets are a tile-field concept (2×2 tile groups). A
+  // structure mission's visual truth is the molecule itself —
+  // the molecular view renders its ranges from this same field
+  // state — so the tile-target table is honestly empty.
+  if (mission.spec.structure) return [];
   const { spec } = mission;
   const cols = Math.ceil(spec.fieldW / spec.tileW);
   const groups = new Map<string, GenxShardState[]>();
