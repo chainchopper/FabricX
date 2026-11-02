@@ -144,6 +144,12 @@ export interface BountyBoardProps {
   onRunNodeJob: (jobId: string) => void;
   onFollow: (jobId: string, follow: boolean) => void;
   onSpectate: (participantId: string | null) => void;
+  /** Slice 40 (optional): cards whose bound structure can be viewed. */
+  viewableStructureIds?: Record<string, boolean>;
+  onViewStructure?: (jobId: string) => void;
+  /** Slice 40 (optional): node jobs whose results can be viewed. */
+  resultJobIds?: Set<string>;
+  onViewResult?: (jobId: string) => void;
 }
 
 function Card({
@@ -315,6 +321,18 @@ function Card({
           label={props.followed.includes(def.id) ? "Following" : "Follow"}
           onPress={() => props.onFollow(def.id, !props.followed.includes(def.id))}
         />
+        {props.onViewStructure && props.viewableStructureIds?.[def.id] ? (
+          <ActionButton
+            label="View structure"
+            onPress={() => props.onViewStructure?.(def.id)}
+          />
+        ) : null}
+        {props.onViewResult && props.resultJobIds?.has(def.id) ? (
+          <ActionButton
+            label="View result"
+            onPress={() => props.onViewResult?.(def.id)}
+          />
+        ) : null}
       </View>
       {!isRoom && !props.hasNodeUrl ? (
         <Text style={{ color: colors.textDim, fontSize: 10 }}>

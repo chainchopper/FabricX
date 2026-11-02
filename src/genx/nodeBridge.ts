@@ -364,3 +364,92 @@ export function createNodeBridge(args: {
     },
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Job results — the actual output payload (Slice 40 intake).          */
+/*                                                                     */
+/* Slice 36 only ever probed this endpoint for EXISTENCE (hasResults). */
+/* The molecular view needs the body: a finished folding job's result  */
+/* is a structure file. Whether the node's results payload carries     */
+/* PDB text in its `pdb`-shaped field is NOT yet verified against a    */
+/* live node — that is rehearsal-probe territory. The intake below     */
+/* stays honest either way: it extracts PDB text only when the payload */
+/* actually contains Cα ATOM records, and returns null otherwise.      */
+/* ------------------------------------------------------------------ */
+
+export interface NodeJobResults {
+  ok: boolean;
+  status: number;
+  /** Raw response text when the request succeeded. */
+  text: string | null;
+}
+
+export async function fetchNodeJobResults(
+  baseUrl: string,
+  provider: string,
+  jobId: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<NodeJobResults> {
+  try {
+    const res = await fetchImpl(
+      `${baseUrl}/jobs/${encodeURIComponent(provider)}/${encodeURIComponent(jobId)}/results`,
+      { method: "GET" },
+    );
+    if (!res.ok) return { ok: false, status: res.status, text: null };
+    return { ok: true, status: res.status, text: await res.text() };
+  } catch {
+    return { ok: false, status: 0, text: null };
+  }
+}
+
+/** Field names a results payload might carry structure text under. */
+const PDB_FIELD_CANDIDATES = [
+  "pdb",
+  "pdbText",
+  "pdb_text",
+  "structure",
+  "result",
+  "content",
+  "data",
+] as const;
+
+/** A string is PDB text for our purposes when it carries Cα ATOM records. */
+function sniffPdbText(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  return /^ATOM/m.test(value) && value.includes(" CA ") ? value : null;
+}
+
+/**
+ * Extract PDB text from a /jobs/:provider/:jobId/results payload:
+ * the payload itself as text, a JSON string, or an object carrying the
+ * text under a known field (nesting tolerated to a shallow depth).
+ * Returns null when the payload carries no readable Cα records — the
+ * caller reports that honestly instead of inventing a structure.
+ */
+export function pdbTextFromResults(payload: unknown, depth = 0): string | null {
+  const direct = sniffPdbText(payload);
+  if (direct) return direct;
+  if (depth > 2) return null;
+  if (typeof payload === "string") {
+    try {
+      return pdbTextFromResults(JSON.parse(payload), depth + 1);
+    } catch {
+      return null;
+    }
+  }
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    for (const key of PDB_FIELD_CANDIDATES) {
+      const hit = sniffPdbText(record[key]);
+      if (hit) return hit;
+    }
+    for (const key of PDB_FIELD_CANDIDATES) {
+      const nested = record[key];
+      if (nested && typeof nested === "object") {
+        const deep = pdbTextFromResults(nested, depth + 1);
+        if (deep) return deep;
+      }
+    }
+  }
+  return null;
+}

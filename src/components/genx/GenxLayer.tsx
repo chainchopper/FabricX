@@ -62,8 +62,18 @@ import {
 } from "../../genx/genxStore";
 import type { GenxWireMessage } from "../../genx/genxTypes";
 import { useGenxRoom } from "../../genx/useGenxRoom";
+import { fetchNodeJobResults, pdbTextFromResults } from "../../genx/nodeBridge";
+import { parsePdb } from "../../genx/pdb";
+import {
+  HEMOGLOBIN_STRUCTURE_ID,
+  bundledStructureMeta,
+  structureShards,
+} from "../../genx/structures";
+import { loadBundledStructure } from "../../genx/molStructures";
+import type { MolStructure } from "../../genx/molMath";
 import { colors, radius, spacing } from "../../theme/tokens";
 import BountyBoard from "./BountyBoard";
+import StructureView, { type StructureBinding } from "./StructureView";
 
 export interface GenxLayerProps {
   userId: string;
@@ -136,6 +146,146 @@ export default function GenxLayer(props: GenxLayerProps) {
       ),
     [mission, missionCard]
   );
+
+  /* ---------------- Slice 40: the molecular view ---------------- */
+  // Bounty defs bind a structureId (Slice 39's data contract); the
+  // registry resolves it and the loader fetches + parses the real
+  // .pdb asset. The view binds ranges to the live mission's shards
+  // positionally — range i of structureShards(structure, shardCount)
+  // belongs to mission shard i.
+  const [viewer, setViewer] = useState<{
+    structure: MolStructure;
+    binding: StructureBinding;
+    title?: string;
+    note?: string;
+  } | null>(null);
+  const [resultBusy, setResultBusy] = useState(false);
+  const [resultNote, setResultNote] = useState<string | null>(null);
+  const [structureBusy, setStructureBusy] = useState(false);
+
+  const openStructureById = async (
+    structureId: string,
+    jobId: string | null,
+    title: string
+  ) => {
+    setResultNote(null);
+    setStructureBusy(true);
+    try {
+      const structure = await loadBundledStructure(structureId);
+      if (!structure) {
+        setResultNote("That structure couldn't be loaded — nothing to show.");
+        return;
+      }
+      if (mission && jobId && mission.spec.jobId === jobId) {
+        // The live binding: range i belongs to mission shard i, and
+        // the view settles each range as that shard verifies.
+        setViewer({
+          structure,
+          title,
+          binding: {
+            ranges: structureShards(structure, mission.shards.length),
+            shardIds: mission.shards.map((s) => s.shardId),
+            key: mission.spec.missionId,
+          },
+        });
+        return;
+      }
+      // No live mission behind this structure: the honest unclaimed
+      // segmentation (16 ranges, the seed mission's shape) — the
+      // chain renders unfolded and shaking until real work verifies.
+      const ranges = structureShards(structure, 16);
+      setViewer({
+        structure,
+        title,
+        note: "No room fold is working this structure yet — its domains settle here, one by one, as shards verify.",
+        binding: {
+          ranges,
+          shardIds: ranges.map((r) => `unclaimed-${r.shardId}`),
+          key: `unclaimed:${structure.id}`,
+        },
+      });
+    } finally {
+      setStructureBusy(false);
+    }
+  };
+
+  const openNodeResult = async (jobId: string) => {
+    const nodeJob = field.bounties[jobId]?.nodeJob;
+    if (!nodeJob?.nodeJobId || resultBusy) return;
+    setResultBusy(true);
+    setResultNote(null);
+    try {
+      const res = await fetchNodeJobResults(
+        props.nodeUrl,
+        nodeJob.provider || "esmfold",
+        nodeJob.nodeJobId
+      );
+      const text = res.ok && res.text ? pdbTextFromResults(res.text) : null;
+      if (!text) {
+        setResultNote(
+          "The node's results didn't carry a readable structure — nothing to show yet."
+        );
+        return;
+      }
+      let structure: MolStructure | null = null;
+      try {
+        structure = parsePdb(text, {
+          id: `node-${jobId}`,
+          name: "Node result",
+          source: "node",
+        }) as unknown as MolStructure;
+      } catch {
+        structure = null;
+      }
+      if (!structure || structure.totalResidues === 0) {
+        setResultNote(
+          "The node's results didn't carry a readable structure — nothing to show yet."
+        );
+        return;
+      }
+      const ranges = structureShards(structure, 16);
+      setViewer({
+        structure,
+        title: "Node result",
+        note: "The finished structure the node returned for this job.",
+        binding: {
+          ranges,
+          shardIds: ranges.map((r) => `result-${r.shardId}`),
+          forceSettled: true,
+          key: `result:${jobId}:${nodeJob.nodeJobId}`,
+        },
+      });
+    } finally {
+      setResultBusy(false);
+    }
+  };
+
+  // Which board cards can open the structure view / a node result.
+  const viewableStructureIds = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const c of cards) {
+      if (c.structureId && bundledStructureMeta(c.structureId)) {
+        map[c.def.id] = true;
+      }
+    }
+    return map;
+  }, [cards]);
+  const resultJobIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of cards) {
+      const nodeJob = field.bounties[c.def.id]?.nodeJob;
+      if (nodeJob?.hasResults && nodeJob.nodeJobId) set.add(c.def.id);
+    }
+    return set;
+  }, [cards, field]);
+  // The field card's structure button: the active mission's bound
+  // structure when there is one, else hemoglobin (the structure
+  // room fold's target) as the standing sample.
+  const missionStructureId =
+    missionCard?.structureId && bundledStructureMeta(missionCard.structureId)
+      ? missionCard.structureId
+      : null;
+  const sampleMeta = bundledStructureMeta(HEMOGLOBIN_STRUCTURE_ID);
 
   /* ---------------- the microcosm ---------------- */
   const injectRef = useRef(props.injectInteraction);
@@ -458,6 +608,54 @@ export default function GenxLayer(props: GenxLayerProps) {
             {boardOpen ? "Hide bounties" : "Bounties"}
           </Text>
         </Pressable>
+
+        {/* Slice 40: open the molecular view — the active mission's
+            bound structure, or hemoglobin (the room fold's target,
+            RCSB 4HHB) as the standing sample. */}
+        {missionStructureId || sampleMeta ? (
+          <Pressable
+            pointerEvents="auto"
+            onPress={() =>
+              void (missionStructureId && missionCard
+                ? openStructureById(missionStructureId, missionCard.def.id, missionCard.def.title)
+                : sampleMeta
+                  ? openStructureById(
+                      HEMOGLOBIN_STRUCTURE_ID,
+                      null,
+                      `${sampleMeta.name} — sample structure`
+                    )
+                  : Promise.resolve())
+            }
+            accessibilityRole="button"
+            accessibilityLabel="View the structure in 3D"
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 6,
+              paddingHorizontal: 12,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: colors.accent,
+              backgroundColor: "rgba(2,8,23,0.82)",
+            }}
+          >
+            <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "700" }}>
+              View structure
+            </Text>
+          </Pressable>
+        ) : null}
+        {structureBusy ? (
+          <Text style={{ color: colors.textDim, fontSize: 11 }}>
+            Loading the structure…
+          </Text>
+        ) : null}
+        {resultBusy ? (
+          <Text style={{ color: colors.textDim, fontSize: 11 }}>
+            Fetching the node's result…
+          </Text>
+        ) : null}
+        {resultNote ? (
+          <Text style={{ color: colors.danger, fontSize: 11 }}>{resultNote}</Text>
+        ) : null}
       </View>
 
       {/* The bounty board — right side, scrollable. */}
@@ -492,14 +690,34 @@ export default function GenxLayer(props: GenxLayerProps) {
               followed={snap.followed}
               spectating={snap.spectating}
               nodeJobBusy={room.nodeJobBusy}
+              viewableStructureIds={viewableStructureIds}
+              resultJobIds={resultJobIds}
               onJoin={(jobId) => room.joinJob(jobId)}
               onStart={(jobId) => room.startRoomFold(jobId)}
               onRunNodeJob={(jobId) => room.runNodeJob(jobId)}
               onFollow={(jobId, follow) => setGenxFollowed(jobId, follow)}
               onSpectate={(pid) => setGenxSpectating(pid)}
+              onViewStructure={(jobId) => {
+                const card = cards.find((c) => c.def.id === jobId);
+                if (card?.structureId) {
+                  void openStructureById(card.structureId, jobId, card.def.title);
+                }
+              }}
+              onViewResult={(jobId) => void openNodeResult(jobId)}
             />
           </ScrollView>
         </View>
+      ) : null}
+
+      {/* Slice 40: the molecular view, over the field while open. */}
+      {viewer ? (
+        <StructureView
+          structure={viewer.structure}
+          binding={viewer.binding}
+          title={viewer.title}
+          note={viewer.note}
+          onClose={() => setViewer(null)}
+        />
       ) : null}
     </View>
   );
