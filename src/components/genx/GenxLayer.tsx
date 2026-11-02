@@ -330,20 +330,26 @@ export default function GenxLayer(props: GenxLayerProps) {
         for (const s of m.shards) {
           const prev = prevShardStatusRef.current.get(s.shardId);
           if (prev !== undefined && prev !== s.status && s.status === "verified") {
-            const hue =
-              (s.claimedBy ? idsNow.peers[s.claimedBy]?.hue : undefined) ??
-              (s.claimedBy === props.userId ? idsNow.self?.hue : undefined) ??
-              187;
-            const cx = (s.tileX + m.spec.tileW / 2) / m.spec.fieldW;
-            const cy = (s.tileY + m.spec.tileH / 2) / m.spec.fieldH;
-            for (let i = 0; i < 3; i++) {
-              emit(
-                `bloom-${s.shardId}`,
-                hue,
-                cx + (hash01(`b${s.shardId}`, i) - 0.5) * 0.05,
-                cy + (hash01(`c${s.shardId}`, i) - 0.5) * 0.05,
-                0.5
-              );
+            // Structure missions have no tile to bloom at: the
+            // molecular view blooms at the verified range's real
+            // centroid instead (StructureView). Only tile shards
+            // bloom here, at their own tile.
+            if (!m.spec.structure) {
+              const hue =
+                (s.claimedBy ? idsNow.peers[s.claimedBy]?.hue : undefined) ??
+                (s.claimedBy === props.userId ? idsNow.self?.hue : undefined) ??
+                187;
+              const cx = (s.tileX + m.spec.tileW / 2) / m.spec.fieldW;
+              const cy = (s.tileY + m.spec.tileH / 2) / m.spec.fieldH;
+              for (let i = 0; i < 3; i++) {
+                emit(
+                  `bloom-${s.shardId}`,
+                  hue,
+                  cx + (hash01(`b${s.shardId}`, i) - 0.5) * 0.05,
+                  cy + (hash01(`c${s.shardId}`, i) - 0.5) * 0.05,
+                  0.5
+                );
+              }
             }
           }
           prevShardStatusRef.current.set(s.shardId, s.status);

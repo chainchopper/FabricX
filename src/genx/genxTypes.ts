@@ -93,9 +93,52 @@ export interface GenxBountyDef {
 /* ------------------------------------------------------------------ */
 
 /**
+ * One shard's domain in a structure mission: a contiguous
+ * range of residues inside a single chain of a real structure,
+ * identified by the chain id and the 0-based [start, end)
+ * indices into that chain's Cα trace. Positional law: the
+ * range at index i of a structure spec's ranges IS mission
+ * shard i (Slice 40's binding contract).
+ */
+export interface GenxStructureRange {
+  chainId: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * The structure variant of a mission spec (Slice 41): the
+ * mission folds a real bundled structure (structures.ts
+ * registry), and its shards are that structure's residue
+ * ranges, cut by structures.structureShards at mission
+ * creation and carried in the spec so every device derives
+ * the same domains from the spec alone. A shard's work is a
+ * deterministic relaxation of its range (structureEngine.ts):
+ * the claim is a checksum of the range's final Cα coordinates,
+ * and the allocator RE-RUNS the identical relaxation before
+ * the shard counts — the same verify door as the tile
+ * missions, no second door.
+ */
+export interface GenxStructureSpec {
+  /** Bundled structure id (registry key, e.g. "4HHB"). */
+  structureId: string;
+  /** Relaxation iterations every shard runs (the work spec). */
+  relaxSteps: number;
+  /** The shard domains, in shard order. */
+  ranges: GenxStructureRange[];
+}
+
+/**
  * A mission is one run of a room-fold job: a deterministic spec
  * every device can execute or verify from the spec alone. The
  * seed + rules travel; the field itself never does.
+ *
+ * Two variants, one lifecycle: a TILE mission (structure ===
+ * null) evolves the LifePacket field in tiles; a STRUCTURE
+ * mission (structure !== null) relaxes residue ranges of a
+ * real molecule. A structure mission's tile-geometry fields
+ * are 0 and carry no meaning — its geometry lives in
+ * structure.ranges.
  */
 export interface GenxMissionSpec {
   missionId: string;
@@ -109,6 +152,8 @@ export interface GenxMissionSpec {
   tileH: number;
   /** Generations each tile evolves. Work per shard = tileW*tileH*generations. */
   generations: number;
+  /** The structure variant, or null for a tile mission. */
+  structure: GenxStructureSpec | null;
   form: GenxForm;
   startedAt: number;
 }
@@ -129,7 +174,11 @@ export type GenxShardStatus =
 
 export interface GenxShardState {
   shardId: number;
-  /** Tile origin in the field (cells). */
+  /**
+   * Tile origin in the field (cells). 0 for structure shards —
+   * their domain is a residue range (spec.structure.ranges),
+   * not a tile.
+   */
   tileX: number;
   tileY: number;
   status: GenxShardStatus;
@@ -139,11 +188,19 @@ export interface GenxShardState {
   progress: number;
   /** The claimed result's checksum (present once claimed). */
   checksum: string | null;
-  /** Live cells in the claimed final tile (present once claimed). */
+  /**
+   * Live cells in the claimed final tile (tile shards); the
+   * range's residue count — Cα positions produced — for
+   * structure shards (present once claimed).
+   */
   liveCells: number | null;
   /** Who produced the current claim. */
   claimedBy: string | null;
-  /** Work units this shard represents (tileW*tileH*generations). */
+  /**
+   * Work units this shard represents: tileW*tileH*generations
+   * for tile shards; the range's residue count for structure
+   * shards (structures.ts: one work unit per residue).
+   */
   workUnits: number;
   /** Last time any word arrived about this shard (stall watch). */
   lastWordAt: number;

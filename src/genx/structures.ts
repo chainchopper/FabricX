@@ -102,7 +102,24 @@ export function structureShards(
   structure: GenxStructure,
   shardCount: number
 ): StructureShardRange[] {
-  const chains = structure.chains.filter((c) => c.residues > 0);
+  return structureShardsForChains(structure.chains, shardCount);
+}
+
+/**
+ * The same cut, from chain lengths alone (Slice 41). The
+ * allocation above depends only on each chain's residue
+ * COUNT, never on coordinates — so a mission allocator can
+ * cut the identical ranges from the registry's verified
+ * metadata (structureIndex chains) before any .pdb text is
+ * fetched, and the renderer's cut of the parsed structure
+ * agrees range for range. scripts/molrun-check.mjs pins that
+ * agreement on the real bundled structures.
+ */
+export function structureShardsForChains(
+  chainLengths: { id: string; residues: number }[],
+  shardCount: number
+): StructureShardRange[] {
+  const chains = chainLengths.filter((c) => c.residues > 0);
   if (chains.length === 0 || !(shardCount > 0)) return [];
   const total = chains.reduce((a, c) => a + c.residues, 0);
   const wanted = Math.min(Math.floor(shardCount), total);
