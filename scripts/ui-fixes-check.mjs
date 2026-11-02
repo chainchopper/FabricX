@@ -28,6 +28,18 @@
 // at a 390pt viewport, plus the park machinery (snap + render
 // cut + touch cut) that now makes closed mean closed.
 //
+// CORRECTIONS (Slice 38, Nov 2 — read Terrell's two messages
+// together): for item (3), the DEFAULT was right and stays —
+// on the stage Trauma is the figure ("There is never a bare
+// figure... I uploaded it. It's trauma."); what his first
+// message killed was the AMBUSH LANDING (the persisted
+// experience reopening on the stage uninvited), fixed in
+// ExperienceContext and pinned by trauma-choice-check §D.
+// Amendment (same morning): while a character loads, NO
+// figure stands — the bare figure was doubling as the loading
+// placeholder; the stage now shows "Loading your character…"
+// (pinned by trauma-choice-check §E).
+//
 // Run: node scripts/ui-fixes-check.mjs   (from the repo root)
 
 import { readFileSync } from "node:fs";
@@ -105,6 +117,16 @@ check("B7 the simulated reply is gone", !companion.includes("demo response") && 
 // ----------------------------------------------------------------
 // C. His guy, on stage by default — resolution logic + the
 //    asset itself, proven from the repo's own parts.
+//    Slice history, so the pins make sense: Slice 37's C1–C5
+//    asserted unset->Trauma default. Slice 38's first version
+//    removed them under a choice-only reading of Terrell's
+//    first Nov 2 message; his second message the same morning
+//    ("There is never a bare figure... I uploaded it. It's
+//    trauma.") restored the default — his first message was
+//    about the LANDING (the fluid), not the stage's figure.
+//    C1–C5 stand again below with the final semantics;
+//    scripts/trauma-choice-check.mjs pins the same rule plus
+//    the landing and the loading-no-figure contract.
 // ----------------------------------------------------------------
 
 const trauma = await bundle("src/dancer/traumaCharacter.ts", "/tmp/ui37-trauma.mjs");

@@ -291,8 +291,6 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
     (async () => {
       const saved = await getJSON<{ id?: string; config?: ExperienceConfig } | null>(STORAGE_KEY, null);
       const fallback = builtin[0];
-      const savedExp = saved?.id ? state.availableExperiences.find((e) => e.id === saved.id) : null;
-      let next = savedExp ?? fallback;
 
       let roomParam: string | null = null;
       let expParam: string | null = null;
@@ -302,22 +300,44 @@ export function ExperienceProvider({ children }: { children: React.ReactNode }) 
         expParam = params.get("exp");
       }
 
-      if (expParam) {
-        const byParam = state.availableExperiences.find((e) => e.id === expParam);
-        if (byParam) next = byParam;
-      }
+      // Slice 38 (Terrell, Nov 2): "The initial fabric and
+      // default is the fluid." The landing is the default fluid
+      // unless THIS load explicitly deep-links a fabric via
+      // ?exp=. The persisted record (fabric_experience_state_v1)
+      // no longer chooses the landing: before this change, a
+      // saved experience id restored that fabric on every fresh
+      // load — a previous session's Dancer Stage visit reopened
+      // as the stage (with a character standing on it) instead
+      // of the fluid, uninvited. The saved fabric stays what it
+      // always also was: a card in the gallery, one tap away,
+      // chosen — never an ambush.
+      const byParam = expParam
+        ? state.availableExperiences.find((e) => e.id === expParam) ?? null
+        : null;
+      const next = byParam ?? fallback;
+
+      // The saved config rides along ONLY when this load lands
+      // on the very experience it belongs to (an explicit ?exp=
+      // deep link to it). A bare load onto the fluid must not
+      // inherit a foreign layer's settings — each layer's own
+      // settings restore through LayerSettingsMirror when the
+      // user actually activates that layer.
+      const restoredConfig =
+        byParam && saved?.id && byParam.id === saved.id
+          ? (saved.config ?? null)
+          : null;
 
       if (!mounted) return;
       dispatch({ type: "SET_ACTIVE", payload: next });
 
-      if (saved?.config) {
-        dispatch({ type: "UPDATE_CONFIG", payload: saved.config });
+      if (restoredConfig) {
+        dispatch({ type: "UPDATE_CONFIG", payload: restoredConfig });
       }
 
       if (roomParam && roomParam.trim().length >= 2) {
         dispatch({
           type: "UPDATE_CONFIG",
-          payload: { specific: { ...(saved?.config?.specific ?? {}), roomId: roomParam.trim().slice(0, 40) } },
+          payload: { specific: { ...(restoredConfig?.specific ?? {}), roomId: roomParam.trim().slice(0, 40) } },
         });
       }
     })();

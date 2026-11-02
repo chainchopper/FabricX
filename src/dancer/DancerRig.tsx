@@ -26,7 +26,12 @@
  *     (stageCharacter store; docs/DANCER.md). Bones may also arrive
  *     as a Mixamo skeleton (`mixamorig:Hips.2`, ...) — mixamoBones
  *     maps those onto the contract at adoption. Missing bones are
- *     skipped silently; a failed load leaves the mannequin standing.
+ *     skipped silently; a failed load leaves the mannequin standing
+ *     (the labeled fallback). While a load is IN FLIGHT the rig
+ *     renders NO figure at all — the bare mannequin must never
+ *     stand as a loading placeholder, where it reads as "the
+ *     mannequin is the dancer" (Terrell, Nov 2); the stage shows
+ *     its "Loading your character…" note instead.
  *     The slot exists ONLY on the local rig (characterSlot): the
  *     character is YOUR ghostie's body. Models never travel over
  *     the wire — remote ghosties always wear their hue mannequins.
@@ -717,10 +722,19 @@ export default function DancerRig({
     }
   });
 
+  // A loading slot renders NO figure: while the character's
+  // bytes download/decode, the mannequin stays hidden so the
+  // stage never presents the bare figure as if it were the
+  // dancer (the stage's loading note explains the empty
+  // stage). The mannequin returns only when no bind exists
+  // (explicit "none") or a bind has FAILED (the fallback,
+  // with the stage's failure pill saying so).
+  const slotLoading = characterSlot && charState.status === "loading";
+
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
       <group ref={groupRef}>
-        <primitive object={mannequin.mesh} visible={!character} />
+        <primitive object={mannequin.mesh} visible={!character && !slotLoading} />
         {character ? <primitive object={character.scene} /> : null}
         {label ? <RigLabel name={label} hue={tintHue ?? 190} /> : null}
       </group>
