@@ -32,7 +32,12 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Dimensions, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  getBrainSnapshot,
+  subscribeOnDeviceBrain,
+  type BrainSnapshot,
+} from "../../ai/onDeviceBrain";
 import { getGhostPublicState } from "../../ghost/ghostStore";
 import {
   getSessionPublicState,
@@ -100,6 +105,16 @@ interface Entity {
   isNode: boolean;
 }
 
+/**
+ * Slice 43: how far the top cluster drops while the on-device
+ * brain's progress chip is on screen. BrainChrome's wrapper
+ * sits at top:60 and its pill is ~29pt tall (5+5 padding, the
+ * 12pt caption line, borders), so the chip's bottom edge lands
+ * at ≈89pt; the cluster's resting top is 52, so 52 + 44 = 96
+ * clears it with room to spare.
+ */
+const BRAIN_CHIP_CLEARANCE = 44;
+
 export default function GenxLayer(props: GenxLayerProps) {
   // Allocator eligibility follows the room's authority: the
   // host allocates; in an open room the starter of a mission is
@@ -115,7 +130,6 @@ export default function GenxLayer(props: GenxLayerProps) {
   const isHost = role !== "guest";
   const room = useGenxRoom({
     userId: props.userId,
-    isHost,
     lendDevice: props.lendDevice,
     nodeUrl: props.nodeUrl,
     sendGenx: props.sendGenx,
@@ -127,6 +141,24 @@ export default function GenxLayer(props: GenxLayerProps) {
   const [boardOpen, setBoardOpen] = useState(true);
   useEffect(() => subscribeGenx(setSnap), []);
   useEffect(() => subscribeIdentity(setIdent), []);
+
+  // Slice 43: the brain's progress chip (BrainChrome, root
+  // chrome) rides the top edge centered at top:60 — while it is
+  // up, the Fold's top cluster starts below it instead of
+  // underneath it. The predicate is BrainChrome's own showChip
+  // condition read from the same store, so the layer and the
+  // chrome can never disagree about whether the chip is up.
+  // (The one-time ASK card is a different, modal moment that
+  // every layer sits under; only the chip moves the cluster.)
+  const [brainSnap, setBrainSnap] = useState<BrainSnapshot>(() =>
+    getBrainSnapshot()
+  );
+  useEffect(() => subscribeOnDeviceBrain(setBrainSnap), []);
+  const brainChipUp =
+    !brainSnap.askVisible &&
+    (brainSnap.state === "downloading" || brainSnap.state === "warming");
+  const narrow = Dimensions.get("window").width < 640;
+  const clusterTop = 52 + (brainChipUp ? BRAIN_CHIP_CLEARANCE : 0);
 
   const field = snap.field;
   const mission = field.mission;
@@ -465,175 +497,172 @@ export default function GenxLayer(props: GenxLayerProps) {
       pointerEvents="box-none"
       style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 4 }}
     >
-      {/* Field status — top-left, under the Essence's corner. */}
+      {/* The top cluster (Slice 43): the field status column and
+          the bounty board in ONE responsive container. They used
+          to be independent absolute panels — the card capped at
+          maxWidth 330 from left:12, the board width 348 anchored
+          right with a maxWidth "86%" cap — whose rects at a
+          390pt phone overlapped by ~300pt: the board is painted
+          later, so its translucent surface, filter chips and
+          empty text rendered ON TOP of the card's title and
+          status lines (Terrell's Nov 2 screenshot: the cut
+          "THE FOLD" title, two empty-state texts superimposed).
+          Now: on phone widths (< 640) the cluster is a single
+          column — field card first, board below it in the
+          remaining height; on wide screens they sit side by
+          side, as before. All widths are window-derived pixels
+          (the drawer family's pattern), never % caps. */}
       <View
         pointerEvents="box-none"
-        style={{ position: "absolute", top: 52, left: 12, maxWidth: 330, gap: 6 }}
+        style={{
+          position: "absolute",
+          top: clusterTop,
+          left: 12,
+          right: 12,
+          bottom: 90,
+          flexDirection: narrow ? "column" : "row",
+          gap: narrow ? 6 : 12,
+        }}
       >
+        {/* Field status — top of the column, left of the row. */}
         <View
+          pointerEvents="box-none"
           style={{
-            backgroundColor: "rgba(2,8,23,0.82)",
-            borderWidth: 1,
-            borderColor: "rgba(34,211,238,0.4)",
-            borderRadius: radius.card,
-            padding: spacing.sm + 2,
-            gap: 3,
+            width: narrow ? undefined : 330,
+            alignSelf: narrow ? "stretch" : "flex-start",
+            gap: 6,
           }}
         >
-          <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>
-            THE FOLD{" "}
-            <Text style={{ color: colors.textDim, fontWeight: "400" }}>
-              {mission
-                ? mission.status === "complete"
-                  ? "· settled"
-                  : "· folding"
-                : "· the room's compute field"}
-            </Text>
-          </Text>
-          {mission ? (
-            <>
-              <View
-                style={{
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: "rgba(242,247,249,0.14)",
-                  overflow: "hidden",
-                }}
-              >
-                <View
-                  style={{
-                    height: 5,
-                    width: `${Math.round(progress * 100)}%`,
-                    backgroundColor: colors.accent,
-                  }}
-                />
-              </View>
-              <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                {Math.round(progress * 100)}% verified ·{" "}
-                {mission.shards.filter((s) => s.status === "verified").length}/
-                {mission.shards.length} shards
-                {missionCard
-                  ? ` · ETA ${fmtEta(missionCard.etaSeconds)} at ${fmtRate(missionCard.roomPower)}`
-                  : ""}
-              </Text>
-              {contributions.map((c) => (
-                <Text key={c.participantId} style={{ color: colors.textDim, fontSize: 11 }}>
-                  <Text style={{ color: hueCss(ident.peers[c.participantId]?.hue ?? (c.participantId === props.userId ? ident.self?.hue ?? 187 : 187)) }}>
-                    ●
-                  </Text>{" "}
-                  {c.participantId === props.userId
-                    ? "You"
-                    : (ident.peers[c.participantId]?.name ?? "A device")}{" "}
-                  · {c.verifiedShards} verified · {Math.round(c.share * 100)}% ·{" "}
-                  {fmtJuice(c.juice)}
-                </Text>
-              ))}
-            </>
-          ) : (
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              {cards.length > 0
-                ? "Pick a bounty below — join with a measured benchmark, and the host's start splits real work across the room."
-                : "Waiting for the room's host to post the seed bounties…"}
-            </Text>
-          )}
-          <Text style={{ color: colors.textDim, fontSize: 11 }}>
-            Your Juice (verified, all rooms): {fmtJuice(snap.juiceLifetime)}
-            {snap.spectating ? ` · Riding ${spectatedName} — view only` : ""}
-          </Text>
-          {latestAlert ? (
-            <Text style={{ color: colors.accent, fontSize: 11 }}>{latestAlert.text}</Text>
-          ) : null}
-        </View>
-
-        {/* The GenX node card — the node's own reports, labelled. */}
-        {node || props.nodeUrl ? (
           <View
             style={{
               backgroundColor: "rgba(2,8,23,0.82)",
               borderWidth: 1,
-              borderColor: "rgba(242,247,249,0.2)",
+              borderColor: "rgba(34,211,238,0.4)",
               borderRadius: radius.card,
               padding: spacing.sm + 2,
-              gap: 2,
+              gap: 3,
             }}
           >
             <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>
-              GENX NODE{" "}
-              <Text style={{ color: node?.reachable ? colors.accent : colors.danger, fontWeight: "700" }}>
-                {node ? (node.reachable ? "· REPORTING" : "· NOT ANSWERING") : "· …"}
+              THE FOLD{" "}
+              <Text style={{ color: colors.textDim, fontWeight: "400" }}>
+                {mission
+                  ? mission.status === "complete"
+                    ? "· settled"
+                    : "· folding"
+                  : "· the room's compute field"}
               </Text>
             </Text>
-            {node?.reachable ? (
+            {mission ? (
               <>
+                <View
+                  style={{
+                    height: 5,
+                    borderRadius: 3,
+                    backgroundColor: "rgba(242,247,249,0.14)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <View
+                    style={{
+                      height: 5,
+                      width: `${Math.round(progress * 100)}%`,
+                      backgroundColor: colors.accent,
+                    }}
+                  />
+                </View>
                 <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                  {node.label} · Folding@home: {node.fahStatus}
-                  {node.fahStatus === "ONLINE"
-                    ? ` · ${Math.round(node.fahPointsPerDay).toLocaleString()} points/day (node-reported)`
+                  {Math.round(progress * 100)}% verified ·{" "}
+                  {mission.shards.filter((s) => s.status === "verified").length}/
+                  {mission.shards.length} shards
+                  {missionCard
+                    ? ` · ETA ${fmtEta(missionCard.etaSeconds)} at ${fmtRate(missionCard.roomPower)}`
                     : ""}
                 </Text>
-                <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                  Allocator: {node.nodes} node{node.nodes === 1 ? "" : "s"} ·{" "}
-                  {node.queuedTasks} queued · {node.activeTasks} active
-                  {node.providersInstalled.length > 0
-                    ? ` · providers: ${node.providersInstalled.join(", ")}`
-                    : ""}
-                </Text>
-                {node.cpuLoadReported !== null ? (
-                  <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                    CPU load {Math.round(node.cpuLoadReported)}% — node-reported
-                    (its collector, not a measurement)
+                {contributions.map((c) => (
+                  <Text key={c.participantId} style={{ color: colors.textDim, fontSize: 11 }}>
+                    <Text style={{ color: hueCss(ident.peers[c.participantId]?.hue ?? (c.participantId === props.userId ? ident.self?.hue ?? 187 : 187)) }}>
+                      ●
+                    </Text>{" "}
+                    {c.participantId === props.userId
+                      ? "You"
+                      : (ident.peers[c.participantId]?.name ?? "A device")}{" "}
+                    · {c.verifiedShards} verified · {Math.round(c.share * 100)}% ·{" "}
+                    {fmtJuice(c.juice)}
                   </Text>
-                ) : null}
+                ))}
               </>
             ) : (
               <Text style={{ color: colors.textDim, fontSize: 11 }}>
-                {snap.probe.state === "blocked"
-                  ? "A server answers there, but this browser may not read it (CORS/PNA) — see THIS LAYER for the probe verdict."
-                  : "The bridge is polling the address in THIS LAYER. The room fold runs either way."}
+                {cards.length > 0
+                  ? "Pick a bounty below — join with a measured benchmark, and the host's start splits real work across the room."
+                  : "The field is idle — no fold is running yet."}
               </Text>
             )}
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              Your Juice (verified, all rooms): {fmtJuice(snap.juiceLifetime)}
+              {snap.spectating ? ` · Riding ${spectatedName} — view only` : ""}
+            </Text>
+            {latestAlert ? (
+              <Text style={{ color: colors.accent, fontSize: 11 }}>{latestAlert.text}</Text>
+            ) : null}
           </View>
-        ) : null}
 
-        <Pressable
-          pointerEvents="auto"
-          onPress={() => setBoardOpen((o) => !o)}
-          accessibilityRole="button"
-          accessibilityLabel="Toggle the bounty board"
-          style={{
-            alignSelf: "flex-start",
-            paddingVertical: 6,
-            paddingHorizontal: 12,
-            borderRadius: radius.pill,
-            borderWidth: 1,
-            borderColor: colors.accent,
-            backgroundColor: colors.accentDim,
-          }}
-        >
-          <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "700" }}>
-            {boardOpen ? "Hide bounties" : "Bounties"}
-          </Text>
-        </Pressable>
+          {/* The GenX node card — the node's own reports, labelled. */}
+          {node || props.nodeUrl ? (
+            <View
+              style={{
+                backgroundColor: "rgba(2,8,23,0.82)",
+                borderWidth: 1,
+                borderColor: "rgba(242,247,249,0.2)",
+                borderRadius: radius.card,
+                padding: spacing.sm + 2,
+                gap: 2,
+              }}
+            >
+              <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>
+                GENX NODE{" "}
+                <Text style={{ color: node?.reachable ? colors.accent : colors.danger, fontWeight: "700" }}>
+                  {node ? (node.reachable ? "· REPORTING" : "· NOT ANSWERING") : "· …"}
+                </Text>
+              </Text>
+              {node?.reachable ? (
+                <>
+                  <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                    {node.label} · Folding@home: {node.fahStatus}
+                    {node.fahStatus === "ONLINE"
+                      ? ` · ${Math.round(node.fahPointsPerDay).toLocaleString()} points/day (node-reported)`
+                      : ""}
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                    Allocator: {node.nodes} node{node.nodes === 1 ? "" : "s"} ·{" "}
+                    {node.queuedTasks} queued · {node.activeTasks} active
+                    {node.providersInstalled.length > 0
+                      ? ` · providers: ${node.providersInstalled.join(", ")}`
+                      : ""}
+                  </Text>
+                  {node.cpuLoadReported !== null ? (
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                      CPU load {Math.round(node.cpuLoadReported)}% — node-reported
+                      (its collector, not a measurement)
+                    </Text>
+                  ) : null}
+                </>
+              ) : (
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                  {snap.probe.state === "blocked"
+                    ? "A server answers there, but this browser may not read it (CORS/PNA) — see THIS LAYER for the probe verdict."
+                    : "The bridge is polling the address in THIS LAYER. The room fold runs either way."}
+                </Text>
+              )}
+            </View>
+          ) : null}
 
-        {/* Slice 40: open the molecular view — the active mission's
-            bound structure, or hemoglobin (the room fold's target,
-            RCSB 4HHB) as the standing sample. */}
-        {missionStructureId || sampleMeta ? (
           <Pressable
             pointerEvents="auto"
-            onPress={() =>
-              void (missionStructureId && missionCard
-                ? openStructureById(missionStructureId, missionCard.def.id, missionCard.def.title)
-                : sampleMeta
-                  ? openStructureById(
-                      HEMOGLOBIN_STRUCTURE_ID,
-                      null,
-                      `${sampleMeta.name} — sample structure`
-                    )
-                  : Promise.resolve())
-            }
+            onPress={() => setBoardOpen((o) => !o)}
             accessibilityRole="button"
-            accessibilityLabel="View the structure in 3D"
+            accessibilityLabel="Toggle the bounty board"
             style={{
               alignSelf: "flex-start",
               paddingVertical: 6,
@@ -641,79 +670,111 @@ export default function GenxLayer(props: GenxLayerProps) {
               borderRadius: radius.pill,
               borderWidth: 1,
               borderColor: colors.accent,
-              backgroundColor: "rgba(2,8,23,0.82)",
+              backgroundColor: colors.accentDim,
             }}
           >
             <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "700" }}>
-              View structure
+              {boardOpen ? "Hide bounties" : "Bounties"}
             </Text>
           </Pressable>
-        ) : null}
-        {structureBusy ? (
-          <Text style={{ color: colors.textDim, fontSize: 11 }}>
-            Loading the structure…
-          </Text>
-        ) : null}
-        {resultBusy ? (
-          <Text style={{ color: colors.textDim, fontSize: 11 }}>
-            Fetching the node's result…
-          </Text>
-        ) : null}
-        {resultNote ? (
-          <Text style={{ color: colors.danger, fontSize: 11 }}>{resultNote}</Text>
+
+          {/* Slice 40: open the molecular view — the active mission's
+              bound structure, or hemoglobin (the room fold's target,
+              RCSB 4HHB) as the standing sample. */}
+          {missionStructureId || sampleMeta ? (
+            <Pressable
+              pointerEvents="auto"
+              onPress={() =>
+                void (missionStructureId && missionCard
+                  ? openStructureById(missionStructureId, missionCard.def.id, missionCard.def.title)
+                  : sampleMeta
+                    ? openStructureById(
+                        HEMOGLOBIN_STRUCTURE_ID,
+                        null,
+                        `${sampleMeta.name} — sample structure`
+                      )
+                    : Promise.resolve())
+              }
+              accessibilityRole="button"
+              accessibilityLabel="View the structure in 3D"
+              style={{
+                alignSelf: "flex-start",
+                paddingVertical: 6,
+                paddingHorizontal: 12,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.accent,
+                backgroundColor: "rgba(2,8,23,0.82)",
+              }}
+            >
+              <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "700" }}>
+                View structure
+              </Text>
+            </Pressable>
+          ) : null}
+          {structureBusy ? (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              Loading the structure…
+            </Text>
+          ) : null}
+          {resultBusy ? (
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              Fetching the node's result…
+            </Text>
+          ) : null}
+          {resultNote ? (
+            <Text style={{ color: colors.danger, fontSize: 11 }}>{resultNote}</Text>
+          ) : null}
+        </View>
+
+        {/* The bounty board — the cluster's remaining space:
+            below the field card on phones, beside it on wide
+            screens. It scrolls inside its share, never over the
+            card. */}
+        {boardOpen ? (
+          <View
+            pointerEvents="box-none"
+            style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+          >
+            <ScrollView
+              pointerEvents="auto"
+              style={{
+                flex: 1,
+                backgroundColor: "rgba(2,8,23,0.66)",
+                borderWidth: 1,
+                borderColor: "rgba(242,247,249,0.14)",
+                borderRadius: radius.card,
+                padding: spacing.sm,
+              }}
+            >
+              <BountyBoard
+                cards={cards}
+                selfId={props.userId}
+                isHost={isHost}
+                lendDevice={props.lendDevice}
+                hasNodeUrl={props.nodeUrl.trim().length > 0}
+                followed={snap.followed}
+                spectating={snap.spectating}
+                nodeJobBusy={room.nodeJobBusy}
+                viewableStructureIds={viewableStructureIds}
+                resultJobIds={resultJobIds}
+                onJoin={(jobId) => room.joinJob(jobId)}
+                onStart={(jobId) => room.startRoomFold(jobId)}
+                onRunNodeJob={(jobId) => room.runNodeJob(jobId)}
+                onFollow={(jobId, follow) => setGenxFollowed(jobId, follow)}
+                onSpectate={(pid) => setGenxSpectating(pid)}
+                onViewStructure={(jobId) => {
+                  const card = cards.find((c) => c.def.id === jobId);
+                  if (card?.structureId) {
+                    void openStructureById(card.structureId, jobId, card.def.title);
+                  }
+                }}
+                onViewResult={(jobId) => void openNodeResult(jobId)}
+              />
+            </ScrollView>
+          </View>
         ) : null}
       </View>
-
-      {/* The bounty board — right side, scrollable. */}
-      {boardOpen ? (
-        <View
-          pointerEvents="box-none"
-          style={{
-            position: "absolute",
-            top: 52,
-            right: 12,
-            width: 348,
-            maxWidth: "86%",
-            bottom: 90,
-          }}
-        >
-          <ScrollView
-            pointerEvents="auto"
-            style={{
-              backgroundColor: "rgba(2,8,23,0.66)",
-              borderWidth: 1,
-              borderColor: "rgba(242,247,249,0.14)",
-              borderRadius: radius.card,
-              padding: spacing.sm,
-            }}
-          >
-            <BountyBoard
-              cards={cards}
-              selfId={props.userId}
-              isHost={isHost}
-              lendDevice={props.lendDevice}
-              hasNodeUrl={props.nodeUrl.trim().length > 0}
-              followed={snap.followed}
-              spectating={snap.spectating}
-              nodeJobBusy={room.nodeJobBusy}
-              viewableStructureIds={viewableStructureIds}
-              resultJobIds={resultJobIds}
-              onJoin={(jobId) => room.joinJob(jobId)}
-              onStart={(jobId) => room.startRoomFold(jobId)}
-              onRunNodeJob={(jobId) => room.runNodeJob(jobId)}
-              onFollow={(jobId, follow) => setGenxFollowed(jobId, follow)}
-              onSpectate={(pid) => setGenxSpectating(pid)}
-              onViewStructure={(jobId) => {
-                const card = cards.find((c) => c.def.id === jobId);
-                if (card?.structureId) {
-                  void openStructureById(card.structureId, jobId, card.def.title);
-                }
-              }}
-              onViewResult={(jobId) => void openNodeResult(jobId)}
-            />
-          </ScrollView>
-        </View>
-      ) : null}
 
       {/* Slice 40: the molecular view, over the field while open. */}
       {viewer ? (

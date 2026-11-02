@@ -357,9 +357,24 @@ export default function BountyBoard(props: BountyBoardProps) {
         <Chip label="Room jobs" active={filter === "room-fold"} onPress={() => setFilter("room-fold")} />
         <Chip label="Node jobs" active={filter === "node-job"} onPress={() => setFilter("node-job")} />
       </View>
-      {cards.length === 0 ? (
+      {/* The board's ONE empty state (Slice 43): this is the only
+          place board-empty copy renders — the layer's field card
+          speaks about the field, never the board. The wording
+          follows the viewer's seat: a host's own client posts
+          the seeds when the layer opens, so a host who sees this
+          is watching them land; the "waiting for the host" line
+          belongs only to a guest, before the host's posts arrive.
+          A filter that excludes every posted job is a different
+          state from an empty board and says so. */}
+      {props.cards.length === 0 ? (
         <Text style={{ color: colors.textDim, fontSize: 11 }}>
-          No bounties on the board yet — the room's host posts the seed jobs.
+          {props.isHost
+            ? "Posting the seed bounties…"
+            : "Waiting for the room's host to post the seed bounties…"}
+        </Text>
+      ) : cards.length === 0 ? (
+        <Text style={{ color: colors.textDim, fontSize: 11 }}>
+          Nothing under this filter — every job on the board is under All jobs.
         </Text>
       ) : null}
       {inProgress.length > 0 ? (

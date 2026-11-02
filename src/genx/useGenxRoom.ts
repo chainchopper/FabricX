@@ -50,8 +50,8 @@ import {
   type NodeBridge,
 } from "./nodeBridge";
 import {
-  buildSeedBounties,
   measureThroughput,
+  missingSeedBounties,
   planAssignments,
   roomFoldSpec,
   tileSpecFor,
@@ -95,7 +95,6 @@ export interface GenxRoomApi {
 
 export function useGenxRoom(args: {
   userId: string;
-  isHost: boolean;
   lendDevice: boolean;
   nodeUrl: string;
   sendGenx: SendGenx;
@@ -103,8 +102,6 @@ export function useGenxRoom(args: {
   const { userId, sendGenx } = args;
   const lendRef = useRef(args.lendDevice);
   lendRef.current = args.lendDevice;
-  const hostRef = useRef(args.isHost);
-  hostRef.current = args.isHost;
   const sendRef = useRef(sendGenx);
   sendRef.current = sendGenx;
 
@@ -145,15 +142,29 @@ export function useGenxRoom(args: {
     void ensureGenxPrefsLoaded();
   }, [userId]);
 
-  /* ---------------- seed bounties (host-posted, heal on a heartbeat) -------- */
+  /* ---------------- seed bounties (standing content, heal on a heartbeat) -- */
+  // Slice 43: the seeds are the board's standing content, NOT an
+  // act of session authority. Until now posting was gated on the
+  // session role (hostRef: role !== "guest") — a CANVAS-hosting
+  // election (claims + presence in the shared room) that says
+  // nothing about the Fold: a client resolved "guest" (a second
+  // device or tab, any earlier-joined presence) never posted,
+  // and the session host's own client posted only when IT opened
+  // the Fold, so a fresh Fold session could sit behind an empty
+  // board and "waiting for the host" copy indefinitely. Now any
+  // client with the layer open posts whichever seed defs its
+  // field is missing, through the same send path as everything
+  // else (the send folds locally through the shared reducer and
+  // rides the wire to peers); posters converge because the defs
+  // are fixed templates and the reducer dedupes by createdAt.
+  // Session authority still governs what it should: starting a
+  // mission (the board's Start gate + the reducer's allocator
+  // origin law), not the board's existence.
   useEffect(() => {
     const postSeeds = () => {
-      if (!hostRef.current) return;
       const field = getGenxSnapshot().field;
-      for (const def of buildSeedBounties(userId, Date.now())) {
-        if (!field.bounties[def.id]) {
-          sendRef.current({ type: "genx-bounty", bounty: def });
-        }
+      for (const def of missingSeedBounties(field, userId, Date.now())) {
+        sendRef.current({ type: "genx-bounty", bounty: def });
       }
     };
     postSeeds();
