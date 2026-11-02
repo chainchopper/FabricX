@@ -38,10 +38,13 @@
  *      GLTFLoader.parseAsync.
  *
  * Either way the bytes move only when the stage binds Trauma.
- * Until decodable bytes are in place the bind simply reports
- * "failed" and the mannequin keeps the stage, like any bad
- * character file. public/animations/README.md documents both
- * forms and how to regenerate the parts.
+ * While the bytes are in flight NO figure stands (the rig
+ * shows a "Loading your character…" note — a half-loaded stage
+ * must never read as "the mannequin is the dancer"); a bind
+ * that fails reports "failed" and the mannequin stands as the
+ * labeled fallback, like any bad character file.
+ * public/animations/README.md documents both forms and how to
+ * regenerate the parts.
  */
 
 import type { GLTF, GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -77,19 +80,20 @@ export const TRAUMA_IDLES: readonly TraumaIdleDef[] = [
 ];
 
 /**
- * Catalog fallback for traumaIdleDef's coercion ONLY (an
- * explicit-pick path normalizing a chosen id). Since Slice 38
- * this is NOT a stage default: nothing binds on an unset pick
- * (see resolveBuiltinBind).
+ * The stage's default idle: what an unset/unknown pick binds
+ * (see resolveBuiltinBind) and traumaIdleDef's coercion
+ * fallback. Trauma is the figure Terrell uploaded for the
+ * stage; the MMA idle is his standing default body.
  */
 export const DEFAULT_TRAUMA_IDLE_ID: TraumaIdleId = "mma";
 
 /**
- * Coerce a chosen idle id (or anything) to a catalog entry: the
- * matching idle, or the catalog fallback when the value is
- * unset/unknown. Call sites that care about "was anything
- * actually picked" must use resolveBuiltinBind instead — this
- * helper always answers with SOME idle by design.
+ * Coerce an idle id (or anything) to a catalog entry: the
+ * matching idle, or the default when the value is
+ * unset/unknown. Call sites that care about the one real
+ * opt-out — the explicit "none" pick — must use
+ * resolveBuiltinBind instead: this helper always answers with
+ * SOME idle by design.
  */
 export function traumaIdleDef(value: unknown): TraumaIdleDef {
   const found = TRAUMA_IDLES.find((d) => d.id === value);
@@ -110,23 +114,32 @@ export const TRAUMA_IDLE_NONE = "none";
 
 /**
  * Resolve a stored `specific.stageTraumaIdle` value to the
- * built-in the stage binds on mount (Slice 38 — Terrell's
- * correction, Nov 2, overruling Slice 37's default):
- *   - a catalog id -> that idle's def (an explicit pick binds)
- *   - "none"       -> null (explicit bare figure)
- *   - unset/other  -> null. NO pick, NO character.
- * Slice 37 read Terrell's "can I get my gltf guy" as a request
- * for a default and made unset bind Trauma (MMA). He overruled
- * it in plain words: "Trauma better not be standing anywhere
- * unless I choose a fabric or idle behavior that uses him."
- * The character appears only on the user's explicit choice —
- * a stored catalog pick, or his own loaded glTF in the slot.
- * Anything else (never picked, a value nothing wrote on
- * purpose) binds nothing and the bare figure stands.
+ * built-in the stage binds on mount — THE RULE, FINAL (Terrell,
+ * Nov 2, 2026, two messages read together):
+ *   - a catalog id -> that idle's def (an explicit pick wins)
+ *   - "none"       -> null (the explicit bare-figure choice —
+ *                     the ONLY standing bare figure, besides a
+ *                     labeled load failure)
+ *   - unset/other  -> the Trauma MMA default. On the stage,
+ *                     there is never a bare figure by accident:
+ *                     "We have the figure we want. I uploaded
+ *                     it. It's trauma."
+ * The history, so nobody re-litigates it: Slice 37 made unset
+ * bind the default. His first Nov 2 message ("Trauma better
+ * not be standing anywhere unless I choose a fabric or idle
+ * behavior that uses him. The initial fabric and default is
+ * the fluid.") targeted the AMBUSH — the persisted-experience
+ * restore landing fresh loads on the stage uninvited; Slice
+ * 38's landing fix (ExperienceContext) answers it and stands.
+ * Slice 38 also reverted this bind to choice-only, which
+ * overshot; his second message corrected that within hours:
+ * "There is never a bare figure. Why? We have models
+ * available unless someone chooses it." So: the landing stays
+ * the fluid, AND on the stage itself Trauma is the figure.
  */
 export function resolveBuiltinBind(value: unknown): TraumaIdleDef | null {
-  const found = TRAUMA_IDLES.find((d) => d.id === value);
-  return found ?? null;
+  if (value === TRAUMA_IDLE_NONE) return null;
+  return traumaIdleDef(value);
 }
 
 // ---------------------------------------------------------------------------

@@ -33,19 +33,22 @@
  * - The glTF character slot binds to the LOCAL rig only: the
  *   character is YOUR ghostie's body. Models never travel.
  * - The built-in character (Trauma, Slice 25) is remembered BY
- *   THE LAYER: THIS LAYER's `stageTraumaIdle` names the idle the
- *   user picked, and this stage rebinds that same-origin GLB
- *   whenever it mounts with an empty slot. A picked custom file
- *   is session state (an object URL); the built-in is a URL the
- *   layer itself can hold, so the pick survives reloads. Slice
- *   38 (Terrell's correction, Nov 2): the character binds ONLY
- *   on an explicit pick — an unset setting binds NOTHING and
- *   the bare figure stands (Slice 37's unset→default rule was
- *   overruled in his own words: Trauma stands somewhere only
- *   where he chose a fabric or idle behavior that uses him).
- *   "Restore mannequin" stores the explicit "none" pick
- *   (traumaCharacter.resolveBuiltinBind), so the bare figure is
- *   a recorded choice, distinct from never having picked.
+ *   THE LAYER: THIS LAYER's `stageTraumaIdle` names the idle,
+ *   and this stage rebinds that same-origin GLB whenever it
+ *   mounts with an empty slot. A picked custom file is session
+ *   state (an object URL); the built-in is a URL the layer
+ *   itself can hold, so the pick survives reloads. THE RULE,
+ *   FINAL (Terrell, Nov 2, two messages read together): on the
+ *   stage, Trauma is THE figure — an unset setting binds the
+ *   Trauma MMA default ("There is never a bare figure. We
+ *   have the figure we want. I uploaded it. It's trauma.");
+ *   a stored catalog pick wins; "Restore mannequin" stores
+ *   the explicit "none" pick — the ONLY standing bare figure,
+ *   besides a labeled load failure. His other Nov 2 sentence
+ *   ("The initial fabric and default is the fluid") is about
+ *   the LANDING, and Slice 38's ExperienceContext fix stands:
+ *   nothing lands on this stage uninvited — you arrive here
+ *   by choosing the fabric, and when you do, he's standing.
  *
  * DOM side (this file) owns the cast bookkeeping: one
  * DancerDriver per participant (created lazily, pruned when they
@@ -137,9 +140,10 @@ export default function DancerStage({
   const figureEnabled = specific.stageDancerEnabled !== false;
   const drift = specific.stageCameraDrift !== false;
   const themeHue = stageThemeHue(specific.stageTheme);
-  // THIS LAYER's built-in character pick: an idle id from the
-  // Trauma catalog, the explicit "none" (Restore mannequin), or
-  // null when the layer never picked one.
+  // THIS LAYER's built-in character setting: an idle id from
+  // the Trauma catalog, the explicit "none" (Restore
+  // mannequin), or null when the layer never stored one — null
+  // still binds the default (see the resolution below).
   const traumaIdleSetting =
     typeof specific.stageTraumaIdle === "string"
       ? specific.stageTraumaIdle
@@ -148,13 +152,16 @@ export default function DancerStage({
   // Bind the layer's built-in character on mount (see header):
   // only into an EMPTY slot — a character the user bound this
   // session (either idle, or their own picked file) is never
-  // overridden. The resolution is resolveBuiltinBind (Slice 38):
-  // a stored catalog pick binds that idle; unset and the
-  // explicit "none" both resolve to null — no pick, no
-  // character, the bare figure stands on purpose. A failed load
-  // of an explicit pick reports through the slot, the mannequin
-  // keeps the stage, and the failure pill below shows it on
-  // stage; the URL stays in the store, so this never retry-loops.
+  // overridden. The resolution is resolveBuiltinBind (the
+  // final Nov 2 rule): a stored catalog pick binds that idle;
+  // unset binds the Trauma MMA default — on this stage he is
+  // the figure; the explicit "none" alone resolves to null.
+  // While the bind loads, NO figure stands (DancerRig hides
+  // the mannequin for a loading slot; the note below says why
+  // the stage is empty). A failed load reports through the
+  // slot, the mannequin stands as the fallback, and the
+  // failure pill below shows it on stage; the URL stays in
+  // the store, so this never retry-loops.
   useEffect(() => {
     const def = resolveBuiltinBind(traumaIdleSetting);
     if (!def) return;
@@ -162,10 +169,12 @@ export default function DancerStage({
     setStageCharacterRemote(def.url, def.characterName);
   }, [traumaIdleSetting]);
 
-  // Slice 37: the slot's live state, for the failure pill — a
-  // bind that fails must be visible HERE, on the stage, not only
-  // as a status line inside the settings panel (which is itself
-  // two taps away and was a stacked mess in the same report).
+  // Slice 37: the slot's live state, for the stage overlays —
+  // a bind that LOADS or FAILS must be visible HERE, on the
+  // stage, not only as a status line inside the settings panel
+  // (which is itself two taps away and was a stacked mess in
+  // the same report). Loading shows the quiet note below (and
+  // no figure — DancerRig); failure shows its pill.
   const [charState, setCharState] = useState<StageCharacterState>(() =>
     getStageCharacterState()
   );
@@ -386,6 +395,21 @@ export default function DancerStage({
           </View>
         </View>
       ) : null}
+      {/* While a character (the built-in default/pick, or a
+          picked file) is loading, the stage stands EMPTY —
+          DancerRig renders no figure for a loading slot — and
+          this quiet note says why. The bare figure is never a
+          loading placeholder: it reads as "the mannequin is
+          the dancer", which is the exact misread Terrell
+          flagged. The note is product language, pointerEvents
+          none, gone the moment the character binds. */}
+      {charState.status === "loading" ? (
+        <View pointerEvents="none" style={styles.charLoadWrap}>
+          <View style={styles.charLoadPill}>
+            <Text style={styles.charLoadText}>Loading your character…</Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -431,4 +455,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   charFailText: { color: "#fecaca", fontSize: 12, fontWeight: "600" },
+  charLoadWrap: {
+    position: "absolute",
+    top: 72,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  charLoadPill: {
+    maxWidth: "88%",
+    borderWidth: 1,
+    borderColor: "rgba(148,184,220,0.4)",
+    backgroundColor: "rgba(10,14,24,0.88)",
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  charLoadText: { color: "#b8cadd", fontSize: 12, fontWeight: "600" },
 });
