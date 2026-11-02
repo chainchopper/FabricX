@@ -79,6 +79,7 @@ import {
   type StageCharacterState,
 } from "./stageCharacter";
 import { loadBuiltinCharacterGltf } from "./traumaCharacter";
+import { registerSpecGlossConverter } from "./specGlossMaterial";
 
 /** The UE5 Mannequin bone contract (docs/DANCER.md). */
 export const UE5_BONE_NAMES = [
@@ -516,7 +517,9 @@ export default function DancerRig({
   // Built-in binds (Trauma, charState.builtin) resolve through
   // traumaCharacter: raw .glb first, the base64 transport second.
   // Picked files (blob URLs) and every other URL keep the plain
-  // loader path below, untouched.
+  // loader path below, untouched. ONE loader serves both paths,
+  // and it carries the spec-gloss converter (Slice 42), so a
+  // legacy spec-gloss material is rebuilt on either path.
   useEffect(() => {
     const url = characterSlot ? charState.url : null;
     if (!url) {
@@ -527,6 +530,12 @@ export default function DancerRig({
     let adopted: AdoptedCharacter | null = null;
     setStageCharacterStatus("loading");
     const loader = new GLTFLoader();
+    // Slice 42: the spec-gloss → metallic-roughness converter
+    // rides this loader (specGlossMaterial.ts). Trauma's only
+    // color texture lives in the legacy spec-gloss extension
+    // three r180 drops; without this, a successful bind still
+    // renders as an untextured pale figure.
+    registerSpecGlossConverter(loader);
     const loading = charState.builtin
       ? loadBuiltinCharacterGltf(loader, url)
       : loader.loadAsync(url);

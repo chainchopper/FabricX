@@ -48,6 +48,7 @@
  */
 
 import type { GLTF, GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { registerSpecGlossConverter } from "./specGlossMaterial";
 
 export type TraumaIdleId = "mma" | "bouncing";
 
@@ -253,6 +254,13 @@ export async function loadBuiltinCharacterGltf(
   loader: GLTFLoader,
   url: string
 ): Promise<GLTF> {
+  // Slice 42: the spec-gloss converter rides every built-in
+  // bind (Trauma's color lives in that extension — see
+  // specGlossMaterial.ts). The rig's loader already carries
+  // it; registering here makes the bind self-sufficient for
+  // any caller, and register() dedupes by callback identity,
+  // so this never stacks a second converter on one loader.
+  registerSpecGlossConverter(loader);
   try {
     return await loader.loadAsync(url);
   } catch {
