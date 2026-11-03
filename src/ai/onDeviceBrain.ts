@@ -100,6 +100,47 @@ export function brainModelById(id: string | null | undefined): BrainModelInfo {
   return BRAIN_MODELS.find((m) => m.id === id) ?? DEFAULT_BRAIN_MODEL;
 }
 
+// ---------------------------------------------------------------------------
+// Slice 46: the ONE naming source for every brain surface.
+//
+// Terrell, on device (Nov 3): the site "claims it's downloading a
+// brain but I have no idea what brain." The catalog above always
+// knew — displayName (the product name, "Ghostie 1B") + label
+// (the honest base, "Llama 3.2 1B") + sizeNote — but the canvas
+// chip rendered none of it ("Brain arriving… 42%"), and the
+// settings card's warming line named nothing either. Every
+// transfer surface now builds its words HERE, from the snapshot's
+// own model, so the name on the canvas can never drift from the
+// model actually being fetched: progress, warming and ready all
+// say WHICH brain, in product name and base name together.
+// ---------------------------------------------------------------------------
+
+/** "Ghostie 1B (Llama 3.2 1B)" — product name, honest base in parens. */
+export function brainModelFullName(model: BrainModelInfo): string {
+  return `${model.displayName} (${model.label})`;
+}
+
+/**
+ * The canvas chip's line while a transfer is live: the named
+ * model, arriving with a real percentage, or warming once the
+ * weights are in. Null outside the transfer states — surfaces
+ * that only render during a transfer (BrainChrome's chip) can
+ * rely on non-null exactly when they render.
+ */
+export function brainTransferLabel(snap: BrainSnapshot): string | null {
+  const pct = Math.round(snap.progress * 100);
+  switch (snap.state) {
+    case "downloading":
+      return `${brainModelFullName(snap.model)} arriving… ${pct}%`;
+    case "warming":
+      return `${brainModelFullName(snap.model)} warming up…`;
+    case "ready":
+      return `${brainModelFullName(snap.model)} — thinking on this device`;
+    default:
+      return null;
+  }
+}
+
 export type BrainConsent = "granted" | "declined";
 
 export type OnDeviceBrainState =

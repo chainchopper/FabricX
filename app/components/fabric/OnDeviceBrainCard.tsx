@@ -30,6 +30,7 @@ import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import {
   BRAIN_MODELS,
+  brainModelFullName,
   getBrainSnapshot,
   selectBrainModel,
   startOnDeviceDownload,
@@ -52,17 +53,17 @@ export default function OnDeviceBrainCard() {
       case "probing":
         return "Checking this device…";
       case "downloading":
-        return `Brain arriving… ${pct}% — ${snap.model.displayName}, downloading once. You can keep playing; nothing waits on it.`;
+        return `${brainModelFullName(snap.model)} arriving… ${pct}% — downloading once (${snap.model.sizeNote}). You can keep playing; nothing waits on it.`;
       case "warming":
-        return "Weights are in — the brain is warming up…";
+        return `Weights are in — ${brainModelFullName(snap.model)} is warming up…`;
       case "ready":
-        return `Ready — ${snap.model.displayName} is thinking on this device. Composing and your ghost's deliberation can use it, offline.`;
+        return `Ready — ${brainModelFullName(snap.model)} is thinking on this device. Composing and your ghost's deliberation can use it, offline.`;
       case "error":
         return `The download hit a snag${snap.error ? ` — ${snap.error}` : ""}. Try again on a good connection.`;
       default:
         return snap.loadedModelId === snap.model.id
-          ? `${snap.model.displayName} is downloaded. It loads when a feature next asks for it.`
-          : `Not downloaded yet. ${snap.model.displayName} — ${snap.model.sizeNote}, once; after that it thinks here, offline, with no account.`;
+          ? `${brainModelFullName(snap.model)} is downloaded. It loads when a feature next asks for it.`
+          : `Not downloaded yet. ${brainModelFullName(snap.model)} — ${snap.model.sizeNote}, once; after that it thinks here, offline, with no account.`;
     }
   })();
 

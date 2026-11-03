@@ -267,7 +267,7 @@ const R = {
   fAnchor: [12, 12, 64, 64], // FabricAnchor: top/left 12, 52×52
   essence: [276, 12, 378, 86], // Essence compact: top/right 12, 84×56 + padding
   toast: [77, 14, 273, 56], // slot wrapper 70..280, pill ≤196 centered, ~42 tall
-  chip: [39, 68, 239, 97], // slot wrapper 0..278 (right:112), pill ≤200 centered, ~29 tall
+  chip: [7, 68, 271, 97], // slot wrapper 0..278 (right:112), pill ≤264 centered (Slice 46: widened for the named brain label), ~29 tall
   arChip: [12, 104, 332, 158], // top:104 left:12, maxWidth 320, error variant (tallest)
   askCard: [16, 160, 374, 360], // slot A: top:160, gutter 16, modal class
   foldCluster: [12, 92, 378, 726], // left/right 12, top 92, bottom offset 118
