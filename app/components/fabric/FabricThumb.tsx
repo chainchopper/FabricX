@@ -14,6 +14,7 @@
  *   sam-see         a camera frame with SAM's boxes over a scene
  *   camera-effects  aperture rings and a prism trail
  *   genx-fold       scattered motes resolving toward a helix — the fold forming
+ *   ghostie-playground  the ghostie itself, golden over its pool, keys laid out
  *
  * Scenes are plain Views — no image assets, no new dependencies —
  * so they stay crisp at any size and can never go stale against a
@@ -456,6 +457,73 @@ function GenericScene({ layerId }: { layerId: string }) {
   );
 }
 
+function PlaygroundScene() {
+  // The ghostie at home: a golden dome with a wavy hem, hovering
+  // over its own pool of fluid, its key strip laid out below —
+  // the one room where everything it has is on the table.
+  const gold = "#F2C063";
+  const keys = [0, 1, 2, 3, 4, 5, 6, 7];
+  return (
+    <>
+      <Blob left={-24} top={52} size={120} color={HUES.amber} opacity={0.22} />
+      <Blob left={138} top={-30} size={110} color={HUES.violet} opacity={0.2} />
+      <Stream left={18} top={30} width={44} color={HUES.amber} opacity={0.4} />
+      <Stream left={150} top={86} width={38} color={HUES.cyan} opacity={0.35} />
+      {/* The pool it hovers over — the fluid, its ground. */}
+      <Blob left={64} top={74} size={80} color={gold} opacity={0.3} />
+      <Blob left={82} top={82} size={44} color={gold} opacity={0.35} />
+      {/* The ghostie: dome + wavy hem + two eyes. */}
+      <View
+        style={{
+          position: "absolute",
+          left: 79,
+          top: 18,
+          width: 50,
+          height: 44,
+          borderTopLeftRadius: 25,
+          borderTopRightRadius: 25,
+          borderBottomLeftRadius: 10,
+          borderBottomRightRadius: 10,
+          backgroundColor: gold,
+          opacity: 0.95,
+        }}
+      />
+      {[0, 1, 2].map((i) => (
+        <Blob
+          key={`hem${i}`}
+          left={81 + i * 15}
+          top={56}
+          size={14}
+          color={gold}
+          opacity={0.95}
+        />
+      ))}
+      <Blob left={93} top={36} size={5} color="#23180A" opacity={0.9} />
+      <Blob left={108} top={36} size={5} color="#23180A" opacity={0.9} />
+      {/* Sparkles — the tools out on the table. */}
+      <Blob left={40} top={22} size={5} color="#FFFFFF" opacity={0.6} />
+      <Blob left={164} top={30} size={6} color={HUES.amber} opacity={0.65} />
+      <Blob left={148} top={58} size={4} color="#FFFFFF" opacity={0.5} />
+      {/* Its key strip — notes live here too. */}
+      {keys.map((i) => (
+        <View
+          key={`key${i}`}
+          style={{
+            position: "absolute",
+            left: 52 + i * 13,
+            top: 102,
+            width: 10,
+            height: 12,
+            borderRadius: 2,
+            backgroundColor: i % 2 ? "#EDE2D0" : "#FFFFFF",
+            opacity: 0.85,
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 const SCENES: Record<string, () => React.ReactElement> = {
   "default-fluid": () => <FluidScene />,
   "ar-piano": () => <PianoScene />,
@@ -463,6 +531,7 @@ const SCENES: Record<string, () => React.ReactElement> = {
   "sam-see": () => <SeeScene />,
   "camera-effects": () => <EffectsScene />,
   "genx-fold": () => <FoldScene />,
+  "ghostie-playground": () => <PlaygroundScene />,
 };
 
 /**

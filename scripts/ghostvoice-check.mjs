@@ -340,7 +340,11 @@ ok(
 /* B1. The manifest table + the mirrors                                */
 /* ================================================================== */
 const catalogIds = [...catalogSrc.matchAll(/^\s+id: "([a-z-]+)",/gm)].map((m) => m[1]);
-ok(catalogIds.length === 6, `B1 the experience catalog declares 6 fabrics (${catalogIds.join(", ")})`);
+// Slice 53: the catalog grew a seventh fabric — the Ghostie
+// Playground — so the count pin moves 6 -> 7 (the assertion's
+// purpose is unchanged: EVERY catalog fabric must declare a
+// manifest, proven by the loop below).
+ok(catalogIds.length === 7, `B1 the experience catalog declares 7 fabrics (${catalogIds.join(", ")})`);
 for (const id of catalogIds) {
   ok(
     Array.isArray(brain.GHOST_FABRIC_TOOL_MANIFEST[id]),

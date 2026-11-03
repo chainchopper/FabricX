@@ -51,6 +51,7 @@ import {
   isGhostPeerId,
 } from "../../ghost/GhostPeer";
 import type { GhostFabricContext } from "../../ghost/GhostBrain";
+import { isGhostNoteLayer } from "../../ghost/GhostBrain";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
 import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
 import { useGhostSharedSettings } from "../../ghost/ghostSharedPref";
@@ -126,6 +127,7 @@ import {
 } from "../../sensors/controllerStore";
 import ControllerSurface from "./ControllerSurface";
 import GenxLayer from "../genx/GenxLayer";
+import PlaygroundLayer from "../playground/PlaygroundLayer";
 import { subscribeGenx } from "../../genx/genxStore";
 
 interface LegacyFluidProps {
@@ -1345,7 +1347,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     const off = noteBus.on((e) => {
       if (e.type !== "on") return;
       if (ghostOwnNoteRef.current === e.note) return;
-      if (experienceRef.current?.id !== "ar-piano") return;
+      // Slice 53: a note layer is wherever the ghost's note
+      // tools live — the Piano, and now the Playground (its own
+      // key strip plays into the same bus, and the ghost hears
+      // those notes exactly as it hears the Piano's).
+      if (!isGhostNoteLayer(experienceRef.current?.id)) return;
       ghostRef.current.noteHumanNote(e.note);
     });
     return off;
@@ -1723,21 +1729,23 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         // an arpeggio" — belongs to the ghost's NOTE tools. The
         // route claims its asks on shape alone (a named note is
         // not something the generic interpreter can perform),
-        // and the layer decides the answer: at the Piano, the
-        // ghost performs through its gates, budget and cooldown;
-        // on any other layer the ask gets the in-world redirect
-        // — the ghost's puzzlement and a plain line naming where
-        // notes live — never an error, and never a composed
-        // pattern pretending to be a note.
+        // and the layer decides the answer: on a note layer
+        // (the Piano; the Playground since Slice 53 — the one
+        // list is isGhostNoteLayer), the ghost performs through
+        // its gates, budget and cooldown; on any other layer
+        // the ask gets the in-world redirect — the ghost's
+        // puzzlement and a plain line naming where notes live
+        // — never an error, and never a composed pattern
+        // pretending to be a note.
         const noteAsk = ghostNoteAsk(
           prompt,
           ghostRef.current.identity?.name ?? null
         );
         if (noteAsk) {
           const ghostName = ghostRef.current.identity?.name ?? "Ghost";
-          if (experienceRef.current?.id !== "ar-piano") {
+          if (!isGhostNoteLayer(experienceRef.current?.id)) {
             seeActFallback(
-              `Notes live on the Piano layer — ${ghostName} can play there`
+              `Notes live at the Piano and in the Playground — ${ghostName} can play there`
             );
             return;
           }
@@ -2191,6 +2199,35 @@ brain   ${diagBrain}`}
           }
           sendGenx={sendGenx}
           injectInteraction={injectRemoteInteraction}
+        />
+      ) : null}
+      {/* Slice 53 ("Ghostie Playground"): the ghostie's own
+          fabric's layer — its tool tray and key strip ride over
+          the fluid (the layer's ground, the sam-see / Fold
+          precedent) while the Playground is the loaded
+          experience. Every control is a real ghost ask: the
+          callbacks are the peer's own ask surface — the same
+          methods the compose route above calls — so a button
+          press and a spoken ask run identical gates, budgets
+          and cooldowns. Nothing in the layer performs locally. */}
+      {state.activeExperience?.id === "ghostie-playground" ? (
+        <PlaygroundLayer
+          ghostName={ghost.identity?.name ?? null}
+          askHeartbeat={() => ghostRef.current.answerHeartbeat()}
+          askVerb={(verb) => ghostRef.current.answerVerb(verb)}
+          askDraw={() => {
+            const pos = ghostRef.current.bodyPosition();
+            if (!pos) return "unavailable";
+            return ghostRef.current.answerDrawAround(
+              pos.x,
+              pos.y,
+              0.16,
+              "itself"
+            );
+          }}
+          askNote={(note) => ghostRef.current.answerNote(note)}
+          askNoteAgain={() => ghostRef.current.answerNoteAgain()}
+          askArpeggio={() => ghostRef.current.answerArpeggio(false)}
         />
       ) : null}
       {/* Slice 34 (Layer B3): the controller surface — while this
