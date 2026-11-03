@@ -47,8 +47,10 @@
 
 import {
   fabricAllowsDraw,
+  fabricAllowsIntent,
   fabricAllowsNotes,
   GHOST_DRAW_REFUSAL_TEXT,
+  GHOST_MANIFEST_REFUSAL_TEXT,
   GHOST_NOTE_REFUSAL_TEXT,
   type GhostIntent,
   type GhostScenario,
@@ -155,5 +157,15 @@ export function ghostToolRefusal(
 ): string | null {
   const tool = ghostToolForIntent(intent);
   if (!tool) return `no tool performs "${intent}" — decision refused`;
+  // Slice 47: the fabric manifest gate runs FIRST here — the
+  // loaded fabric's tool set is the outer law (a tool the fabric
+  // doesn't offer is refused before the per-tool session rules
+  // are even consulted; the validator enforces the same gate for
+  // the model tiers, this is the floor's copy).
+  if (!fabricAllowsIntent(scenario, intent)) {
+    return scenario.fabric
+      ? `${GHOST_MANIFEST_REFUSAL_TEXT} (${tool.id} on ${scenario.fabric.layer_id})`
+      : GHOST_MANIFEST_REFUSAL_TEXT;
+  }
   return tool.refusalFor ? tool.refusalFor(scenario) : null;
 }

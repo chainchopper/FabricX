@@ -54,6 +54,12 @@
  * shared settings above, because they govern what leaves the
  * device.
  *
+ * Slice 47 adds the fabric toolbox section (under Brain): the
+ * tools the CURRENTLY LOADED fabric offers the ghost, read-only —
+ * the same manifest its brain is gated to (GhostBrain's fabric
+ * tool manifest), so the awareness Terrell asked for is visible,
+ * not just enforced.
+ *
  * Terminology: the human is the ghostie's PRIMARY. Never "owner".
  * The Personality field is never called anything else.
  *
@@ -92,9 +98,42 @@ import {
   type GhostBrainTier,
 } from "../../../src/ghost/ghostBrainPref";
 import {
+  fabricManifestFor,
   PERSONALITY_MAX_CHARS,
   parseGhostPersonality,
 } from "../../../src/ghost/GhostBrain";
+import { useExperience } from "../../context/ExperienceContext";
+
+/**
+ * Slice 47: plain-words labels for the tool manifest — what each
+ * tool the loaded fabric offers reads as, on the Home's surface.
+ */
+const GHOST_TOOL_LABELS: Record<string, { label: string; caption: string }> = {
+  "splat-play": {
+    label: "Everyday splats",
+    caption: "Greeting, mirroring, play, drifting, naps, and hearts in light.",
+  },
+  draw: {
+    label: "Drawing",
+    caption: "Drawing shapes — rings, spirals, hearts — at its body.",
+  },
+  "play-note": {
+    label: "Playing notes",
+    caption: "Answering on the piano with a note of its own.",
+  },
+  "note-perform": {
+    label: "Answering notes",
+    caption: "Echoing and performing to notes it hears.",
+  },
+  "verb-perform": {
+    label: "Asked-for acts",
+    caption: "Performing a verb you name — tickle, cheer, heart.",
+  },
+  "heartbeat-answer": {
+    label: "Its heartbeat",
+    caption: "Answering “show me your heartbeat” with its real pulse.",
+  },
+};
 import {
   getGhostPersonality,
   setGhostPersonality,
@@ -219,6 +258,12 @@ export default function GhostieHome({
   const self = identity.self;
   const shared = useGhostSharedSettings();
   const permissions = useGhostPermissions();
+  // Slice 47: the loaded fabric — its tool manifest is what the
+  // ghost may reach for here (the section below Brain, read-only).
+  const { state: experienceState } = useExperience();
+  const loadedFabricId = experienceState.activeExperience?.id ?? "default-fluid";
+  const loadedFabricName = experienceState.activeExperience?.name ?? "Fluid";
+  const fabricTools = fabricManifestFor(loadedFabricId);
   // Slice 24: the rewards record — badges + equipped power-ups.
   const rewards = useRewards();
 
@@ -747,6 +792,42 @@ export default function GhostieHome({
             <View style={{ marginTop: spacing.md }}>
               <OnDeviceBrainCard />
             </View>
+          </View>
+
+          {/* ---------- Slice 47: the loaded fabric's toolbox ---------- */}
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.line,
+              borderRadius: radius.card,
+              padding: spacing.md,
+              marginBottom: spacing.md,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+              What {ghostName} can do on {loadedFabricName}
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}>
+              The loaded fabric sets the toolbox: {ghostName} only reaches
+              for what this fabric offers, and its brain sees this same
+              list when it decides. In a hosted session, the host’s rules
+              can still switch individual tools off. Read-only — the list
+              changes when the fabric does.
+            </Text>
+            {fabricTools.map((toolId) => {
+              const entry = GHOST_TOOL_LABELS[toolId];
+              if (!entry) return null;
+              return (
+                <View key={toolId} style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontSize: typeScale.body }}>
+                    {entry.label}
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 1 }}>
+                    {entry.caption}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
 
           {/* ---------- personality ---------- */}

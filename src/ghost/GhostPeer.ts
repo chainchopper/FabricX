@@ -96,7 +96,7 @@ import {
   type SensoryVerb,
 } from "../sensory/verbs";
 import type { GhostPresence } from "./ghostStore";
-import type { GhostSfxKind } from "./useGhostSfx";
+import type { GhostSfxContext, GhostSfxKind } from "./useGhostSfx";
 import type {
   GhostDecision,
   GhostFabricContext,
@@ -108,6 +108,7 @@ import type {
   GhostUtteranceSpeaker,
 } from "./GhostBrain";
 import {
+  fabricContextAllowsIntent,
   GHOST_PIANO_LAYER_ID,
   ghostNoteName,
   ghostNoteNumber,
@@ -436,10 +437,15 @@ export interface GhostPeerOptions {
   onGhostsChange?: (otherGhostCount: number) => void;
   /**
    * Semantic sound events for THIS ghost (sniff, play, mirror, startle,
-   * sleep, wake, heart). The hook layer turns them into synthesized SFX
-   * pitched from the ghost's signature hue — ghosts never speak.
+   * sleep, wake, heart, heartbeat, thinking). The hook layer turns
+   * them into synthesized SFX pitched from the ghost's signature
+   * hue — ghosts never speak. Slice 47: the context rides along —
+   * what caused the sound (the deciding decision's intensity, the
+   * ghost's temperament, a heartbeat's live tempo) — so the voice
+   * layer can ARTICULATE the utterance instead of replaying a
+   * fixed cue (see ghostVoice.ts).
    */
-  onSfx?: (kind: GhostSfxKind) => void;
+  onSfx?: (kind: GhostSfxKind, ctx?: GhostSfxContext) => void;
   /** Display name for the brain scenario snapshot (identity label). */
   ghostName?: string;
   /**
@@ -764,6 +770,12 @@ export class GhostPeer {
     source: "spark" | "table" | "device";
     at: number;
   } | null = null;
+  /**
+   * Slice 47: the most recent brain decision's intensity — the
+   * articulation context for sounds the decision's performance
+   * causes, so a big decision SOUNDS bigger than a small one.
+   */
+  private lastBrainIntensity: number | undefined;
   /** nap/idle directives silence autonomous drift + antics until here. */
   private brainQuietUntil = 0;
   /** DRAW tool state (Slice 23): last performance + count (seed salt). */
@@ -1088,6 +1100,26 @@ export class GhostPeer {
   }
 
   /**
+   * Slice 47: fire a sound event WITH its articulation context —
+   * the ghost's current temperament always; the intensity of the
+   * brain decision whose performance caused the sound, when one
+   * did (reflex and verb sounds are temperament-shaped only);
+   * the live tempo for a heartbeat answer. The voice layer
+   * (ghostVoice via useGhostSfx) turns the context into a
+   * generated utterance; the peer never picks pitches itself.
+   */
+  private emitSfx(kind: GhostSfxKind, extra?: GhostSfxContext): void {
+    if (!this.options.onSfx) return;
+    this.options.onSfx(kind, {
+      temperament: this.temperament,
+      intensity:
+        extra?.intensity ??
+        (kind === "thinking" ? undefined : this.lastBrainIntensity),
+      bpm: extra?.bpm,
+    });
+  }
+
+  /**
    * Answer a direct heartbeat request with a generated pulse at the
    * ghost's body, in its signature color. This is not the HEART verb
    * macro: two unequal strikes (lub, then a softer dub), a rest, and
@@ -1110,7 +1142,9 @@ export class GhostPeer {
     this.journal("answered heartbeat request", now);
     this.markDeliberationDirty();
     this.options.onPerformance?.(`answered: heartbeat @ ${bpm}bpm`);
-    this.options.onSfx?.("heart");
+    // Slice 47: the answer SOUNDS at the same live tempo it splats
+    // at — its own family now, not the heart-verb chime.
+    this.emitSfx("heartbeat", { bpm });
 
     for (let cycle = 0; cycle < cycles; cycle++) {
       const cycleStart = cycle * phraseBeats * beatMs;
@@ -1239,7 +1273,7 @@ export class GhostPeer {
     this.journal(`answered: touched ${targetLabel} on request`, now);
     this.markDeliberationDirty();
     this.options.onPerformance?.(`touched ${targetLabel} on request`);
-    this.options.onSfx?.("play");
+    this.emitSfx("play");
     this.schedule(0, () => {
       if (!this.canAct()) return;
       this.emit({
@@ -1466,7 +1500,7 @@ export class GhostPeer {
     this.journal("puzzled by an unshapeable ask", now);
     this.markDeliberationDirty();
     this.options.onPerformance?.("puzzled: tilted its head at that one");
-    this.options.onSfx?.("sniff");
+    this.emitSfx("sniff");
     if (this.temperament === "sleepy") this.setTemperament("curious");
 
     // Curious drift toward the asker: lean body + wander target
@@ -1786,7 +1820,7 @@ export class GhostPeer {
    */
   private acknowledgeUtterance(now: number): void {
     if (!this.canAct()) return;
-    this.options.onSfx?.("sniff");
+    this.emitSfx("sniff");
     const target = this.freshestContactPoint(now);
     this.position.x = clamp01(
       this.position.x + (target.x - this.position.x) * 0.12
@@ -2100,7 +2134,7 @@ export class GhostPeer {
     this.setTemperament("curious");
     this.schedule(60, () => {
       if (!this.canAct()) return;
-      this.options.onSfx?.("startle");
+      this.emitSfx("startle");
       this.emit({
         position: from,
         force: { x: dx * 900, y: dy * 900 },
@@ -2162,7 +2196,7 @@ export class GhostPeer {
     sampled.forEach((p, idx) => {
       this.schedule(delay + idx * 50, () => {
         if (!this.canAct() || this.localUserIsDrawing()) return;
-        if (idx === 0) this.options.onSfx?.("mirror");
+        if (idx === 0) this.emitSfx("mirror");
         this.emit({
           position: { x: clamp01(p.x + 0.055), y: clamp01(p.y - 0.035) },
           force: { x: p.fx * att, y: p.fy * att },
@@ -2235,7 +2269,7 @@ export class GhostPeer {
     const roll = this.rng();
     this.metBefore.add(targetId);
     if (roll < playP) {
-      this.options.onSfx?.("play");
+      this.emitSfx("play");
       this.social = {
         phase: "chase",
         targetId,
@@ -2296,7 +2330,7 @@ export class GhostPeer {
           nextActionAt: 0,
         };
         // The sniff: 3–4 small, quick probing splats near the other ghost.
-        this.options.onSfx?.("sniff");
+        this.emitSfx("sniff");
         const probes = 3 + Math.floor(this.rng() * 2);
         for (let k = 0; k < probes; k++) {
           this.schedule(k * 130, () => {
@@ -2543,6 +2577,10 @@ export class GhostPeer {
           this.pendingUtterance = null;
           this.lastUtteranceDeliberationAt = now;
         }
+        // Slice 47: thinking is audible now — a soft murmur while
+        // the brain consults (the SFX limiter keeps it rare; the
+        // family's priority never interrupts another cue).
+        this.emitSfx("thinking");
         this.options.onDeliberate(scenario);
       } catch {
         // A host-side routing failure must never hurt the reflexes.
@@ -2809,6 +2847,7 @@ export class GhostPeer {
     if (this.destroyed || !this.enabled) return;
     const now = Date.now();
     this.lastBrainDecision = { decision, source, at: now };
+    this.lastBrainIntensity = decision.intensity;
     if (decision.mood_shift && decision.mood_shift !== this.temperament) {
       this.setTemperament(decision.mood_shift);
     }
@@ -2934,6 +2973,14 @@ export class GhostPeer {
       this.journal(`wanted to ${what} — fabric forbids it`, now);
       return true;
     }
+    // Slice 47: the manifest is the outer law — a fabric that
+    // doesn't offer drawing at all refuses even where no host
+    // rule speaks (the brain tiers are gated in the validator;
+    // this is the peer's own copy for direct decision applies).
+    if (fabric && !fabricContextAllowsIntent(fabric, "draw")) {
+      this.journal(`wanted to ${what} — this fabric doesn't offer drawing`, now);
+      return true;
+    }
     return false;
   }
 
@@ -2949,6 +2996,13 @@ export class GhostPeer {
       this.journal(`wanted to ${what} — fabric forbids it`, now);
       return true;
     }
+    // Slice 47 note: the manifest deliberately does NOT gate
+    // here. Off the Piano layer the note tools are already
+    // "unavailable" (noteLayerUnavailable, checked right after
+    // this gate by the ask paths — that ordering is pinned by
+    // ghost-tools-check), and deliberated play-note decisions
+    // are manifest-gated upstream (validator + router) before
+    // they can ever reach the peer.
     return false;
   }
 
@@ -3089,7 +3143,7 @@ export class GhostPeer {
           });
         });
       }
-      this.options.onSfx?.("play");
+      this.emitSfx("play");
       return;
     }
     // Zigzag family (zigzag_chase, solo_zigzag, chase_loop, null):
@@ -3109,7 +3163,7 @@ export class GhostPeer {
         });
       });
     }
-    this.options.onSfx?.("play");
+    this.emitSfx("play");
   }
 
   private performSniff(): void {
@@ -3142,7 +3196,7 @@ export class GhostPeer {
       }
     }
     // No one to sniff: sniff the air — small probing splats.
-    this.options.onSfx?.("sniff");
+    this.emitSfx("sniff");
     for (let k = 0; k < 3; k++) {
       this.schedule(k * 130, () => {
         if (!this.canAct()) return;
@@ -3169,7 +3223,7 @@ export class GhostPeer {
     this.position.y = clamp01(this.position.y + dy);
     this.schedule(40, () => {
       if (!this.canAct()) return;
-      this.options.onSfx?.("startle");
+      this.emitSfx("startle");
       this.emit({
         position: from,
         force: {
@@ -3185,7 +3239,7 @@ export class GhostPeer {
   // ---------------------------------------------------------- helpers
 
   private emitVerb(verb: SensoryVerb): void {
-    if (verb.id === "heart") this.options.onSfx?.("heart");
+    if (verb.id === "heart") this.emitSfx("heart");
     // Verbs normally splat at canvas center; the ghost's verbs belong at
     // the ghost's body.
     this.emit({
@@ -3336,9 +3390,9 @@ export class GhostPeer {
       this.options.onPresenceChange?.(next, this.mode);
       // Sleep/wake chimes on real transitions (never on first publish).
       if (!isFirstPublish && next === "sleeping" && prev !== "sleeping") {
-        this.options.onSfx?.("sleep");
+        this.emitSfx("sleep");
       } else if (!isFirstPublish && prev === "sleeping" && next === "present") {
-        this.options.onSfx?.("wake");
+        this.emitSfx("wake");
       }
     }
   }
