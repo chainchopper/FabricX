@@ -231,6 +231,43 @@ const builtin: ExperienceLayer[] = [
       },
     },
   },
+  {
+    // The Ghostie Playground (Slice 53): the ghostie's OWN
+    // fabric — a room of its own ("playground") where its person
+    // can exercise it directly. The fluid is its ground (the
+    // sam-see / Fold precedent: its own experience, its own
+    // rules), and its layer brings the ghost's whole tool table
+    // out as real controls: every ask runs the same brain, gates
+    // and budgets as a spoken one. Its manifest is the full
+    // registry (GhostBrain's GHOST_FABRIC_TOOL_MANIFEST) — the
+    // one fabric where everything the ghost has is on, including
+    // the note tools: the layer mounts the note pipeline and its
+    // own key strip, so notes here are real notes. Idle
+    // contract: "ambient" — the ghost lives here; it idles,
+    // thinks and plays in the quiet, and yields to anything real.
+    id: "ghostie-playground",
+    name: "Ghostie Playground",
+    blurb: "Your ghostie's own room — every tool it has, out on the table.",
+    description:
+      "The ghostie's own fabric: a solo room where you can summon each of its tools, talk to it, pet it, play notes with it, and watch it idle and think.",
+    type: "ghostie-playground" as ExperienceType,
+    version: "1.0.0",
+    author: "Fanalogy",
+    capabilities: { ...defaultCapabilities, ar: false, camera: false, midi: true },
+    idleBehavior: "ambient",
+    configDefaults: {
+      common: {
+        backgroundColor: "#0b1020",
+        particleDensity: 0.6,
+        audioVolume: 0.7,
+        hapticIntensity: 0.8,
+        renderMode: "default", // Default (recommended): WebGPU
+      } as any,
+      specific: {
+        roomId: "playground",
+      },
+    },
+  },
 ];
 
 function reducer(state: ExperienceState, action: ExperienceAction): ExperienceState {

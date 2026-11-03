@@ -956,6 +956,15 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     []
   );
 
+  /**
+   * Slice 53: where this ghost's own body is right now — the
+   * Playground's Draw control aims the draw tool at it. Null
+   * when the ghost cannot act.
+   */
+  const bodyPosition = useCallback((): { x: number; y: number } | null => {
+    return peerRef.current?.bodyPosition() ?? null;
+  }, []);
+
   return {
     enabled,
     identity,
@@ -977,5 +986,6 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     answerDrawAround,
     expressPuzzlement,
     otherGhostPosition,
+    bodyPosition,
   };
 }

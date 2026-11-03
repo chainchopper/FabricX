@@ -109,7 +109,7 @@ import type {
 } from "./GhostBrain";
 import {
   fabricContextAllowsIntent,
-  GHOST_PIANO_LAYER_ID,
+  isGhostNoteLayer,
   ghostNoteName,
   ghostNoteNumber,
   isGhostNoteName,
@@ -2002,6 +2002,21 @@ export class GhostPeer {
     return { x: g.x, y: g.y };
   }
 
+  /**
+   * Slice 53: where THIS ghost's body is right now (normalized
+   * coordinates) — the own-body twin of otherGhostPosition.
+   * Read-only and position-only: the Playground's Draw control
+   * aims the ghost's own draw tool at its body ("draw a ring
+   * around yourself"), the same place its deliberated drawings
+   * land. Null when the ghost cannot act (off / dismissing /
+   * destroyed), so a caller never aims for a ghost that isn't
+   * there.
+   */
+  bodyPosition(): { x: number; y: number } | null {
+    if (this.destroyed || !this.enabled || this.dismissing) return null;
+    return { x: this.position.x, y: this.position.y };
+  }
+
   // ---------------------------------------------------------- petting
 
   private registerPet(
@@ -3007,16 +3022,18 @@ export class GhostPeer {
   }
 
   /**
-   * The NOTE tools exist only at the piano (Slice 31): true when
-   * the ghost is verifiably on another layer. With no fabric
-   * context the layer is unknown — the deliberated path only
-   * ever hears notes through the Piano layer's own forwarder,
-   * so unknown means allowed, exactly the draw gate's solo
-   * semantics.
+   * The NOTE tools exist only on a note layer (Slice 31's
+   * piano; Slice 53 adds the Playground, whose layer brings
+   * its own note surface — isGhostNoteLayer is the one list):
+   * true when the ghost is verifiably on another layer. With
+   * no fabric context the layer is unknown — the deliberated
+   * path only ever hears notes through a note layer's own
+   * forwarder, so unknown means allowed, exactly the draw
+   * gate's solo semantics.
    */
   private noteLayerUnavailable(): boolean {
     const fabric = this.currentFabricContext();
-    return fabric !== null && fabric.layer_id !== GHOST_PIANO_LAYER_ID;
+    return fabric !== null && !isGhostNoteLayer(fabric.layer_id);
   }
 
   /**

@@ -29,7 +29,7 @@
  * Powered by Nirvana
  */
 
-import { GHOST_PIANO_LAYER_ID } from "../../../src/ghost/GhostBrain";
+import { isGhostNoteLayer } from "../../../src/ghost/GhostBrain";
 import {
   GHOST_TOOL_REGISTRY,
   type GhostToolId,
@@ -93,10 +93,12 @@ export const FABRIC_INFO: Record<string, FabricInfo> = {
     modes: [
       "Alone — the figure breathes and sways, the camera drifts; the stage is alive in the quiet",
       "Played — the key strip and the room's notes choreograph the rig",
+      "Possessed — the dancer is its ghostie embodied, not a puppet: the ghostie's own temperament shapes how the figure moves, and when its ghostie performs — a verb, an answer — the figure is what performs it",
       "Your character — Trauma stands here by default; load your own UE5-boned character, or choose none, in This layer",
     ],
     rules: [
       "One dancer per participant — a figure on this stage is its owner's ghostie",
+      "Nothing moves a dancer but its own ghostie and the room's music",
       "Asking lives on the fluid — speak it there; on stage, you play the dancer",
       "There is never a bare figure by accident: no character is a choice, and a failed load says so",
     ],
@@ -152,6 +154,26 @@ export const FABRIC_INFO: Record<string, FabricInfo> = {
     ],
     controls: ["Filter + intensity — F menu → This layer"],
   },
+  "ghostie-playground": {
+    about:
+      "The ghostie's own room — the one fabric that belongs to it. Everything it can do is out on the table here: summon its tools one by one, talk to it, play notes with it, pet it, and watch it idle and think.",
+    modes: [
+      "Alone with it — its own room, no host and no audience; the ghost at home",
+      "Exercising — every ask runs the real brain path, so an answer can honestly be “not right now”",
+      "Free play — between your asks it idles, drifts, thinks and plays on its own",
+    ],
+    rules: [
+      "What it does here, it does for real — a button is a spoken ask by another road, never a recording",
+      "It can still say no: its cooldowns, its budget and its mood are part of the ghost, here as everywhere",
+      "Notes played here are real notes — sounded, streamed into the fluid, and heard by the ghost itself",
+    ],
+    controls: [
+      "The tool tray — heartbeat, verb, drawing and note asks, one by one (it parks behind “Show tools”)",
+      "The key strip — play notes; the ghost hears them and may answer with its own",
+      "Talk — the compose bar below, voice first; the tray's chips speak an ask out loud",
+      "Pet it — stroke it on the canvas, like everywhere",
+    ],
+  },
 };
 
 /** The info record for a fabric id, or null when it has none. */
@@ -191,6 +213,10 @@ export const FABRIC_ICON_BOTTOM: Record<string, number> = {
   "genx-fold": 66,
   "sam-see": 110,
   "camera-effects": 110,
+  // The Playground's tray docks bottom-LEFT on this same baseline
+  // (its right edge stays clear of the icon's corner) — one band,
+  // two corners, no overlap.
+  "ghostie-playground": 110,
 };
 export const FABRIC_ICON_BOTTOM_DEFAULT = 110;
 export const FABRIC_ICON_RIGHT = 12;
@@ -251,9 +277,11 @@ const RULES_OFF = "Off under this room's rules";
  * availability computed through the registry's own gates:
  * draw is refused where the fabric's rules refuse drawing (and
  * the stage has no drawing surface — the draw sink is the
- * fluid's recipe player); the note tools live at the piano
- * layer under the notes rule (Slice 31); asked verbs ride the
- * verbs rule the send funnel enforces. Slice 47's per-fabric
+ * fluid's recipe player); the note tools live on the note
+ * layers under the notes rule (Slice 31's piano; Slice 53's
+ * Playground, whose layer brings its own note surface — the
+ * one list is GhostBrain's isGhostNoteLayer); asked verbs ride
+ * the verbs rule the send funnel enforces. Slice 47's per-fabric
  * manifest joins at this seam when it lands.
  */
 export function ghostToolsHere(
@@ -280,7 +308,7 @@ export function ghostToolsHere(
           : { ...base, available: false, note: RULES_OFF };
       case "play-note":
       case "note-perform":
-        if (layerId !== GHOST_PIANO_LAYER_ID)
+        if (!isGhostNoteLayer(layerId))
           return {
             ...base,
             available: false,

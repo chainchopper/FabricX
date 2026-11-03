@@ -181,6 +181,44 @@ export default function DancerStage({
   );
   useEffect(() => subscribeStageCharacter(setCharState), []);
 
+  // ---- Possession, surfaced (Slice 53) ---------------------------
+  // Terrell's model: the dancer is the ghostie EMBODIED — it
+  // possesses this fabric through its layers, and the figure
+  // moves because the ghostie moves it (its temperament shapes
+  // the local rig's style below; its verbs land as choreography
+  // through the room transport). That causality should READ on
+  // the stage, in the moment — never as a standing name pinned
+  // over the canvas (the Nov 3 doctrine). So the stage announces
+  // it the way it announces a load: one quiet pill at the same
+  // declared anchor, in the moments it is truest — when a figure
+  // takes the stage, and when a verb choreographs the LOCAL rig
+  // — then it leaves. The load/fail pills own the anchor while
+  // they show; this one never stacks with them.
+  const [possessVisible, setPossessVisible] = useState(false);
+  const possessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPossession = useCallback(() => {
+    if (possessTimerRef.current) clearTimeout(possessTimerRef.current);
+    setPossessVisible(true);
+    possessTimerRef.current = setTimeout(
+      () => setPossessVisible(false),
+      2800
+    );
+  }, []);
+  useEffect(
+    () => () => {
+      if (possessTimerRef.current) clearTimeout(possessTimerRef.current);
+    },
+    []
+  );
+  useEffect(() => {
+    // A figure standing on the stage — a bound character, or the
+    // mannequin standing by choice/fallback — is a ghostie
+    // embodied. Announce whose stage this is, once, in the moment.
+    if (charState.status === "ready" || charState.status === "mannequin") {
+      showPossession();
+    }
+  }, [charState.status, showPossession]);
+
   const fx = useMemo(createStageFx, []);
   const fxRef = useRef(fx);
 
@@ -245,10 +283,18 @@ export default function DancerStage({
   );
 
   // ---- Room transport (notes out, verbs both ways) ---------------
-  const onVerb = useCallback((verbId: string, rigKey: string) => {
-    fxRef.current.pendingGestures.push({ verb: verbId, rig: rigKey });
-  }, []);
+  const localUserIdRef = useRef("");
+  const onVerb = useCallback(
+    (verbId: string, rigKey: string) => {
+      fxRef.current.pendingGestures.push({ verb: verbId, rig: rigKey });
+      // Slice 53: a verb landing on the LOCAL rig is the local
+      // ghostie performing — the possession moment, announced.
+      if (rigKey === localUserIdRef.current) showPossession();
+    },
+    [showPossession]
+  );
   const { userId, peerIds } = useStageNotes(roomId, true, onVerb);
+  localUserIdRef.current = userId;
 
   // ---- The cast ---------------------------------------------------
   const cast = useMemo<StageParticipant[]>(() => {
@@ -419,6 +465,27 @@ export default function DancerStage({
           <Text style={styles.charLoadText}>Loading your character…</Text>
         </View>
       </ChromeMount>
+      {/* Slice 53: the possession announcement — the same anchor
+          and family as the load/fail pills, shown only in its
+          moments (a figure taking the stage; a verb landing on
+          the local rig), and never alongside them: while a
+          character loads or fails, those pills own the anchor. */}
+      <ChromeMount
+        visible={
+          figureEnabled &&
+          possessVisible &&
+          charState.status !== "loading" &&
+          charState.status !== "failed"
+        }
+        pointerEvents="none"
+        style={styles.charLoadWrap}
+      >
+        <View style={styles.possessPill}>
+          <Text style={styles.possessText}>
+            {localGhost.name} is driving this dancer
+          </Text>
+        </View>
+      </ChromeMount>
     </View>
   );
 }
@@ -483,4 +550,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   charLoadText: { color: "#b8cadd", fontSize: 12, fontWeight: "600" },
+  possessPill: {
+    maxWidth: "88%",
+    borderWidth: 1,
+    borderColor: "rgba(242,192,99,0.45)",
+    backgroundColor: "rgba(12,10,18,0.92)",
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  possessText: { color: "#e8cf9e", fontSize: 12, fontWeight: "600" },
 });

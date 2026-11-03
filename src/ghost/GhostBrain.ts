@@ -139,6 +139,32 @@ export type GhostDrawShape = (typeof GHOST_DRAW_SHAPES)[number];
  */
 export const GHOST_PIANO_LAYER_ID = "ar-piano";
 
+/**
+ * Slice 53: the layers where the ghost's NOTE tools exist. The
+ * Piano was the only one (Slice 31) because it was the only
+ * fabric with a note surface — the bus, the synth, a key strip.
+ * The Ghostie Playground joins it by the same title: its layer
+ * mounts the note pipeline (ToneEngine + useMIDIFluid) and its
+ * own key strip on the same bus, so a note there is a real note
+ * — sounded, streamed, broadcast — not a pretense. Every note
+ * gate (the deliberated answer below, the peer's ask gate, the
+ * canvas's ask route and human-note forwarder, the info panel's
+ * tool list) asks THIS question, so the set lives in one place.
+ */
+export const GHOST_NOTE_LAYER_IDS = [
+  GHOST_PIANO_LAYER_ID,
+  "ghostie-playground",
+] as const;
+
+export function isGhostNoteLayer(
+  layerId: string | null | undefined
+): boolean {
+  return (
+    layerId != null &&
+    (GHOST_NOTE_LAYER_IDS as readonly string[]).includes(layerId)
+  );
+}
+
 const GHOST_NOTE_RE = /^([A-G]#?)([0-8])$/;
 
 export function isGhostNoteName(name: unknown): name is string {
@@ -439,6 +465,19 @@ export const GHOST_FABRIC_TOOL_MANIFEST: Record<
   // Camera effects: the filters react to presence and verbs;
   // no draw surface, no note bus.
   "camera-effects": ["splat-play", "verb-perform", "heartbeat-answer"],
+  // The Playground (Slice 53): the ghostie's OWN fabric — the
+  // one place its full global tool set is on. The note tools
+  // are compatible here because the layer itself brings a note
+  // surface (pipeline + key strip, isGhostNoteLayer); everything
+  // else is the fluid's native surface, which is its ground.
+  "ghostie-playground": [
+    "splat-play",
+    "draw",
+    "play-note",
+    "note-perform",
+    "verb-perform",
+    "heartbeat-answer",
+  ],
 };
 
 /**
@@ -1312,7 +1351,7 @@ export function noteDecisionFor(
   if (!heard) return null;
   if (scenario.fabric) {
     if (!fabricAllowsNotes(scenario)) return null;
-    if (scenario.fabric.layer_id !== GHOST_PIANO_LAYER_ID) return null;
+    if (!isGhostNoteLayer(scenario.fabric.layer_id)) return null;
   }
   if (scenario.pets_in_last_5s > 0) return null;
   if (scenario.nearby_splat_intensity >= 0.7) return null;

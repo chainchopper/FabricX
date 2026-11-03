@@ -7,6 +7,7 @@ export type ExperienceType =
   | "sam-see"
   | "dancer-stage"
   | "genx-fold"
+  | "ghostie-playground"
   | "multi-sensory"
   | "gesture-control"
   | "custom";
