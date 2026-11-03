@@ -25,6 +25,15 @@
  * original rig chased pointer targets with a fixed per-frame lerp
  * around a fixed camera — frame-rate-coupled, and it read on device
  * as a camera that "moves wonkey.")
+ *
+ * Slice 54 — the participants are IN the field now: one vehicle per
+ * participant whose verified contributions exist (src/genx/
+ * vehicleMath.ts — the roster is the board's own contribution
+ * table), rendered in the scene about the rig's frame, colored by
+ * the same LifePacket hue their verified ranges settle into. The
+ * local vehicle hovers at the field's edge until its owner's first
+ * shard verifies; mobility is earned, never claimed. The camera
+ * rig is untouched — vehicles are scene, not camera.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -61,8 +70,14 @@ import {
   rigOrbit,
   rigZoomBy,
   stepCameraRig,
+  type MolCameraFrame,
   type MolCameraRig,
 } from "../../genx/molCamera";
+import {
+  VEHICLE_MAX_REMOTES,
+  vehiclePose,
+  vehiclesOf,
+} from "../../genx/vehicleMath";
 
 /** How the displayed structure binds to the field state. */
 export interface StructureBinding {
@@ -458,6 +473,103 @@ function Molecule({
 }
 
 /* ------------------------------------------------------------------ */
+/* Participant vehicles (Slice 54).                                    */
+/* ------------------------------------------------------------------ */
+
+const VEHICLE_SLOTS = 1 + VEHICLE_MAX_REMOTES;
+
+/**
+ * The participants' bodies in the field: one small translucent
+ * nanite per roster entry of vehicleMath.vehiclesOf — a roster
+ * derived from VERIFIED field state alone (the same
+ * contributionsOf table the bounty board renders), so a vehicle
+ * exists exactly when the verified record says its owner folded
+ * something, and its mobility is the verified shard count's pure
+ * function. The local vehicle is always present; at zero verified
+ * it holds the edge ring and never approaches.
+ *
+ * Vehicles live in the SCENE: positions come from vehiclePose
+ * about Slice 48's frame centroid, and nothing here touches the
+ * camera rig. Color resolves through the same hueOf the verifier
+ * blooms use — the LifePacket identity hue — so a vehicle's color
+ * is the color its owner's ranges settle into. No name labels:
+ * presence is the announcement (a new vehicle arrives with its
+ * owner's first verification bloom, in the same hue).
+ */
+function Vehicles({ frame }: { frame: MolCameraFrame }) {
+  const groupRefs = useRef<(THREE.Group | null)[]>([]);
+  const coreMatRefs = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
+  const shellMatRefs = useRef<(THREE.MeshBasicMaterial | null)[]>([]);
+
+  useFrame((state) => {
+    const now = state.clock.elapsedTime;
+    const field = getGenxSnapshot().field;
+    const identity = getIdentitySnapshot();
+    const roster = vehiclesOf(field, identity.self?.id ?? null);
+    const body0 = Math.max(frame.radius, 0.35);
+    for (let s = 0; s < VEHICLE_SLOTS; s++) {
+      const group = groupRefs.current[s];
+      if (!group) continue;
+      const spec = roster[s];
+      if (!spec) {
+        group.visible = false;
+        continue;
+      }
+      group.visible = true;
+      const pose = vehiclePose(spec, frame, now);
+      group.position.set(pose[0], pose[1], pose[2]);
+      group.scale.setScalar(spec.sizeFactor * body0);
+      const h = (((hueOf(spec.participantId) % 360) + 360) % 360) / 360;
+      const coreMat = coreMatRefs.current[s];
+      if (coreMat) {
+        coreMat.color.setHSL(h, 0.55, 0.3);
+        coreMat.emissive.setHSL(h, 0.85, 0.48);
+      }
+      const shellMat = shellMatRefs.current[s];
+      if (shellMat) shellMat.color.setHSL(h, 0.85, 0.6);
+    }
+  });
+
+  return (
+    <group>
+      {Array.from({ length: VEHICLE_SLOTS }).map((_, s) => (
+        <group
+          key={s}
+          ref={(g) => {
+            groupRefs.current[s] = g;
+          }}
+          visible={false}
+        >
+          <mesh>
+            <icosahedronGeometry args={[1, 2]} />
+            <meshStandardMaterial
+              ref={(m) => {
+                coreMatRefs.current[s] = m;
+              }}
+              roughness={0.35}
+              metalness={0.1}
+              transparent
+              opacity={0.92}
+            />
+          </mesh>
+          <mesh scale={1.45}>
+            <sphereGeometry args={[1, 18, 18]} />
+            <meshBasicMaterial
+              ref={(m) => {
+                shellMatRefs.current[s] = m;
+              }}
+              transparent
+              opacity={0.15}
+              depthWrite={false}
+            />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* The view (HUD + canvas).                                            */
 /* ------------------------------------------------------------------ */
 
@@ -525,6 +637,7 @@ export default function StructureView({ structure, binding, title, note, onClose
         <OrbitRig rig={rig} />
         <CameraRig rig={rig} />
         <Molecule structure={structure} binding={binding} />
+        <Vehicles frame={frame} />
       </Canvas>
 
       <View style={styles.hudTop} pointerEvents="box-none">
