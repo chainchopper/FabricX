@@ -886,6 +886,18 @@ export class GhostPeer {
 
   // ---------------------------------------------------------- inputs
 
+  /**
+   * Slice 50: the primary renamed their ghostie — in app
+   * settings, the only door (see ghostStore.sanitizeGhostName).
+   * useGhostPeer owns the persisted record and calls this so the
+   * LIVE peer answers to the new name at once: the scenario's
+   * identity label, the say-it address matching, and the
+   * performance lines all read options.ghostName as they run.
+   */
+  setGhostName(name: string): void {
+    this.options.ghostName = name;
+  }
+
   setEnabled(enabled: boolean): void {
     if (this.enabled === enabled) return;
     this.enabled = enabled;

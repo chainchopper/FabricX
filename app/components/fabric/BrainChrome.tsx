@@ -13,10 +13,17 @@
  *
  * 2. THE PROGRESS CHIP. While the model downloads or warms, a
  *    slim pill at the top edge NAMES the brain and reports the
- *    real percentage ("Ghostie 1B (Llama 3.2 1B) arriving… 42%",
- *    via onDeviceBrain.brainTransferLabel — Slice 46: a bare
- *    "downloading a brain" told Terrell nothing about WHAT was
- *    arriving). It is pointerEvents="none" and
+ *    real percentage. Slice 46 made it name the model ("Ghostie
+ *    1B (Llama 3.2 1B) arriving… 42%" — a bare "downloading a
+ *    brain" told Terrell nothing about WHAT was arriving);
+ *    Slice 50 gives the headline to the ghostie itself —
+ *    "{GhostieName}'s brain arriving… 42%" — because the brain
+ *    being fetched is the ghostie's own, under its persistent
+ *    name (ghost store). The exact model stays named one
+ *    surface down, in the settings card. Before the ghost
+ *    record exists the chip falls back to the model-named
+ *    label (brainTransferLabel's own rule). It is
+ *    pointerEvents="none" and
  *    visually light — the doctrine is that nothing covers the
  *    work, and the canvas never waits on the brain anyway: the
  *    rule interpreter and the decision table answer underneath
@@ -41,11 +48,23 @@ import {
 } from "../../../src/ai/onDeviceBrain";
 import { colors, radius, spacing, type as typeScale } from "../../../src/theme/tokens";
 import { ChromeMount } from "../../../src/components/ui/ChromeMount";
+import {
+  getGhostPublicState,
+  subscribeGhostState,
+  type GhostPublicState,
+} from "../../../src/ghost/ghostStore";
 
 export default function BrainChrome() {
   const [snap, setSnap] = useState<BrainSnapshot>(() => getBrainSnapshot());
 
   useEffect(() => subscribeOnDeviceBrain(setSnap), []);
+
+  // Slice 50: the chip's headline is the ghostie's own name —
+  // the ghost store publishes it (and republishes on a rename).
+  const [ghost, setGhost] = useState<GhostPublicState>(() =>
+    getGhostPublicState()
+  );
+  useEffect(() => subscribeGhostState(setGhost), []);
 
   const showChip = brainChipVisible(snap);
 
@@ -161,11 +180,16 @@ export default function BrainChrome() {
           pointerEvents="none"
           style={{
             // Slice 46: widened 200 → 264 so the chip's named
-            // label ("Ghostie 1B (Llama 3.2 1B) arriving… 42%")
-            // stays on ONE line — Slice 44's slot (right edge
-            // held 112pt off the right; 278pt wide at a 390pt
-            // phone) still contains it, and the pill still can
-            // never reach the Essence's corner.
+            // label stays on ONE line — Slice 44's slot (right
+            // edge held 112pt off the right; 278pt wide at a
+            // 390pt phone) still contains it, and the pill still
+            // can never reach the Essence's corner. Slice 50:
+            // the ghostie-named label ("{name}'s brain
+            // arriving… 42%") is shorter than Slice 46's
+            // model-named one at every name the editor allows
+            // (≤20 chars); a longest-legal name can wrap inside
+            // the pill on narrow screens, growing it downward
+            // inside its slot — the Slice 46 honest limit.
             maxWidth: 264,
             borderWidth: 1,
             borderColor: colors.ghostLine,
@@ -176,11 +200,12 @@ export default function BrainChrome() {
           }}
         >
           <Text style={{ color: colors.text, fontSize: typeScale.caption, fontWeight: "600" }}>
-            {/* Slice 46: the chip NAMES the brain — the label
-                comes from the store's one naming source, built
-                from the snapshot's own model (product name +
-                honest base), never a bare "Brain arriving…". */}
-            {brainTransferLabel(snap)}
+            {/* Slice 46: the chip NAMES the brain, never a bare
+                "Brain arriving…". Slice 50: the headline is the
+                ghostie's own persistent name ("{name}'s brain
+                arriving… 42%") from the one naming source; the
+                exact model is named in the settings card. */}
+            {brainTransferLabel(snap, ghost.ghostName)}
           </Text>
         </View>
       </ChromeMount>

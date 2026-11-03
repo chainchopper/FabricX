@@ -10,6 +10,10 @@ import {
   getControllerSnapshot,
   registerCalibrationCapture,
 } from "./controllerStore";
+import {
+  knownHardwareGrant,
+  rememberHardwareGrant,
+} from "./hardwareGrants";
 
 /**
  * Slice 12 ("The Body's Sensors") — the phone's motion sensors,
@@ -188,8 +192,12 @@ export function useDeviceMotion(opts: {
       if (ok) {
         setGranted(true);
         setMotionPublicState({ permission: "granted" });
+        // Slice 50: remember the grant — a later session starts
+        // from "granted", not from a fresh ask (hardwareGrants).
+        rememberHardwareGrant("motion", "granted");
       } else {
         setMotionPublicState({ permission: "denied" });
+        rememberHardwareGrant("motion", "denied");
       }
       return ok;
     };
@@ -228,6 +236,17 @@ export function useDeviceMotion(opts: {
       (orient && typeof orient.requestPermission === "function") ||
       (motion && typeof motion.requestPermission === "function");
     if (needsRequest && !granted) {
+      // Slice 50: a grant already standing in the app's memory
+      // (hardwareGrants) is not re-asked — flip to granted and
+      // let this effect re-run into the listening path below.
+      // (A remembered DENIED does not take this branch: the user
+      // may have changed the browser's site settings since, so
+      // the honest state is needs-request, with the menu's
+      // Enable tilt button as the fresh gesture.)
+      if (knownHardwareGrant("motion") === "granted") {
+        setGranted(true);
+        return;
+      }
       stats.state = "needs-permission";
       setMotionPublicState({ permission: "needs-request" });
       return;

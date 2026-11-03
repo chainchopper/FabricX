@@ -27,6 +27,7 @@ import {
   subscribeSegmentationAvailable,
 } from "../../sam/segmentationAvailability";
 import { subscribeOnDeviceBrain } from "../../ai/onDeviceBrain";
+import { rememberHardwareGrant } from "../../sensors/hardwareGrants";
 import { colors, radius, spacing } from "../../theme/tokens";
 // Slice 30's imports sit below the theme import on purpose:
 // Slices 29 and 30 both first inserted at the anchor above, and
@@ -228,7 +229,13 @@ export function SamCameraBackground() {
       }
       runningRef.current = true;
       publishSamCamera({ status: "live", error: null });
+      // Slice 50: the grant stands in the app's memory now —
+      // later sessions consult it before any ask (hardwareGrants).
+      rememberHardwareGrant("camera", "granted");
     } catch (err) {
+      if (err instanceof Error && err.name === "NotAllowedError") {
+        rememberHardwareGrant("camera", "denied");
+      }
       publishSamCamera({
         status: "error",
         error: err instanceof Error ? err.message : "Unable to access camera",

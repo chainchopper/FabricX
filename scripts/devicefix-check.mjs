@@ -31,6 +31,14 @@
 //    the Fold is active, so leaving the Fold closes the menu
 //    with the layer, full stop.
 //
+// Slice 50 addendum (Nov 3): the chip's headline became the
+// GHOSTIE's name ("{name}'s brain arriving… 42%") — the model-
+// named label survives as brainTransferLabel's no-name fallback
+// (the ghost record cannot be named before it exists) and as
+// the settings card's under-headline honesty. §A below pins the
+// fallback forms; the ghost-named forms are pinned by
+// settings50-check §B. A8's chip pin follows the new call.
+//
 // Run: node scripts/devicefix-check.mjs   (from the repo root)
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -120,7 +128,7 @@ check("A7 a ready label exists in the same source and names the model",
 
 const chrome = read("app/components/fabric/BrainChrome.tsx");
 check("A8 the canvas chip renders the naming source, not a bare string",
-  chrome.includes("brainTransferLabel(snap)") &&
+  chrome.includes("brainTransferLabel(snap, ghost.ghostName)") &&
   !chrome.includes("`Brain arriving… ${pct}%`") &&
   !chrome.includes('"Brain warming up…"'));
 

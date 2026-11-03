@@ -277,6 +277,31 @@ function captureErrorCode(err: unknown): VoiceCaptureErrorCode {
 export async function startMediaCapture(
   options: MediaCaptureOptions = {}
 ): Promise<MediaCaptureSession> {
+  // Slice 50: report the outcome to the grant memory
+  // (src/sensors/hardwareGrants) WITHOUT an import — this
+  // service's zero-import graph is load-bearing (its headless
+  // check bundles it bare). The app answers window events
+  // everywhere (the VerbBar pattern): hardwareGrants listens
+  // for "fabric:hw-grant" from any module that imports it, and
+  // the canvas always has it in the room. Best-effort: a
+  // missing listener or a headless host makes this a no-op,
+  // and it must never delay or break a capture.
+  const noteGrant = (state: "granted" | "denied") => {
+    try {
+      const g = globalThis as {
+        dispatchEvent?: (ev: unknown) => boolean;
+      };
+      if (typeof g.dispatchEvent === "function" && typeof CustomEvent === "function") {
+        g.dispatchEvent(
+          new CustomEvent("fabric:hw-grant", {
+            detail: { kind: "microphone", state },
+          })
+        );
+      }
+    } catch {
+      // The memory is a courtesy; the capture is the job.
+    }
+  };
   const nav = (globalThis as any).navigator as
     | { mediaDevices?: { getUserMedia?: unknown } }
     | undefined;
@@ -297,7 +322,11 @@ export async function startMediaCapture(
       nav!.mediaDevices,
       { audio: true }
     );
+    // The browser asked (or remembered) and the answer was yes:
+    // the grant stands in the app's memory from here on.
+    noteGrant("granted");
   } catch (err) {
+    if (captureErrorCode(err) === "denied") noteGrant("denied");
     throw new VoiceCaptureError(
       captureErrorCode(err),
       err instanceof Error ? err.message : "Microphone capture failed."
