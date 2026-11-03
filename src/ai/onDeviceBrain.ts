@@ -121,19 +121,43 @@ export function brainModelFullName(model: BrainModelInfo): string {
 }
 
 /**
- * The canvas chip's line while a transfer is live: the named
- * model, arriving with a real percentage, or warming once the
- * weights are in. Null outside the transfer states — surfaces
- * that only render during a transfer (BrainChrome's chip) can
- * rely on non-null exactly when they render.
+ * The canvas chip's line while a transfer is live, arriving with
+ * a real percentage, or warming once the weights are in. Null
+ * outside the transfer states — surfaces that only render during
+ * a transfer (BrainChrome's chip) can rely on non-null exactly
+ * when they render.
+ *
+ * Slice 50 (Terrell, Nov 3): "the brain should take the name of
+ * the ghostie — loading {ghostie's name}'s brain." While a
+ * transfer is live the brain IS the ghostie's brain arriving,
+ * so the headline is the ghostie's own persistent name (passed
+ * in from the ghost store by the caller — this module never
+ * invents one). The model is still named, one surface down: the
+ * settings card (OnDeviceBrainCard) carries the ghostie's name
+ * as ITS headline with the exact model id + size under it, so
+ * Slice 46's honesty stands — it just stops being the chip's
+ * headline. Before the ghost record exists (ghostName null) the
+ * chip falls back to Slice 46's model-named label: it cannot
+ * name a ghostie that hasn't been born yet.
  */
-export function brainTransferLabel(snap: BrainSnapshot): string | null {
+export function brainTransferLabel(
+  snap: BrainSnapshot,
+  ghostName?: string | null
+): string | null {
   const pct = Math.round(snap.progress * 100);
+  const name =
+    typeof ghostName === "string" && ghostName.trim()
+      ? ghostName.trim()
+      : null;
   switch (snap.state) {
     case "downloading":
-      return `${brainModelFullName(snap.model)} arriving… ${pct}%`;
+      return name
+        ? `${name}'s brain arriving… ${pct}%`
+        : `${brainModelFullName(snap.model)} arriving… ${pct}%`;
     case "warming":
-      return `${brainModelFullName(snap.model)} warming up…`;
+      return name
+        ? `${name}'s brain is warming up…`
+        : `${brainModelFullName(snap.model)} warming up…`;
     case "ready":
       return `${brainModelFullName(snap.model)} — thinking on this device`;
     default:

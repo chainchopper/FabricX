@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { getLocalIdentity, hueCss } from "../../identity/identityStore";
+import { rememberHardwareGrant } from "../../sensors/hardwareGrants";
 import {
   getSamCameraSnapshot,
   getSamVideoElement,
@@ -144,7 +145,12 @@ export function HandsCameraBackground() {
       await videoRef.current.play();
       runningRef.current = true;
       publishHands({ phase: "live", error: null, cameraLive: true });
+      // Slice 50: the grant is remembered (hardwareGrants).
+      rememberHardwareGrant("camera", "granted");
     } catch (err) {
+      if (err instanceof Error && err.name === "NotAllowedError") {
+        rememberHardwareGrant("camera", "denied");
+      }
       publishHands({
         phase: "blocked",
         error: err instanceof Error ? err.message : "Unable to access camera",

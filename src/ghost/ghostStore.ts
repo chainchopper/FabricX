@@ -108,6 +108,48 @@ export interface GhostBrainStatus {
 /** Window event HUD -> canvas: detail is the desired `enabled` boolean. */
 export const FABRIC_GHOST_TOGGLE_EVENT = "fabric:ghost-toggle";
 
+/**
+ * Window event settings -> canvas (Slice 50): detail is the new
+ * ghostie name the primary typed IN APP SETTINGS (GhostieHome's
+ * name editor — the ONLY rename door in the app; see the law at
+ * sanitizeGhostName below). useGhostPeer answers: it sanitizes,
+ * persists the record, republishes the public state, and renames
+ * the live peer.
+ */
+export const FABRIC_GHOST_RENAME_EVENT = "fabric:ghost-rename";
+
+/** The name editor's cap — generated names run ≤7 chars; 20 is generous. */
+export const GHOST_NAME_MAX_CHARS = 20;
+
+/**
+ * THE NAME LAW (Slice 50, Terrell Nov 3): the ghostie's name is
+ * persistent and changes ONLY in app settings. This sanitizer is
+ * the gate every candidate name passes through, and the rename
+ * event above is the only write path that uses it:
+ *
+ * - Birth is not a rename: useGhostPeer generates the name once,
+ *   when the record is created (LifePacket derivation), and a
+ *   stored name is thereafter used exactly as stored.
+ * - Peer sync is not a rename: announces carry OTHER ghosties'
+ *   names for their cards; a remote name never writes this
+ *   device's record (profileStore keeps peer extras per-peer).
+ * - Imports are not a rename: nothing outside useGhostPeer
+ *   writes fabric_ghost_v1 at all (the settings50 check censuses
+ *   the writers), and DancerStage / profileStore only READ it.
+ *
+ * Rules: trim, collapse runs of whitespace, 1..GHOST_NAME_MAX_CHARS
+ * chars, no control characters. Anything else is null — the
+ * rename is refused and the old name stands.
+ */
+export function sanitizeGhostName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const name = raw.trim().replace(/\s+/g, " ");
+  if (name.length === 0 || name.length > GHOST_NAME_MAX_CHARS) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(name)) return null;
+  return name;
+}
+
 /** Window event HUD -> canvas: detail is "summon" | "dismiss". */
 export const FABRIC_GHOST_SESSION_EVENT = "fabric:ghost-session";
 

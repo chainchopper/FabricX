@@ -83,9 +83,12 @@ import {
   type FdnaLineage,
 } from "../../../src/identity/fdna";
 import {
+  FABRIC_GHOST_RENAME_EVENT,
   FABRIC_GHOST_SESSION_EVENT,
   FABRIC_GHOST_TOGGLE_EVENT,
+  GHOST_NAME_MAX_CHARS,
   getGhostPublicState,
+  sanitizeGhostName,
   subscribeGhostState,
   type GhostPublicState,
 } from "../../../src/ghost/ghostStore";
@@ -414,6 +417,25 @@ export default function GhostieHome({
       refreshLocalGhostCardInputs();
     });
   };
+
+  /* ---------------- name (Slice 50) ---------------- */
+  // THE rename door — the only place in the app where the
+  // ghostie's name can change (the name law: ghostStore's
+  // sanitizeGhostName). The draft mirrors the published name
+  // until the primary types; saving dispatches the rename event
+  // and the canvas (useGhostPeer, the record's owner) sanitizes
+  // again, persists, and renames the live ghost. Nothing else
+  // in the app writes the name — everywhere else it is display.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const nameValue = nameDraft ?? ghost.ghostName ?? "";
+  const nameClean = sanitizeGhostName(nameValue);
+  const nameDirty =
+    nameClean !== null && ghost.ghostName !== null && nameClean !== ghost.ghostName;
+  const saveName = () => {
+    if (!nameDirty || !nameClean) return;
+    dispatchGhost(FABRIC_GHOST_RENAME_EVENT, nameClean);
+    setNameDraft(null);
+  };
   const reading = useMemo(
     () => parseGhostPersonality(personalityDraft),
     [personalityDraft]
@@ -527,6 +549,75 @@ export default function GhostieHome({
               </View>
             </View>
           </Pressable>
+
+          {/* ---------- name: the one door (Slice 50) ---------- */}
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.line,
+              borderRadius: radius.card,
+              padding: spacing.md,
+              marginBottom: spacing.md,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+              Name
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 2 }}>
+              {ghostName}&rsquo;s name is permanent — it sticks across
+              sessions and it is the name its brain arrives under. This
+              is the only place it can change.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: spacing.sm, alignItems: "center" }}>
+              <TextInput
+                value={nameValue}
+                onChangeText={setNameDraft}
+                onEndEditing={saveName}
+                onSubmitEditing={saveName}
+                placeholder="Name your ghostie"
+                placeholderTextColor="rgba(242,247,249,0.35)"
+                maxLength={GHOST_NAME_MAX_CHARS}
+                accessibilityLabel="Ghostie name"
+                style={{
+                  // 16px floor: below it, iOS Safari auto-zooms on
+                  // focus and wrecks the sheet (Hotfix 2.3).
+                  fontSize: 16,
+                  color: colors.text,
+                  borderWidth: 1,
+                  borderColor: colors.line,
+                  borderRadius: radius.card,
+                  paddingHorizontal: 10,
+                  paddingVertical: 8,
+                  flex: 1,
+                }}
+              />
+              <Pressable
+                pointerEvents="auto"
+                onPress={saveName}
+                disabled={!nameDirty}
+                accessibilityRole="button"
+                accessibilityLabel={`Rename your ghostie to ${nameClean ?? ""}`}
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 14,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: nameDirty ? colors.ghostLine : colors.line,
+                  opacity: nameDirty ? 1 : 0.5,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: typeScale.caption, fontWeight: "700" }}>
+                  Save name
+                </Text>
+              </Pressable>
+            </View>
+            {nameDraft !== null && nameClean === null ? (
+              <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: 4 }}>
+                A name needs 1–{GHOST_NAME_MAX_CHARS} characters — the old
+                name stands until one fits.
+              </Text>
+            ) : null}
+          </View>
 
           {/* ---------- fDNA, alive and large ---------- */}
           <View

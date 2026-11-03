@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { getJSON, setJSON } from "../utils/storage";
+import { mirrorHapticsPreference } from "../../src/sensory/vibration";
 
 type IconsLockMode = "off" | "lock" | "lock_autohide";
 
@@ -59,6 +60,16 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       iconsLockMode,
     });
   }, [hapticsEnabled, audioEnabled, iconsAutoHide, iconsAutoHideTimeoutSec, iconsLockMode]);
+
+  // Slice 50: mirror the haptics switch into the ONE vibration
+  // gate (src/sensory/vibration) that every felt touch passes
+  // through. This context stays the preference's only writer;
+  // the mirror is how the canvas — which lives outside this
+  // provider's React tree reads — hears a flip the moment it
+  // happens (and the stored value when it loads above).
+  useEffect(() => {
+    mirrorHapticsPreference(hapticsEnabled);
+  }, [hapticsEnabled]);
 
   const setHapticsEnabled = (v: boolean) => setHapticsEnabledState(v);
   const toggleHaptics = () => setHapticsEnabledState((prev) => !prev);

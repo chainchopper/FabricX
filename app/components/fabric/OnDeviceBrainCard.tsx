@@ -38,11 +38,30 @@ import {
   type BrainSnapshot,
 } from "../../../src/ai/onDeviceBrain";
 import { colors, radius, spacing, type as typeScale } from "../../../src/theme/tokens";
+import {
+  getGhostPublicState,
+  subscribeGhostState,
+  type GhostPublicState,
+} from "../../../src/ghost/ghostStore";
 
 export default function OnDeviceBrainCard() {
   const [snap, setSnap] = useState<BrainSnapshot>(() => getBrainSnapshot());
 
   useEffect(() => subscribeOnDeviceBrain(setSnap), []);
+
+  // Slice 50: the card's headline is the ghostie's own name —
+  // it is {name}'s brain; the exact model riding under that
+  // name stays on the card (the provenance line below carries
+  // the exact MLC model id and the size), so nothing about
+  // Slice 46's honesty is lost by the friendlier headline.
+  const [ghost, setGhost] = useState<GhostPublicState>(() =>
+    getGhostPublicState()
+  );
+  useEffect(() => subscribeGhostState(setGhost), []);
+  const ghostName =
+    typeof ghost.ghostName === "string" && ghost.ghostName.trim()
+      ? ghost.ghostName.trim()
+      : null;
 
   const pct = Math.round(snap.progress * 100);
 
@@ -87,7 +106,9 @@ export default function OnDeviceBrainCard() {
       <Text
         style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}
       >
-        On-device brain — a real model, on this device
+        {ghostName
+          ? `${ghostName}'s brain — a real model, on this device`
+          : "On-device brain — a real model, on this device"}
       </Text>
       <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
         {stateLine}
@@ -130,10 +151,13 @@ export default function OnDeviceBrainCard() {
       </View>
 
       {/* Slice 29: honest provenance for the picked model, and the
-          standing word on tuning — the bases run as picked tonight. */}
+          standing word on tuning — the bases run as picked tonight.
+          Slice 50: the provenance line also carries the EXACT model
+          id (the MLC id the engine fetches) — under the ghostie's
+          headline, the card still names precisely what runs. */}
       <View style={{ gap: 2 }}>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
-          {snap.model.displayName} · {snap.model.baseNote}
+          {snap.model.displayName} · {snap.model.baseNote} · {snap.model.id}
         </Text>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption }}>
           Fanalogy's own tuning comes later — tonight these run as picked.

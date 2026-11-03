@@ -78,10 +78,10 @@ export default function SettingsDrawer() {
             </View>
           </View>
 
-          {/* Audio & Haptics */}
+          {/* Audio & Vibration */}
           <View>
             <Text style={{ color: "#e5e7eb", fontWeight: "700", marginBottom: 8, fontSize: 14 }}>
-              Audio & Haptics
+              Audio & Vibration
             </Text>
             <View style={{ gap: 8 }}>
               <Pressable
@@ -98,7 +98,7 @@ export default function SettingsDrawer() {
                 }}
               >
                 <Text style={{ color: hapticsEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                  Haptics: {hapticsEnabled ? "On" : "Off"}
+                  Vibration: {hapticsEnabled ? "On" : "Off"}
                 </Text>
               </Pressable>
 

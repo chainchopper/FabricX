@@ -3767,7 +3767,7 @@ export default function FabricMenu() {
         </Text>
 
         <ToggleRow
-          label="Haptics"
+          label="Vibration"
           value={prefs.hapticsEnabled}
           onPress={() => prefs.setHapticsEnabled(!prefs.hapticsEnabled)}
         />

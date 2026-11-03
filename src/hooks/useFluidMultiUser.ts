@@ -50,6 +50,7 @@ import {
   subscribeGhostState,
 } from "../ghost/ghostStore";
 import { vitalsWire } from "../ghost/ghostVitals";
+import { vibrate } from "../sensory/vibration";
 import { getSignalingService } from "../services/SignalingService";
 import {
   bindLintBridge,
@@ -1836,9 +1837,10 @@ export function useFluidMultiUser(roomId: string) {
       // Local haptic tick only when sending as ourselves. When a virtual
       // peer (e.g. the session ghost) is broadcast under its own id, the
       // host's feedback arrives through the normal render path, exactly
-      // like a remote peer's — no double vibration.
-      if (!fromUserId && navigator.vibrate && interaction.pressure > 0.7) {
-        navigator.vibrate([50, 30, 50]);
+      // like a remote peer's — no double vibration. Slice 50: the tick
+      // passes through the ONE vibration gate (settings switch).
+      if (!fromUserId && interaction.pressure > 0.7) {
+        vibrate([50, 30, 50]);
       }
       return full;
     },

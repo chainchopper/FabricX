@@ -1,6 +1,7 @@
 import React from "react";
-import { View, Text, Pressable, Vibration } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { useLocalSearchParams } from "expo-router";
+import { vibrate } from "../../src/sensory/vibration";
 import { useToast } from "../components/Toast";
 import { useHaptics } from "../hooks/useHaptics";
 import { useLayers } from "../context/LayersContext";
@@ -19,7 +20,13 @@ export default function FabricRoom() {
   const insets = useSafeAreaInsets();
 
   const handleTouchPulse = () => {
-    Vibration.vibrate([80, 40, 80]);
+    // Slice 50: the pulse pattern passes through the ONE
+    // vibration gate (src/sensory/vibration) — the settings
+    // Vibration switch governs it, like every felt touch in
+    // the app. (This site called RN's Vibration directly and
+    // ignored the switch; on web the gate's navigator.vibrate
+    // is the same actuator react-native-web bottoms out in.)
+    vibrate([80, 40, 80]);
     haptics.impactHeavy();
     toast.show("Pulse sent");
   };

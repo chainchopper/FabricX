@@ -53,6 +53,7 @@ import {
 import type { GhostFabricContext } from "../../ghost/GhostBrain";
 import { isGhostNoteLayer } from "../../ghost/GhostBrain";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
+import { vibrate } from "../../sensory/vibration";
 import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
 import { useGhostSharedSettings } from "../../ghost/ghostSharedPref";
 import {
@@ -695,9 +696,9 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         }
       }
     }
-    if (typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate(verb.vibration);
-    }
+    // Slice 50: through the ONE vibration gate (the settings
+    // switch now governs the felt touches, not just UI taps).
+    vibrate(verb.vibration);
     const cue = cuesRef.current[verb.audioCue];
     if (typeof cue === "function") cue();
   };
@@ -869,9 +870,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     // Muted when the user turned their ghost off (preference) or when
     // this layer has the ghost feature off (per-layer toggle).
     if (!verb || !ghostRef.current.enabled || !ghostLayerEnabled) return;
-    if (typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate(verb.vibration);
-    }
+    vibrate(verb.vibration);
     if (verb.id === "purr") {
       sfxRef.current.startPurr(hue, voice);
     } else if (verb.id === "heart") {
@@ -1370,10 +1369,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   //   splat steps: sendInteraction + a local engine.splatAt with the
   //                same fields, so this canvas renders what peers
   //                render from the broadcast interaction.
-  //   haptic steps: local navigator.vibrate only. The transport has
-  //                no haptic-only payload (a verb-less interaction
-  //                would paint dye on peers); verbs are the broadcast
-  //                haptic channel.
+  //   haptic steps: local vibration only (through the Slice 50
+  //                gate — the settings switch governs it). The
+  //                transport has no haptic-only payload (a
+  //                verb-less interaction would paint dye on
+  //                peers); verbs are the broadcast haptic channel.
   // Playback state is relayed to the HUD on FABRIC_COMPOSE_STATE_EVENT;
   // FABRIC_COMPOSE_STOP_EVENT cancels globally via the shared player.
   //
@@ -1422,8 +1422,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         );
       } else {
         const haptic = getHapticPattern(step.hapticId);
-        if (haptic && typeof navigator !== "undefined" && navigator.vibrate) {
-          navigator.vibrate(haptic);
+        if (haptic) {
+          vibrate(haptic);
         }
       }
       ghostRef.current.noteUserActivity();
@@ -2021,9 +2021,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
           i.position.y,
           splatColor ?? hueDyeColor(205, 0.95)
         );
-        if (typeof navigator !== "undefined" && navigator.vibrate) {
-          navigator.vibrate(60);
-        }
+        vibrate(60);
         ghostRef.current.noteRemoteInteraction(i);
         return;
       }

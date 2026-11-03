@@ -114,8 +114,10 @@ import { getGhostBrainTier } from "./ghostBrainPref";
 import { getGhostPersonality } from "./ghostPersonalityPref";
 import { subscribeGhostSharedSettings } from "./ghostSharedPref";
 import {
+  FABRIC_GHOST_RENAME_EVENT,
   FABRIC_GHOST_SESSION_EVENT,
   FABRIC_GHOST_TOGGLE_EVENT,
+  sanitizeGhostName,
   setGhostPublicState,
   type GhostBrainStatus,
 } from "./ghostStore";
@@ -778,11 +780,33 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
       if (detail === "summon") peerRef.current?.summon();
       else if (detail === "dismiss") peerRef.current?.dismiss();
     };
+    // Slice 50 — THE rename door's receiving end. The name
+    // changes ONLY here: app settings (GhostieHome's editor)
+    // dispatches FABRIC_GHOST_RENAME_EVENT; this hook — the
+    // record's owner — sanitizes the candidate, and on a real
+    // change rewrites the identity in place (seed and hue are
+    // NOT touched: a rename is not a rebirth), persists it,
+    // republishes the public name, and renames the live peer so
+    // it answers to the new name in the same session. A refused
+    // or unchanged name writes nothing.
+    const onRename = (ev: Event) => {
+      const name = sanitizeGhostName((ev as CustomEvent<unknown>).detail);
+      const id = identityRef.current;
+      if (!name || !id || id.name === name) return;
+      const next: GhostIdentityFull = { ...id, name };
+      identityRef.current = next;
+      setIdentity(next);
+      persist(enabledRef.current, next);
+      setGhostPublicState({ ghostName: name });
+      peerRef.current?.setGhostName(name);
+    };
     window.addEventListener(FABRIC_GHOST_TOGGLE_EVENT, onToggle as EventListener);
     window.addEventListener(FABRIC_GHOST_SESSION_EVENT, onSession as EventListener);
+    window.addEventListener(FABRIC_GHOST_RENAME_EVENT, onRename as EventListener);
     return () => {
       window.removeEventListener(FABRIC_GHOST_TOGGLE_EVENT, onToggle as EventListener);
       window.removeEventListener(FABRIC_GHOST_SESSION_EVENT, onSession as EventListener);
+      window.removeEventListener(FABRIC_GHOST_RENAME_EVENT, onRename as EventListener);
     };
   }, [persist]);
 
