@@ -16,6 +16,15 @@
  * Web-only, like the Dancer Stage (the R3F precedent in this repo): the
  * canvas owns its gestures while open — drag to orbit, pinch/scroll to
  * zoom — and a close button returns to the mote field.
+ *
+ * Slice 48 — the camera is a rig now (src/genx/molCamera.ts): framed
+ * once per structure on the TARGET centroid + bounding sphere, every
+ * channel critically damped on real delta time, a slow sinusoidal
+ * drift only until the first touch. The fold is never an input to the
+ * rig, so folding and verifying move the camera by exactly zero. (The
+ * original rig chased pointer targets with a fixed per-frame lerp
+ * around a fixed camera — frame-rate-coupled, and it read on device
+ * as a camera that "moves wonkey.")
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -41,6 +50,19 @@ import {
   type MolStructure,
   type MolVec3,
 } from "../../genx/molMath";
+import {
+  CAMERA_FOV_DEG,
+  cameraPose,
+  createCameraRig,
+  fitDistance,
+  frameForTarget,
+  rigDragEnd,
+  rigDragStart,
+  rigOrbit,
+  rigZoomBy,
+  stepCameraRig,
+  type MolCameraRig,
+} from "../../genx/molCamera";
 
 /** How the displayed structure binds to the field state. */
 export interface StructureBinding {
@@ -108,19 +130,20 @@ function rangeFacts(
 }
 
 /* ------------------------------------------------------------------ */
-/* Orbit rig — pointer drag + pinch/wheel, damped. No drei.            */
+/* Camera rig — pointer input + the molCamera spring rig. No drei.            */
 /* ------------------------------------------------------------------ */
 
-interface OrbitState {
-  az: number;
-  pol: number;
-  dist: number;
-  tAz: number;
-  tPol: number;
-  tDist: number;
+interface RigRef {
+  current: MolCameraRig;
 }
 
-function OrbitRig({ orbit }: { orbit: React.MutableRefObject<OrbitState> }) {
+/**
+ * Pointer input for the camera rig: drag orbits, pinch/wheel zooms.
+ * Handlers write ONLY the rig's targets (through molCamera's input
+ * functions); the spring in CameraRig does all actual motion. The
+ * drag deltas keep the original rig's mapping and gains.
+ */
+function OrbitRig({ rig }: { rig: RigRef }) {
   const gl = useThree((s) => s.gl);
   useEffect(() => {
     const el = gl.domElement;
@@ -129,6 +152,7 @@ function OrbitRig({ orbit }: { orbit: React.MutableRefObject<OrbitState> }) {
     let pinchDist = 0;
     const onDown = (e: PointerEvent) => {
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      rigDragStart(rig.current);
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
@@ -146,13 +170,12 @@ function OrbitRig({ orbit }: { orbit: React.MutableRefObject<OrbitState> }) {
       const dy = e.clientY - prev.y;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 1) {
-        orbit.current.tAz -= dx * 0.008;
-        orbit.current.tPol = Math.max(-1.2, Math.min(1.2, orbit.current.tPol - dy * 0.006));
+        rigOrbit(rig.current, -dx * 0.008, -dy * 0.006);
       } else if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         if (pinchDist > 0 && d > 0) {
-          orbit.current.tDist = Math.max(-2.4, Math.min(2.8, orbit.current.tDist + (pinchDist - d) * 0.01));
+          rigZoomBy(rig.current, (pinchDist - d) * 0.004);
         }
         pinchDist = d;
       }
@@ -160,10 +183,11 @@ function OrbitRig({ orbit }: { orbit: React.MutableRefObject<OrbitState> }) {
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       pinchDist = 0;
+      if (pointers.size === 0) rigDragEnd(rig.current);
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      orbit.current.tDist = Math.max(-2.4, Math.min(2.8, orbit.current.tDist + e.deltaY * 0.003));
+      rigZoomBy(rig.current, e.deltaY * 0.003);
     };
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
@@ -177,7 +201,29 @@ function OrbitRig({ orbit }: { orbit: React.MutableRefObject<OrbitState> }) {
       el.removeEventListener("pointercancel", onUp);
       el.removeEventListener("wheel", onWheel);
     };
-  }, [gl, orbit]);
+  }, [gl, rig]);
+  return null;
+}
+
+/**
+ * The camera itself: step the rig's critically damped springs on the
+ * frame's REAL delta time, then place the camera from the pure pose.
+ * Nothing about the fold — no field state, no verified fraction, no
+ * morph state — is read here; folding cannot move this camera.
+ */
+function CameraRig({ rig }: { rig: RigRef }) {
+  const camera = useThree((s) => s.camera);
+  const size = useThree((s) => s.size);
+  useFrame((state, delta) => {
+    stepCameraRig(rig.current, delta);
+    const fit = fitDistance(
+      rig.current.frame,
+      size.width / Math.max(1, size.height),
+    );
+    const pose = cameraPose(rig.current, fit, state.clock.elapsedTime);
+    camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
+    camera.lookAt(pose.lookAt[0], pose.lookAt[1], pose.lookAt[2]);
+  });
   return null;
 }
 
@@ -188,13 +234,10 @@ function OrbitRig({ orbit }: { orbit: React.MutableRefObject<OrbitState> }) {
 function Molecule({
   structure,
   binding,
-  orbit,
 }: {
   structure: MolStructure;
   binding: StructureBinding;
-  orbit: React.MutableRefObject<OrbitState>;
 }) {
-  const groupRef = useRef<THREE.Group>(null);
   const tubeRefs = useRef<(THREE.Mesh | null)[]>([]);
   const sphereRef = useRef<THREE.InstancedMesh>(null);
   const bloomRefs = useRef<(THREE.Mesh | null)[]>([]);
@@ -387,21 +430,10 @@ function Molecule({
       mat.opacity = 0.45 * (1 - age);
     }
 
-    // Orbit: damped approach to the drag targets.
-    const group = groupRef.current;
-    if (group) {
-      const o = orbit.current;
-      o.az += (o.tAz - o.az) * 0.12;
-      o.pol += (o.tPol - o.pol) * 0.12;
-      o.dist += (o.tDist - o.dist) * 0.12;
-      group.rotation.y = o.az;
-      group.rotation.x = o.pol;
-      group.position.z = -o.dist;
-    }
   });
 
   return (
-    <group ref={groupRef}>
+    <group>
       {structure.chains.map((_chain, chainIndex) => (
         <mesh key={chainIndex} ref={(m) => { tubeRefs.current[chainIndex] = m; }}>
           <meshStandardMaterial vertexColors roughness={0.5} metalness={0.08} />
@@ -433,7 +465,24 @@ export default function StructureView({ structure, binding, title, note, onClose
   const [, setTick] = useState(0);
   useEffect(() => subscribeGenx(() => setTick((t) => t + 1)), []);
   useEffect(() => subscribeIdentity(() => setTick((t) => t + 1)), []);
-  const orbit = useRef<OrbitState>({ az: 0.6, pol: 0.25, dist: 0, tAz: 0.6, tPol: 0.25, tDist: 0 });
+  // Slice 48: the camera frame is computed ONCE per structure from
+  // the TARGET positions (the same normalizer the morph renders in),
+  // and the rig is rebuilt whenever a different structure's frame
+  // arrives — framing is a property of the folded target, never of
+  // the fold's progress.
+  const frame = useMemo(
+    () =>
+      frameForTarget(
+        applyNormalizer(targetPositions(structure), normalizerFor(structure)),
+      ),
+    [structure],
+  );
+  const rigRef = useRef<MolCameraRig | null>(null);
+  if (rigRef.current === null || rigRef.current.frame !== frame) {
+    rigRef.current = createCameraRig(frame);
+  }
+  const rig: RigRef = rigRef as RigRef;
+  const initialPose = cameraPose(rig.current, fitDistance(frame, 1), 0);
 
   if (Platform.OS !== "web") {
     return (
@@ -466,15 +515,16 @@ export default function StructureView({ structure, binding, title, note, onClose
       <Canvas
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: false }}
-        camera={{ fov: 42, near: 0.1, far: 60, position: [0, 0.4, 6.4] }}
+        camera={{ fov: CAMERA_FOV_DEG, near: 0.1, far: 80, position: initialPose.position }}
         style={{ flex: 1 }}
       >
         <color attach="background" args={["#070a12"]} />
         <ambientLight intensity={0.75} />
         <directionalLight position={[4, 6, 6]} intensity={1.25} />
         <directionalLight position={[-6, -2, -4]} intensity={0.4} />
-        <OrbitRig orbit={orbit} />
-        <Molecule structure={structure} binding={binding} orbit={orbit} />
+        <OrbitRig rig={rig} />
+        <CameraRig rig={rig} />
+        <Molecule structure={structure} binding={binding} />
       </Canvas>
 
       <View style={styles.hudTop} pointerEvents="box-none">
