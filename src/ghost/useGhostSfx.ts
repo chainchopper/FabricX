@@ -41,6 +41,11 @@
  * - heart     (cheer)       warm chimes — hearts and celebrations
  * - heartbeat (the answer)  lub-dub pairs AT the ghost's live tempo
  * - thinking  (deliberating) a soft murmur while the brain consults
+ * - composed  (Slice 52)    a sound the brain AUTHORED from raw
+ *                            waveforms (sound-craft) — rendered
+ *                            from its spec, envelope and all,
+ *                            via ghostSound; noise notes ride a
+ *                            pitched bandpass over a noise buffer
  *
  * Discipline: a global (per-client) limiter allows at most one cue per
  * 1.5 s — higher-priority cues (heart, startle) may interrupt after
@@ -57,6 +62,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import { usePreferences } from "../../app/context/PreferencesContext";
 import { getSharedAudioContext } from "../audio/sharedAudio";
+import type { GhostSoundSpec } from "./GhostBrain";
+import { ghostEnvCurve, renderGhostSound } from "./ghostSound";
 import {
   articulateGhostUtterance,
   ghostFamilyForCue,
@@ -74,7 +81,8 @@ export type GhostSfxKind =
   | "wake"
   | "heart"
   | "heartbeat"
-  | "thinking";
+  | "thinking"
+  | "composed";
 
 /**
  * What caused the sound, as far as the caller honestly knows it —
@@ -92,6 +100,12 @@ export interface GhostSfxContext {
   stamina?: number;
   /** Heartbeat answers: the ghost's live tempo. */
   bpm?: number;
+  /**
+   * Composed cues (Slice 52): the brain's authored sound_spec —
+   * the composition IS the utterance; the hook renders it via
+   * ghostSound instead of articulating a family.
+   */
+  sound?: GhostSoundSpec | null;
 }
 
 export interface GhostSfxPlayOptions {
@@ -147,6 +161,28 @@ export function cueSpecsFor(
 }
 
 const MASTER_GAIN = 0.024; // below useAudioCues' levels — ghosts whisper
+
+/**
+ * The shared noise buffer (Slice 52): one second of white noise
+ * per context, generated from a fixed LCG so every client holds
+ * the identical buffer. Composed "noise" notes play it through
+ * a bandpass at the note's pitch ratio.
+ */
+const noiseBuffers = new WeakMap<AudioContext, AudioBuffer>();
+function noiseBufferFor(ctx: AudioContext): AudioBuffer {
+  let buf = noiseBuffers.get(ctx);
+  if (!buf) {
+    buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    let s = 22222;
+    for (let i = 0; i < data.length; i++) {
+      s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
+      data[i] = s / 0x40000000 - 1;
+    }
+    noiseBuffers.set(ctx, buf);
+  }
+  return buf;
+}
 const MIN_CUE_GAP_MS = 1_500;
 const PRIORITY: Record<GhostSfxKind, number> = {
   mirror: 1,
@@ -155,6 +191,7 @@ const PRIORITY: Record<GhostSfxKind, number> = {
   play: 2,
   sleep: 2,
   wake: 2,
+  composed: 2,
   startle: 3,
   heart: 3,
   heartbeat: 3,
@@ -301,12 +338,91 @@ export function useGhostSfx() {
       filter.frequency.setValueAtTime(art.filterCutoffHz, start);
       filter.Q.setValueAtTime(art.filterQ, start);
       filter.connect(ctx.destination);
-      art.notes.forEach((spec) => {
+
+      // Slice 52: a composed cue renders its AUTHORED spec
+      // (ghostSound renders it to tones with the same seed);
+      // every other cue renders the family articulation. Family
+      // tones keep their exact legacy gain curve (env: null);
+      // composed tones carry the envelope the brain chose.
+      interface SchedTone {
+        type: OscillatorType | "noise";
+        ratio: number;
+        ratioEnd?: number;
+        delayMs: number;
+        durMs: number;
+        gain: number;
+        env: "soft" | "pluck" | "swell" | null;
+      }
+      const composedSpec =
+        kind === "composed" ? (opts?.articulation?.sound ?? null) : null;
+      const tones: SchedTone[] = composedSpec
+        ? renderGhostSound(composedSpec, seed, opts?.voice ?? "standard")
+        : art.notes.map((n) => ({
+            type: n.type as OscillatorType,
+            ratio: n.ratio,
+            ratioEnd: n.ratioEnd,
+            delayMs: n.delayMs,
+            durMs: n.durMs,
+            gain: n.gain,
+            env: null,
+          }));
+
+      tones.forEach((spec) => {
         const t0 = start + (spec.delayMs ?? 0) / 1000;
         const dur = spec.durMs / 1000;
-        const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = spec.type ?? "sine";
+        const peak = MASTER_GAIN * (spec.gain ?? 1);
+        if (spec.env) {
+          // The composed envelope: attack/release fractions of
+          // the note's own duration (ghostEnvCurve) — the shape
+          // the brain picked is the shape that sounds.
+          const curve = ghostEnvCurve(spec.env);
+          const tAttack =
+            t0 + Math.min(Math.max(dur * curve.attackFrac, 0.003), dur * 0.5);
+          gain.gain.setValueAtTime(0, t0);
+          gain.gain.linearRampToValueAtTime(peak, tAttack);
+          if (curve.decay === "exponential") {
+            gain.gain.exponentialRampToValueAtTime(
+              Math.max(peak * 0.01, 0.0001),
+              t0 + dur * curve.releaseFrac
+            );
+            gain.gain.linearRampToValueAtTime(0, t0 + dur + 0.02);
+          } else {
+            gain.gain.setValueAtTime(peak, t0 + dur * (1 - curve.releaseFrac));
+            gain.gain.linearRampToValueAtTime(0, t0 + dur);
+          }
+        } else {
+          gain.gain.setValueAtTime(0, t0);
+          gain.gain.linearRampToValueAtTime(peak, t0 + 0.008);
+          gain.gain.linearRampToValueAtTime(0, t0 + dur);
+        }
+        gain.connect(filter);
+        if (spec.type === "noise") {
+          // Noise has no oscillator: a looping buffer source
+          // pitched by a bandpass riding the note's ratio (and
+          // its sweep), so it sits inside the composition's
+          // pitch contour like any other note.
+          const src = ctx.createBufferSource();
+          src.buffer = noiseBufferFor(ctx);
+          src.loop = true;
+          const bp = ctx.createBiquadFilter();
+          bp.type = "bandpass";
+          bp.frequency.setValueAtTime(base * spec.ratio, t0);
+          if (spec.ratioEnd) {
+            bp.frequency.exponentialRampToValueAtTime(
+              base * spec.ratioEnd,
+              t0 + dur
+            );
+          }
+          bp.Q.setValueAtTime(1.1, t0);
+          src.connect(bp);
+          bp.connect(gain);
+          src.start(t0);
+          src.stop(t0 + dur + 0.02);
+          return;
+        }
+        const osc = ctx.createOscillator();
+        osc.type = spec.type;
         osc.frequency.setValueAtTime(base * spec.ratio, t0);
         if (spec.ratioEnd) {
           osc.frequency.exponentialRampToValueAtTime(
@@ -314,12 +430,7 @@ export function useGhostSfx() {
             t0 + dur
           );
         }
-        const peak = MASTER_GAIN * (spec.gain ?? 1);
-        gain.gain.setValueAtTime(0, t0);
-        gain.gain.linearRampToValueAtTime(peak, t0 + 0.008);
-        gain.gain.linearRampToValueAtTime(0, t0 + dur);
         osc.connect(gain);
-        gain.connect(filter);
         osc.start(t0);
         osc.stop(t0 + dur + 0.02);
       });

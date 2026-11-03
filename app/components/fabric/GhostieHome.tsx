@@ -133,6 +133,11 @@ const GHOST_TOOL_LABELS: Record<string, { label: string; caption: string }> = {
     label: "Its heartbeat",
     caption: "Answering “show me your heartbeat” with its real pulse.",
   },
+  "sound-craft": {
+    label: "Composing sounds",
+    caption:
+      "Building little sounds from raw waveforms — sine, square, sawtooth, noise — when you ask it to make some sounds.",
+  },
 };
 import {
   getGhostPersonality,

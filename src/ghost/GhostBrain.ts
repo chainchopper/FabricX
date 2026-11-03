@@ -110,6 +110,7 @@ export const GHOST_INTENTS = [
   "heart",
   "draw",
   "play-note",
+  "compose",
 ] as const;
 export type GhostIntent = (typeof GHOST_INTENTS)[number];
 
@@ -218,6 +219,162 @@ export function ghostAnswerNote(
     case "sleepy":
       return ghostNoteName(n);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sound-craft (Slice 52)                                              */
+/* ------------------------------------------------------------------ */
+/*
+ * Terrell spoke to the live ghost — "make some sounds" — and it
+ * answered, but with the same two redundant sounds: the voice
+ * Slice 47 built articulates a fixed family vocabulary, and the
+ * ghost had no SYNTHESIS in its arsenal — nothing it could build
+ * a NEW sound from. His diagnosis, verbatim in spirit: it should
+ * have waveform functions the way a pygame-style toolkit does —
+ * sine, square, and friends — and compose with them.
+ *
+ * The "compose" intent is that arsenal, as a decision: the brain
+ * authors a short sequence of tones — each note a WAVEFORM, a
+ * pitch (a ratio over the ghost's own base frequency, with an
+ * optional sweep target — the pitch contour), an onset, a
+ * duration, a gain, and an ENVELOPE — and the voice layer renders
+ * exactly that composition (ghostSound.ts), with only the small
+ * seeded jitter the variation law allows (waveform, envelope and
+ * note count are the composition; they never jitter). The fixed
+ * family cues remain what they are — the ghost's everyday voice;
+ * a composition is a deliberate act, priced like one in the
+ * peer's performance budget.
+ *
+ * The schema law here mirrors draw/note exactly: the intent
+ * REQUIRES its payload (a compose without a valid sound_spec is
+ * not a decision), the payload on any other intent is dropped,
+ * and the fabric's manifest decides whether the tool exists
+ * there at all — the fluid and the ghostie's own playground
+ * offer sound-craft; a piano or a stage does not, and an ask
+ * that lands there is answered another way, never faked.
+ */
+
+/** The waveforms a composition may be built from. */
+export const GHOST_WAVEFORMS = [
+  "sine",
+  "square",
+  "triangle",
+  "sawtooth",
+  "noise",
+] as const;
+export type GhostWaveform = (typeof GHOST_WAVEFORMS)[number];
+
+/** The envelope shapes a composed note may carry. */
+export const GHOST_SOUND_ENVS = ["soft", "pluck", "swell"] as const;
+export type GhostSoundEnv = (typeof GHOST_SOUND_ENVS)[number];
+
+/** One composed tone, in the decision's own (wire) shape. */
+export interface GhostSoundNote {
+  wave: GhostWaveform;
+  /** Pitch multiplier over the ghost's base frequency. */
+  ratio: number;
+  /** Pitch contour: the sweep target reached by the note's end. */
+  ratio_end?: number;
+  /** Onset offset within the sequence, ms. */
+  delay_ms: number;
+  dur_ms: number;
+  /** Relative gain, 0..1 (the voice's master ceiling still rules). */
+  gain: number;
+  env: GhostSoundEnv;
+}
+
+/** A composed sound: a short sequence of waveform tones. */
+export interface GhostSoundSpec {
+  notes: GhostSoundNote[];
+}
+
+export const GHOST_SOUND_MAX_NOTES = 8;
+/** A composition is a moment, not a song: last note ends by here. */
+export const GHOST_SOUND_MAX_END_MS = 4800;
+const GHOST_SOUND_MIN_RATIO = 0.25;
+/** 660 Hz (highest hue base) x 3.5 stays under the voice's proven squeak cap. */
+const GHOST_SOUND_MAX_RATIO = 3.5;
+
+/**
+ * Clamp an unknown value to a GhostSoundSpec, or null when it is
+ * not one — the sanitizer discipline, with the validator's split:
+ * categorical damage (no notes, too many notes, an unknown
+ * waveform or envelope, a non-finite number) makes the whole
+ * spec unusable, because a composition is ONE authored object —
+ * silently repairing half of it would perform a different sound
+ * than the brain composed. In-range numbers clamp.
+ */
+export function sanitizeGhostSoundSpec(raw: unknown): GhostSoundSpec | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  if (!Array.isArray(rec.notes)) return null;
+  if (rec.notes.length === 0 || rec.notes.length > GHOST_SOUND_MAX_NOTES) {
+    return null;
+  }
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const notes: GhostSoundNote[] = [];
+  for (const item of rec.notes) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const n = item as Record<string, unknown>;
+    if (
+      typeof n.wave !== "string" ||
+      !(GHOST_WAVEFORMS as readonly string[]).includes(n.wave)
+    ) {
+      return null;
+    }
+    const env =
+      n.env === undefined || n.env === null ? "soft" : n.env;
+    if (
+      typeof env !== "string" ||
+      !(GHOST_SOUND_ENVS as readonly string[]).includes(env)
+    ) {
+      return null;
+    }
+    const ratio = num(n.ratio);
+    const delay = num(n.delay_ms);
+    const dur = num(n.dur_ms);
+    const gain = num(n.gain);
+    if (ratio === null || delay === null || dur === null || gain === null) {
+      return null;
+    }
+    let ratioEnd: number | undefined;
+    if (n.ratio_end !== undefined && n.ratio_end !== null) {
+      const re = num(n.ratio_end);
+      if (re === null) return null;
+      ratioEnd = Math.min(
+        GHOST_SOUND_MAX_RATIO,
+        Math.max(GHOST_SOUND_MIN_RATIO, re)
+      );
+    }
+    const delayMs = Math.min(GHOST_SOUND_MAX_END_MS, Math.max(0, delay));
+    const durMs = Math.min(
+      1200,
+      Math.max(30, dur),
+      GHOST_SOUND_MAX_END_MS - delayMs
+    );
+    if (durMs < 30) return null;
+    notes.push({
+      wave: n.wave as GhostWaveform,
+      ratio: Math.min(
+        GHOST_SOUND_MAX_RATIO,
+        Math.max(GHOST_SOUND_MIN_RATIO, ratio)
+      ),
+      ratio_end: ratioEnd,
+      delay_ms: Math.round(delayMs),
+      dur_ms: Math.round(durMs),
+      gain: Math.min(1, Math.max(0.05, gain)),
+      env: env as GhostSoundEnv,
+    });
+  }
+  return { notes };
+}
+
+/** A spec's compact identity — its waveforms + rounded ratios. */
+export function ghostSoundSignature(spec: GhostSoundSpec): string {
+  return spec.notes
+    .map((n) => `${n.wave}:${Math.round(n.ratio * 20)}`)
+    .join(">");
 }
 
 /** Pattern ids the ghost's play repertoire implements. */
@@ -426,6 +583,7 @@ export const GHOST_TOOL_IDS = [
   "verb-perform",
   "heartbeat-answer",
   "note-perform",
+  "sound-craft",
 ] as const;
 
 /**
@@ -439,8 +597,30 @@ export const GHOST_FABRIC_TOOL_MANIFEST: Record<
   string,
   readonly string[]
 > = {
-  // The fluid: splats and free drawing are its native acts.
-  "default-fluid": ["splat-play", "draw", "verb-perform", "heartbeat-answer"],
+  // The fluid: splats and free drawing are its native acts —
+  // and, since Slice 52, sound-craft: the fluid is the ghost's
+  // home canvas, where composing a sound from raw waveforms is
+  // a native act too.
+  "default-fluid": [
+    "splat-play",
+    "draw",
+    "verb-perform",
+    "heartbeat-answer",
+    "sound-craft",
+  ],
+  // The ghostie's own playground (its test fabric): the whole
+  // bench is out — every tool the registry holds, sound-craft
+  // included, so its primary can put any of them through their
+  // paces in one place.
+  "ghostie-playground": [
+    "splat-play",
+    "draw",
+    "play-note",
+    "verb-perform",
+    "heartbeat-answer",
+    "note-perform",
+    "sound-craft",
+  ],
   // The piano: the full music surface — the note bus is its own.
   "ar-piano": [
     "splat-play",
@@ -465,19 +645,6 @@ export const GHOST_FABRIC_TOOL_MANIFEST: Record<
   // Camera effects: the filters react to presence and verbs;
   // no draw surface, no note bus.
   "camera-effects": ["splat-play", "verb-perform", "heartbeat-answer"],
-  // The Playground (Slice 53): the ghostie's OWN fabric — the
-  // one place its full global tool set is on. The note tools
-  // are compatible here because the layer itself brings a note
-  // surface (pipeline + key strip, isGhostNoteLayer); everything
-  // else is the fluid's native surface, which is its ground.
-  "ghostie-playground": [
-    "splat-play",
-    "draw",
-    "play-note",
-    "note-perform",
-    "verb-perform",
-    "heartbeat-answer",
-  ],
 };
 
 /**
@@ -510,6 +677,7 @@ export const GHOST_INTENT_TOOL: Record<GhostIntent, string> = {
   heart: "splat-play",
   draw: "draw",
   "play-note": "play-note",
+  compose: "sound-craft",
 };
 
 /**
@@ -830,6 +998,8 @@ export interface GhostDecision {
   draw_shape: GhostDrawShape | null;
   /** Slice 31: the NOTE tool's note (bus vocabulary); null unless intent is "play-note". */
   note_name: string | null;
+  /** Slice 52: the SOUND-CRAFT tool's composition; null unless intent is "compose". */
+  sound_spec: GhostSoundSpec | null;
   intensity: number;
   linger_s: number;
 }
@@ -945,6 +1115,18 @@ export function validateGhostDecision(
     if (scenario && !fabricAllowsNotes(scenario)) return null;
   }
 
+  // Slice 52: "compose" carries the same structural discipline
+  // again — the sound_spec is required and must sanitize to a
+  // real composition, and a sound_spec on any other intent is
+  // dropped. Its fabric law is the manifest gate above (the
+  // fluid and the playground offer sound-craft; other declared
+  // fabrics refuse the intent before this point is reached).
+  let soundSpec: GhostSoundSpec | null = null;
+  if (intent === "compose") {
+    soundSpec = sanitizeGhostSoundSpec(d.sound_spec);
+    if (!soundSpec) return null;
+  }
+
   let moodShift: GhostBrainTemperament | null = null;
   if (d.mood_shift !== undefined && d.mood_shift !== null) {
     if (
@@ -978,6 +1160,7 @@ export function validateGhostDecision(
     pattern_id: patternId,
     draw_shape: drawShape,
     note_name: noteName,
+    sound_spec: soundSpec,
     intensity,
     linger_s: linger,
   };
@@ -1059,6 +1242,9 @@ export function ghostManifestRefusal(
     }
   }
   if (intent === "play-note" && !isGhostNoteName(d.note_name)) return null;
+  if (intent === "compose" && !sanitizeGhostSoundSpec(d.sound_spec)) {
+    return null;
+  }
   return `${GHOST_MANIFEST_REFUSAL_TEXT} (${GHOST_INTENT_TOOL[intent]} on ${scenario.fabric.layer_id})`;
 }
 
@@ -1105,6 +1291,7 @@ const dec = (
   pattern_id,
   draw_shape: null,
   note_name: null,
+  sound_spec: null,
   intensity,
   linger_s,
 });
@@ -1486,7 +1673,7 @@ export function decideOnDevice(scenario: GhostScenario): {
     }
   }
   return {
-    decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.25, linger_s: 5 },
+    decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.25, linger_s: 5 },
     ruleId: "fallback-drift",
   };
 }
@@ -1554,6 +1741,7 @@ export type GhostUtteranceKind =
   | "presence"
   | "appreciation"
   | "farewell"
+  | "sound-request"
   | "unknown";
 
 export interface GhostUtteranceReading {
@@ -1613,6 +1801,23 @@ const UTTERANCE_APPRECIATION_WORDS: readonly string[] = [
   "fantastic", "brilliant", "wow", "stunning", "delightful",
   "nice", "great", "thanks",
 ];
+/*
+ * Slice 52: the sound ask — someone asking the ghost to MAKE
+ * sound ("make some sounds"). Phrases only, deliberately tight:
+ * this kind exists because the ask names the ghost's newest
+ * tool, and a bare word like "sound" would steal sentences that
+ * are doing something else ("that sounds nice" is appreciation
+ * of the room, not a request). Checked after appreciation and
+ * before ambience, so no standing classification moves.
+ */
+const UTTERANCE_SOUND_REQUEST_PHRASES: readonly string[] = [
+  "make some sounds", "make a sound", "make sounds",
+  "make me a sound", "make me some sounds", "make sound",
+  "make some noise", "make a noise", "make noise",
+  "play a sound", "play some sounds", "play me a sound",
+  "give me a sound", "do a sound", "do some sounds",
+  "make sound effects", "some sounds please",
+];
 const UTTERANCE_AMBIENCE_WORDS: readonly string[] = [
   "cold", "colder", "chilly", "freezing", "warm", "warmer", "hot",
   "hotter", "stuffy", "quiet", "quieter", "loud", "louder",
@@ -1666,6 +1871,8 @@ export function parseUtteranceReading(
     hasWord(UTTERANCE_APPRECIATION_WORDS)
   ) {
     kind = "appreciation";
+  } else if (hasPhrase(UTTERANCE_SOUND_REQUEST_PHRASES)) {
+    kind = "sound-request";
   } else if (hasWord(UTTERANCE_AMBIENCE_WORDS)) {
     kind = "ambience";
   }
@@ -1678,7 +1885,101 @@ interface UtteranceCandidate {
 }
 
 const utteranceSignature = (d: GhostDecision): string =>
-  `${d.intent}|${d.pattern_id ?? ""}|${d.draw_shape ?? ""}`;
+  `${d.intent}|${d.pattern_id ?? ""}|${d.draw_shape ?? ""}|${
+    d.sound_spec ? ghostSoundSignature(d.sound_spec) : ""
+  }`;
+
+/*
+ * The floor's own compositions (Slice 52): when someone asks
+ * for sound, the on-device floor COMPOSES — a small sequence
+ * authored from the digest (temperament first), the same way it
+ * authors every other answer. Two per temperament: the first
+ * hearing earns the first, a repeat earns the second — a
+ * different composition by construction, never the first one
+ * replayed. These are floor compositions, deliberately simple;
+ * the model tiers compose richer ones from the same schema.
+ * Multi-waveform by design: an ask answered with one waveform
+ * repeated is the two-redundant-sounds failure, composed away.
+ */
+const sndNote = (
+  wave: GhostWaveform,
+  ratio: number,
+  delay_ms: number,
+  dur_ms: number,
+  gain: number,
+  env: GhostSoundEnv,
+  ratio_end?: number
+): GhostSoundNote => ({ wave, ratio, ratio_end, delay_ms, dur_ms, gain, env });
+
+function floorCompositions(
+  t: GhostBrainTemperament
+): [GhostSoundSpec, GhostSoundSpec] {
+  switch (t) {
+    case "playful":
+      return [
+        { notes: [
+          sndNote("square", 1.0, 0, 110, 0.8, "pluck"),
+          sndNote("square", 1.25, 90, 110, 0.8, "pluck"),
+          sndNote("triangle", 1.5, 180, 120, 0.85, "pluck"),
+          sndNote("square", 2.0, 270, 160, 0.9, "pluck"),
+        ]},
+        { notes: [
+          sndNote("sawtooth", 1.0, 0, 140, 0.7, "soft"),
+          sndNote("sawtooth", 1.5, 120, 140, 0.7, "soft"),
+          sndNote("noise", 2.0, 240, 90, 0.45, "pluck"),
+          sndNote("triangle", 1.25, 330, 170, 0.8, "soft"),
+        ]},
+      ];
+    case "curious":
+      return [
+        { notes: [
+          sndNote("triangle", 1.0, 0, 150, 0.75, "soft"),
+          sndNote("triangle", 1.33, 140, 150, 0.75, "soft"),
+          sndNote("sine", 1.19, 300, 200, 0.8, "soft"),
+        ]},
+        { notes: [
+          sndNote("sine", 1.19, 0, 140, 0.7, "soft"),
+          sndNote("square", 1.5, 130, 120, 0.6, "pluck"),
+          sndNote("triangle", 1.33, 260, 190, 0.75, "soft"),
+        ]},
+      ];
+    case "affectionate":
+      return [
+        { notes: [
+          sndNote("sine", 1.0, 0, 260, 0.7, "swell"),
+          sndNote("sine", 1.25, 180, 260, 0.7, "swell"),
+          sndNote("sine", 1.5, 360, 320, 0.75, "swell"),
+        ]},
+        { notes: [
+          sndNote("sine", 1.0, 0, 300, 0.65, "swell"),
+          sndNote("triangle", 1.5, 220, 340, 0.7, "swell"),
+        ]},
+      ];
+    case "sleepy":
+      return [
+        { notes: [
+          sndNote("sine", 1.2, 0, 300, 0.55, "soft"),
+          sndNote("sine", 1.0, 260, 300, 0.55, "soft"),
+          sndNote("triangle", 0.8, 520, 360, 0.5, "soft"),
+        ]},
+        { notes: [
+          sndNote("sine", 1.0, 0, 320, 0.5, "soft"),
+          sndNote("sine", 0.85, 300, 380, 0.5, "soft"),
+        ]},
+      ];
+    case "sassy":
+      return [
+        { notes: [
+          sndNote("sawtooth", 1.5, 0, 120, 0.7, "pluck", 1.15),
+          sndNote("square", 1.0, 150, 90, 0.65, "pluck"),
+        ]},
+        { notes: [
+          sndNote("square", 1.33, 0, 100, 0.65, "pluck", 1.0),
+          sndNote("noise", 1.6, 130, 70, 0.4, "pluck"),
+        ]},
+      ];
+  }
+}
 
 /**
  * The response candidates for one reading in one digest, ordered
@@ -1704,7 +2005,11 @@ function utteranceCandidates(
     intent: GhostIntent,
     intensity: number,
     linger_s: number,
-    extra?: { pattern_id?: GhostPatternId; draw_shape?: GhostDrawShape }
+    extra?: {
+      pattern_id?: GhostPatternId;
+      draw_shape?: GhostDrawShape;
+      sound_spec?: GhostSoundSpec;
+    }
   ): UtteranceCandidate | null => {
     const decision = validateGhostDecision(
       {
@@ -1713,6 +2018,7 @@ function utteranceCandidates(
         pattern_id: extra?.pattern_id ?? null,
         draw_shape: extra?.draw_shape ?? null,
         note_name: null,
+        sound_spec: extra?.sound_spec ?? null,
         intensity: Math.min(intensity, UTTERANCE_MAX_INTENSITY),
         linger_s,
       },
@@ -1862,6 +2168,23 @@ function utteranceCandidates(
       }
       // It follows a little way toward the door, whatever else.
       push(cand("utterance-farewell-follow", "drift", 0.35, 9));
+      break;
+    }
+    case "sound-request": {
+      // Slice 52: the ask names the tool — "make some sounds"
+      // is answered by COMPOSING one, from the digest, on the
+      // fabrics that offer sound-craft. The candidates are
+      // built through the validator like every other: on a
+      // fabric that doesn't offer the tool they die there, and
+      // the generic alternates below answer instead — the ask
+      // is never faked with a composition the fabric can't hold.
+      const [first, second] = floorCompositions(t);
+      push(cand("utterance-sound-compose", "compose", 0.55, 4, {
+        sound_spec: first,
+      }));
+      push(cand("utterance-sound-compose-again", "compose", 0.5, 4, {
+        sound_spec: second,
+      }));
       break;
     }
     default:
@@ -2315,7 +2638,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Mango", hue: 35, seed_traits: ["bouncy", "giggly"] },
     },
-    decision: { mood_shift: null, intent: "startle", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.8, linger_s: 1.5 },
+    decision: { mood_shift: null, intent: "startle", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.8, linger_s: 1.5 },
   },
   {
     scenario: {
@@ -2329,7 +2652,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Biscuit", hue: 335, seed_traits: ["cuddly", "loyal"] },
     },
-    decision: { mood_shift: null, intent: "heart", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.75, linger_s: 7 },
+    decision: { mood_shift: null, intent: "heart", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.75, linger_s: 7 },
   },
   {
     scenario: {
@@ -2343,15 +2666,15 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "falling",
       ghost_identity: { name: "Pesto", hue: 135, seed_traits: ["drowsy", "dim glow"] },
     },
-    decision: { mood_shift: null, intent: "nap", pattern_id: null, draw_shape: null, note_name: null, intensity: 0.15, linger_s: 24 },
+    decision: { mood_shift: null, intent: "nap", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.15, linger_s: 24 },
   },
 ];
 
 const SPARK_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost that lives on a shared touch canvas. The ghost never speaks; it expresses itself only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Given a scenario snapshot, reply with ONLY one JSON decision object — no prose, no code fences:",
-  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. The fabric note also lists the TOOLS the loaded fabric offers the ghost: splat-play (the splat intents: mirror, sniff, startle, drift, play, nap, idle, heart), draw, play-note — only choose an intent whose tool the fabric note lists; an intent reaching for a tool this fabric does not offer is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
+  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note" | "compose", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "sound_spec": null | {"notes": [{"wave": "sine" | "square" | "triangle" | "sawtooth" | "noise", "ratio": 0.25-3.5, "ratio_end": 0.25-3.5, "delay_ms": 0-4000, "dur_ms": 30-1200, "gain": 0.05-1, "env": "soft" | "pluck" | "swell"}]}, "intensity": 0.05-0.9, "linger_s": 0.5-30}',
+  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. sound_spec is only for intent \"compose\": the ghost COMPOSES a short sound from raw waveforms — 1 to 8 notes, each a waveform (sine, square, triangle, sawtooth, noise) at a pitch ratio over its own base voice, with an optional ratio_end sweep (the pitch contour), an onset delay, a duration, a gain, and an envelope. Compose when someone asks for sound (\"make some sounds\") or the moment honestly calls for a sound of its own — and ONLY when the fabric note lists the sound-craft tool; a compose under a fabric that does not offer it is rejected outright. Vary the waveforms inside a composition — one waveform repeated is a loop, not a composition. The fabric note also lists the TOOLS the loaded fabric offers the ghost: splat-play (the splat intents: mirror, sniff, startle, drift, play, nap, idle, heart), draw, play-note, sound-craft — only choose an intent whose tool the fabric note lists; an intent reaching for a tool this fabric does not offer is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
 ].join("\n");
 
 /**
@@ -2534,8 +2857,8 @@ export async function consultSparkBrain(
 const DEVICE_GHOST_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost on a shared touch canvas. The ghost never speaks; it acts only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Reply with ONLY one JSON object — no prose, no code fences:",
-  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. The fabric note lists the tools this fabric offers (splat-play covers mirror, sniff, startle, drift, play, nap, idle, heart): only choose an intent whose tool is listed — any other intent is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
+  '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note" | "compose", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "sound_spec": null | {"notes": [{"wave": "sine|square|triangle|sawtooth|noise", "ratio": 0.25-3.5, "delay_ms": 0-4000, "dur_ms": 30-1200, "gain": 0.05-1, "env": "soft|pluck|swell"}]}, "intensity": 0.05-0.9, "linger_s": 0.5-30}',
+  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. sound_spec only for intent "compose": the ghost composes a short sound from raw waveforms (1-8 notes; vary the waveforms — one repeated is a loop, not a composition), when someone asks for sound or the moment calls for one, ONLY when the fabric note lists the sound-craft tool — a compose under a fabric without it is rejected. The fabric note lists the tools this fabric offers (splat-play covers mirror, sniff, startle, drift, play, nap, idle, heart): only choose an intent whose tool is listed — any other intent is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
 ].join("\n");
 
 /**

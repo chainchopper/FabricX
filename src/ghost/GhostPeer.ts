@@ -562,6 +562,16 @@ const DRAW_MIN_INTERVAL_MS = 45_000;
 const NOTE_BUDGET_COST = 1;
 const ARPEGGIO_BUDGET_COST = 3;
 const NOTE_MIN_INTERVAL_MS = 8_000;
+/**
+ * The SOUND-CRAFT tool's price and pace (Slice 52). A composed
+ * sound is one authored performance — a sequence, not a splat —
+ * priced with the arpeggio (3 emit slots: a multi-note gesture),
+ * and its cooldown sits between the note's and the draw's: a
+ * ghost asked twice in a row still answers differently (the
+ * composition changes), but it does not become a jukebox.
+ */
+const SOUND_BUDGET_COST = 3;
+const SOUND_MIN_INTERVAL_MS = 20_000;
 const NOTE_DURATION_MS = 900;
 const ARPEGGIO_STEP_MS = 150;
 /**
@@ -783,6 +793,8 @@ export class GhostPeer {
   private drawCount = 0;
   /** NOTE tool state (Slice 31): last performance + the notes memory. */
   private lastNoteAt = 0;
+  /** SOUND-CRAFT tool state (Slice 52): last composed performance. */
+  private lastSoundAt = 0;
   /** The last note a HUMAN played at the piano (call-and-response memory). */
   private lastHumanNote: string | null = null;
   /** The last note this ghost itself played ("play that again"). */
@@ -1116,6 +1128,9 @@ export class GhostPeer {
         extra?.intensity ??
         (kind === "thinking" ? undefined : this.lastBrainIntensity),
       bpm: extra?.bpm,
+      // Slice 52: a composed sound's spec rides to the voice —
+      // the composition IS the utterance for a "composed" cue.
+      sound: extra?.sound,
     });
   }
 
@@ -2879,6 +2894,9 @@ export class GhostPeer {
       case "play-note":
         this.performPlayNote(decision);
         break;
+      case "compose":
+        this.performCompose(decision);
+        break;
       case "mirror":
         // Amplify the reflex mirror/response path for the linger.
         this.setMoodBias("mirror", decision.linger_s * 1000);
@@ -3129,6 +3147,39 @@ export class GhostPeer {
       Math.min(0.85, Math.max(0.4, decision.intensity + 0.15)),
       0
     );
+  }
+
+  /**
+   * Perform a deliberated "compose" decision (Slice 52) — the
+   * SOUND-CRAFT tool's performance. The brain authored a short
+   * sequence of waveform tones (the decision's sound_spec); the
+   * peer prices and paces it like every other performance —
+   * the shared budget charges SOUND_BUDGET_COST before anything
+   * sounds, the cooldown keeps compositions occasional — and
+   * hands the spec to the voice through the SFX path, where
+   * ghostSound renders it onto oscillators (and a pitched noise
+   * source for the noise waveform). The composition is a LOCAL
+   * pleasure, like the ghost's everyday voice: visiting ghosts'
+   * compositions are theirs to sound at home.
+   */
+  private performCompose(decision: GhostDecision): void {
+    if (!this.canAct()) return;
+    const spec = decision.sound_spec;
+    if (!spec || spec.notes.length === 0) return;
+    const now = Date.now();
+    if (now - this.lastSoundAt < SOUND_MIN_INTERVAL_MS) return;
+    if (!this.chargePerformanceBudget(SOUND_BUDGET_COST)) {
+      this.journal("wanted to compose — budget spent", now);
+      return;
+    }
+    this.lastSoundAt = now;
+    const waves = spec.notes.map((n) => n.wave).join(", ");
+    this.journal(`composed a sound (${spec.notes.length} notes: ${waves})`, now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(
+      `composed a sound — ${spec.notes.length} notes (${waves})`
+    );
+    this.emitSfx("composed", { sound: spec });
   }
 
   private performPlayPattern(

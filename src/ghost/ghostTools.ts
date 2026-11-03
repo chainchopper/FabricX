@@ -62,7 +62,8 @@ export type GhostToolId =
   | "verb-perform"
   | "heartbeat-answer"
   | "play-note"
-  | "note-perform";
+  | "note-perform"
+  | "sound-craft";
 
 export interface GhostToolDef {
   id: GhostToolId;
@@ -130,6 +131,12 @@ export const GHOST_TOOL_REGISTRY: readonly GhostToolDef[] = [
     blurb:
       "Ask-driven: the primary asks their ghost to play — 'play middle C', 'play that again', 'play an arpeggio' — and the ghost performs it at the piano through the same note bus, gates, budget and cooldown as its deliberated answers.",
     intents: [],
+  },
+  {
+    id: "sound-craft",
+    blurb:
+      "Synthesis (Slice 52): the ghost COMPOSES a short sound from raw waveforms — sine, square, triangle, sawtooth, noise — choosing each note's pitch contour, envelope and place in the sequence, the way a chiptune toolkit builds sounds from functions. It answers 'make some sounds' with a composition, never a canned cue. Its only fabric law is the manifest: the fluid and the ghostie's playground offer it; fabrics that don't, refuse it at the manifest gate (no session-rule gate exists for it, so no refusalFor here).",
+    intents: ["compose"],
   },
 ];
 
