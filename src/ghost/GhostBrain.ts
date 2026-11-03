@@ -53,7 +53,13 @@
  * also carries what the ghost's client legitimately knows about
  * WHERE it is — the active fabric/layer, its canvas kind, the
  * session role, and the host's rules as they apply to this
- * participant (GhostFabricContext). One deliberation intent is a
+ * participant (GhostFabricContext). Slice 47 extends that
+ * context with the fabric's TOOL MANIFEST (see the manifest
+ * section below): the scenario now also carries WHICH tools the
+ * loaded fabric offers at all, the validator refuses any intent
+ * whose tool the fabric doesn't offer, both model tiers see the
+ * tool list in the fabric note, and the Home shows the same list
+ * read-only. One deliberation intent is a
  * TOOL call: "draw" — the ghost expresses itself by drawing a
  * shape from the Recipe vocabulary at its body. Drawing is gated
  * by the fabric, in both tiers, at the validator itself: the
@@ -250,6 +256,22 @@ export interface GhostFabricContext {
   in_session: boolean;
   /** Host rules resolved for THIS participant (see header note). */
   rules: GhostFabricRules;
+  /**
+   * Slice 47: the loaded fabric's TOOL MANIFEST — the tool ids
+   * (ghostTools vocabulary) this fabric offers the ghost at all.
+   * sanitizeFabricContext always populates it: a supplied list is
+   * clamped to the known tool vocabulary; an absent one derives
+   * from the built-in manifest table by layer_id (an undeclared
+   * fabric offers the full registry — no declaration, no
+   * authority to refuse). Decisions whose intent maps to a tool
+   * outside this list are refused by the validator, so the brain
+   * can only reach for acts the loaded fabric actually has.
+   * Optional in the type only so pre-47 literal constructions
+   * stay valid; every sanitized context carries it.
+   */
+  tools?: readonly string[];
+  /** ghostManifestHash(tools) — the manifest's compact identity. */
+  tools_hash?: string;
 }
 
 const GHOST_CANVAS_KINDS: readonly string[] = [
@@ -282,8 +304,24 @@ export function sanitizeFabricContext(raw: unknown): GhostFabricContext | null {
       ? (rec.rules as Record<string, unknown>)
       : {};
   const rule = (v: unknown): boolean => (typeof v === "boolean" ? v : true);
+  const layerId = rec.layer_id.slice(0, 64);
+  // Slice 47: the tool manifest rides every sanitized context.
+  // A supplied list is clamped to the known tool vocabulary (an
+  // empty result falls back to the layer's declared manifest —
+  // a garbled list must never silently disarm the ghost); an
+  // absent list derives from the manifest table by layer id.
+  let tools: readonly string[] | null = null;
+  if (Array.isArray(rec.tools)) {
+    const clamped = rec.tools.filter(
+      (t): t is string =>
+        typeof t === "string" &&
+        (GHOST_TOOL_IDS as readonly string[]).includes(t)
+    );
+    if (clamped.length > 0) tools = [...new Set(clamped)];
+  }
+  if (!tools) tools = fabricManifestFor(layerId);
   return {
-    layer_id: rec.layer_id.slice(0, 64),
+    layer_id: layerId,
     canvas,
     role,
     in_session: typeof rec.in_session === "boolean" ? rec.in_session : role !== "open",
@@ -292,6 +330,8 @@ export function sanitizeFabricContext(raw: unknown): GhostFabricContext | null {
       verbs: rule(rulesIn.verbs),
       notes: rule(rulesIn.notes),
     },
+    tools,
+    tools_hash: ghostManifestHash(tools),
   };
 }
 
@@ -322,6 +362,162 @@ export function fabricAllowsNotes(scenario: GhostScenario): boolean {
 
 export const GHOST_NOTE_REFUSAL_TEXT =
   "wanted to play a note — this fabric doesn't allow it";
+
+/* ------------------------------------------------------------------ */
+/* Fabric tool manifest (Slice 47, Part B)                             */
+/* ------------------------------------------------------------------ */
+/*
+ * Terrell's direction (Oct 29, restated Nov 3): fabric rules sit
+ * in the ghost's decision stack, and the ghost "should have
+ * awareness of what it can do tool wise depending on what fabric
+ * is loaded currently." The Slice 23 rules answer three yes/no
+ * questions (draw? verbs? notes?) for a HOSTED session; they do
+ * not say what a fabric OFFERS. The manifest does: per fabric,
+ * the tool ids (the ghostTools registry's vocabulary, mirrored
+ * below — ghostvoice-check asserts the mirror never drifts) the
+ * ghost may reach for while that fabric is loaded. A ghost on
+ * the Piano reaches for piano-shaped acts; on the Stage it
+ * dances to the note bus instead of splatting a canvas that
+ * isn't there; nowhere does it attempt a tool the loaded fabric
+ * doesn't offer.
+ *
+ * The manifest composes with the rules, never replaces them:
+ * the rules gates (host authority over a session) still fire
+ * first in the validator; the manifest gate refuses what the
+ * fabric doesn't have at all. An UNDECLARED fabric id offers the
+ * full registry — the codebase's standing discipline (a garbled
+ * or absent declaration is no authority to refuse, the same
+ * reason garbled rules default permissive) — and a scenario with
+ * no fabric context at all stays a legacy scenario, ungated,
+ * exactly as the dataset requires.
+ */
+
+/** The tool vocabulary, mirrored from ghostTools.ts by hand. */
+export const GHOST_TOOL_IDS = [
+  "splat-play",
+  "draw",
+  "play-note",
+  "verb-perform",
+  "heartbeat-answer",
+  "note-perform",
+] as const;
+
+/**
+ * What each built-in fabric offers the ghost. Keyed by the
+ * ExperienceContext layer ids. Deliberation tools (splat-play,
+ * draw, play-note) and ask tools (verb-perform, heartbeat-answer,
+ * note-perform) alike: the manifest is the fabric's whole
+ * capability surface for the ghost.
+ */
+export const GHOST_FABRIC_TOOL_MANIFEST: Record<
+  string,
+  readonly string[]
+> = {
+  // The fluid: splats and free drawing are its native acts.
+  "default-fluid": ["splat-play", "draw", "verb-perform", "heartbeat-answer"],
+  // The piano: the full music surface — the note bus is its own.
+  "ar-piano": [
+    "splat-play",
+    "draw",
+    "play-note",
+    "note-perform",
+    "verb-perform",
+    "heartbeat-answer",
+  ],
+  // The Fold: presence and annotation on the shared canvas; the
+  // fold-shaped acts ride the genx overlay (its "play" intent),
+  // and there is no note bus here.
+  "genx-fold": ["splat-play", "draw", "verb-perform", "heartbeat-answer"],
+  // See: the ghost points and circles what it finds (draw), and
+  // answers through the shared presence acts.
+  "sam-see": ["splat-play", "draw", "verb-perform", "heartbeat-answer"],
+  // The Dancer Stage: the dancer IS the ghost's body — there is
+  // no fluid to splat and no canvas to draw on. It performs, it
+  // answers, and it dances to the note bus (note-perform); it
+  // does not play notes itself.
+  "dancer-stage": ["verb-perform", "heartbeat-answer", "note-perform"],
+  // Camera effects: the filters react to presence and verbs;
+  // no draw surface, no note bus.
+  "camera-effects": ["splat-play", "verb-perform", "heartbeat-answer"],
+};
+
+/**
+ * The manifest a layer id declares — or the FULL registry for an
+ * undeclared fabric (no declaration, no authority to refuse).
+ */
+export function fabricManifestFor(layerId: string): readonly string[] {
+  return GHOST_FABRIC_TOOL_MANIFEST[layerId] ?? GHOST_TOOL_IDS;
+}
+
+/** A manifest's compact identity (djb2 over the sorted tool list). */
+export function ghostManifestHash(tools: readonly string[]): string {
+  const key = [...tools].sort().join(",");
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) {
+    h = ((h << 5) + h + key.charCodeAt(i)) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/** Which tool each deliberation intent reaches for. */
+export const GHOST_INTENT_TOOL: Record<GhostIntent, string> = {
+  mirror: "splat-play",
+  sniff: "splat-play",
+  startle: "splat-play",
+  drift: "splat-play",
+  play: "splat-play",
+  nap: "splat-play",
+  idle: "splat-play",
+  heart: "splat-play",
+  draw: "draw",
+  "play-note": "play-note",
+};
+
+/**
+ * The tool set in force for a scenario: the context's own
+ * (sanitized) manifest when it carries one, else the manifest
+ * its layer id declares. Null when the scenario has no fabric
+ * context at all (legacy — no fabric authority in the picture).
+ */
+export function fabricToolsFor(
+  scenario: GhostScenario
+): readonly string[] | null {
+  if (!scenario.fabric) return null;
+  if (scenario.fabric.tools && scenario.fabric.tools.length > 0) {
+    return scenario.fabric.tools;
+  }
+  return fabricManifestFor(scenario.fabric.layer_id);
+}
+
+/** May this intent's tool be used on the scenario's fabric? */
+export function fabricAllowsIntent(
+  scenario: GhostScenario,
+  intent: GhostIntent
+): boolean {
+  const tools = fabricToolsFor(scenario);
+  if (!tools) return true;
+  return tools.includes(GHOST_INTENT_TOOL[intent]);
+}
+
+/**
+ * The same question at the CONTEXT level (GhostPeer's own gates
+ * hold a fabric context, not a scenario): the context's manifest
+ * when it carries one, else its layer id's declared manifest.
+ */
+export function fabricContextAllowsIntent(
+  fabric: GhostFabricContext,
+  intent: GhostIntent
+): boolean {
+  const tools =
+    fabric.tools && fabric.tools.length > 0
+      ? fabric.tools
+      : fabricManifestFor(fabric.layer_id);
+  return tools.includes(GHOST_INTENT_TOOL[intent]);
+}
+
+/** The refusal the brain line shows when the manifest refuses. */
+export const GHOST_MANIFEST_REFUSAL_TEXT =
+  "wanted to use a tool this fabric doesn't offer";
 
 /* ------------------------------------------------------------------ */
 /* Gesture sense (Slice 34, Layer B1)                                  */
@@ -666,6 +862,15 @@ export function validateGhostDecision(
     return null;
   }
 
+  // Slice 47: the fabric manifest gate. The intent's TOOL must
+  // be one the loaded fabric offers — a piano ghost reaches for
+  // piano-shaped acts, a stage ghost never splats. The host
+  // rules gates below still apply on top (manifest = what the
+  // fabric HAS; rules = what the host ALLOWS this session).
+  if (scenario && !fabricAllowsIntent(scenario, intent as GhostIntent)) {
+    return null;
+  }
+
   let patternId: GhostPatternId | null = null;
   if (d.pattern_id !== undefined && d.pattern_id !== null) {
     if (
@@ -780,6 +985,42 @@ export function ghostNoteGateRefusal(
   if (d.intent !== "play-note") return null;
   if (!isGhostNoteName(d.note_name)) return null;
   return GHOST_NOTE_REFUSAL_TEXT;
+}
+
+/**
+ * The manifest gate's refusal, named — the draw/note namers'
+ * sibling (Slice 47): the value IS a well-formed decision, but
+ * its intent's tool is not one the scenario's fabric offers.
+ * Consult paths ask the draw/note namers first (a host rule
+ * refusal is the more specific story); this namer fires only
+ * when the manifest is the gate that refused.
+ */
+export function ghostManifestRefusal(
+  raw: unknown,
+  scenario?: GhostScenario
+): string | null {
+  if (!scenario || !scenario.fabric) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const d = raw as Record<string, unknown>;
+  if (
+    typeof d.intent !== "string" ||
+    !(GHOST_INTENTS as readonly string[]).includes(d.intent)
+  ) {
+    return null;
+  }
+  const intent = d.intent as GhostIntent;
+  if (fabricAllowsIntent(scenario, intent)) return null;
+  // A malformed payload is invalid on its own, not gate-refused.
+  if (intent === "draw") {
+    if (
+      typeof d.draw_shape !== "string" ||
+      !(GHOST_DRAW_SHAPES as readonly string[]).includes(d.draw_shape)
+    ) {
+      return null;
+    }
+  }
+  if (intent === "play-note" && !isGhostNoteName(d.note_name)) return null;
+  return `${GHOST_MANIFEST_REFUSAL_TEXT} (${GHOST_INTENT_TOOL[intent]} on ${scenario.fabric.layer_id})`;
 }
 
 /**
@@ -2071,7 +2312,7 @@ const SPARK_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost that lives on a shared touch canvas. The ghost never speaks; it expresses itself only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Given a scenario snapshot, reply with ONLY one JSON decision object — no prose, no code fences:",
   '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
+  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. The fabric note also lists the TOOLS the loaded fabric offers the ghost: splat-play (the splat intents: mirror, sniff, startle, drift, play, nap, idle, heart), draw, play-note — only choose an intent whose tool the fabric note lists; an intent reaching for a tool this fabric does not offer is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
 ].join("\n");
 
 /**
@@ -2092,10 +2333,25 @@ export function describeFabricForSpark(scenario: GhostScenario): string | null {
         ? "its primary is a guest in someone else's session"
         : "there is no hosted session — the room is open";
   const yn = (b: boolean): string => (b ? "allowed" : "NOT allowed");
+  // Slice 47: the fabric's tool manifest rides the note — the
+  // model sees which TOOLS this fabric offers (the intents that
+  // reach for tools it doesn't offer are named, so the law is
+  // concrete, not implied).
+  const tools = fabricToolsFor(scenario) ?? [];
+  const offered = new Set(tools);
+  const missing = (Object.keys(GHOST_INTENT_TOOL) as GhostIntent[]).filter(
+    (i) => !offered.has(GHOST_INTENT_TOOL[i])
+  );
+  const manifestLine =
+    `Tools this fabric offers the ghost: ${tools.join(", ")}.` +
+    (missing.length > 0
+      ? ` Intents that reach for tools this fabric does NOT offer (never choose them here): ${missing.join(", ")}.`
+      : "");
   return (
     `The ghost is on the "${f.layer_id}" fabric (${f.canvas} canvas); ${chair}. ` +
     `Rules in force for the ghost's side on this fabric: drawing ${yn(f.rules.draw)}, ` +
-    `verbs ${yn(f.rules.verbs)}, notes ${yn(f.rules.notes)}.`
+    `verbs ${yn(f.rules.verbs)}, notes ${yn(f.rules.notes)}. ` +
+    manifestLine
   );
 }
 
@@ -2211,7 +2467,8 @@ export async function consultSparkBrain(
     if (!decision && onGateRefusal) {
       const refusal =
         ghostDrawGateRefusal(extracted, scenario) ??
-        ghostNoteGateRefusal(extracted, scenario);
+        ghostNoteGateRefusal(extracted, scenario) ??
+        ghostManifestRefusal(extracted, scenario);
       if (refusal) onGateRefusal(refusal);
     }
     return decision;
@@ -2239,7 +2496,7 @@ const DEVICE_GHOST_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost on a shared touch canvas. The ghost never speaks; it acts only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Reply with ONLY one JSON object — no prose, no code fences:",
   '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
+  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. The fabric note lists the tools this fabric offers (splat-play covers mirror, sniff, startle, drift, play, nap, idle, heart): only choose an intent whose tool is listed — any other intent is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
 ].join("\n");
 
 /**
@@ -2298,7 +2555,8 @@ export async function consultDeviceBrain(
     if (!decision && onGateRefusal) {
       const refusal =
         ghostDrawGateRefusal(extracted, scenario) ??
-        ghostNoteGateRefusal(extracted, scenario);
+        ghostNoteGateRefusal(extracted, scenario) ??
+        ghostManifestRefusal(extracted, scenario);
       if (refusal) onGateRefusal(refusal);
     }
     return decision;

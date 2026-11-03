@@ -548,9 +548,15 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     getFabricContext: getGhostFabricContext,
     onDrawRecipe: onGhostDrawRecipe,
     onNote: onGhostNote,
-    onSfx: (kind) => {
+    onSfx: (kind, sfxCtx) => {
       // Own ghost: sounds are pitched from its signature hue.
-      sfxRef.current.play(kind, ghostSelfHueRef.current);
+      // Slice 47: the peer's articulation context (the causing
+      // decision's intensity, the ghost's temperament + stamina,
+      // a heartbeat's tempo) rides into the voice, so the sound
+      // is generated from the moment, not replayed.
+      sfxRef.current.play(kind, ghostSelfHueRef.current, {
+        articulation: sfxCtx,
+      });
     },
   });
   const ghostRef = useRef(ghost);

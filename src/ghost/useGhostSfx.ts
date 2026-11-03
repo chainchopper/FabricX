@@ -13,16 +13,34 @@
  * intervals over that base, so a ghost keeps the same "voice" across
  * all its sounds and across sessions.
  *
- * Sound map:
- * - sniff   (ghost greeting)   two tiny ascending chirps
- * - purr    (being petted)     soft low warbling tone that loops gently
- *                              while petting continues, then fades out
- * - play    (chase/play start) rising 3-note arpeggio
- * - mirror  (echoing a stroke) one soft blip
- * - startle (startle-hop)      one quick, quiet high squeak
- * - sleep   (falling asleep)   slow descending tones
- * - wake    (waking up)        ascending version of sleep
- * - heart   (sending/receiving a HEART) warm two-note chime
+ * Slice 47: the voice is GENERATIVE now. The fixed cue map this
+ * file used to hold — one tone list per kind, identical forever —
+ * is why Terrell heard "two sounds": repetition negates the
+ * intelligence the brain behind the sounds actually has. Every
+ * play() now ARTICULATES the utterance through ghostVoice.ts:
+ * the cue kind selects the act family, and the caller's context
+ * (the deciding decision's intensity, the ghost's temperament,
+ * its stamina, a heartbeat's live tempo) plus a per-utterance
+ * seed vary the chirp count, spacing, pitch contour, waveform
+ * and filter — the same decision never sounds byte-identical
+ * twice in a row, while the family shapes stay recognizably the
+ * ghost's own. cueSpecsFor survives as the fixed-seed snapshot
+ * of that articulation, so the Slice 24 second-voice proof keeps
+ * its pure surface.
+ *
+ * Sound map (families, per ghostVoice):
+ * - sniff     (greeting)    tiny ascending chirps, never the same twice
+ * - purr      (being petted) soft low warbling tone that loops gently
+ *                            while petting continues, then fades out —
+ *                            its warble rate/depth are articulated too
+ * - play      (chase/play)  rising arpeggios of varying length
+ * - mirror    (echo)        soft answering blips — the tickle voice
+ * - startle   (surprised)   one quick, quiet high squeak, swept
+ * - sleep     (sleepy)      slow descending tones
+ * - wake      (waking)      ascending version of sleep
+ * - heart     (cheer)       warm chimes — hearts and celebrations
+ * - heartbeat (the answer)  lub-dub pairs AT the ghost's live tempo
+ * - thinking  (deliberating) a soft murmur while the brain consults
  *
  * Discipline: a global (per-client) limiter allows at most one cue per
  * 1.5 s — higher-priority cues (heart, startle) may interrupt after
@@ -39,6 +57,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import { usePreferences } from "../../app/context/PreferencesContext";
 import { getSharedAudioContext } from "../audio/sharedAudio";
+import {
+  articulateGhostUtterance,
+  ghostFamilyForCue,
+  ghostUtteranceSeed,
+  type GhostVoiceTemperament,
+  type GhostVoiceVariant,
+} from "./ghostVoice";
 
 export type GhostSfxKind =
   | "sniff"
@@ -47,7 +72,27 @@ export type GhostSfxKind =
   | "startle"
   | "sleep"
   | "wake"
-  | "heart";
+  | "heart"
+  | "heartbeat"
+  | "thinking";
+
+/**
+ * What caused the sound, as far as the caller honestly knows it —
+ * the articulation's parameters (Slice 47). Every field is
+ * optional: a caller that knows nothing gets the family's plain
+ * articulation, still seed-varied; a caller carrying a brain
+ * decision passes its intensity, and the ghost's temperament and
+ * stamina shape the contour and energy of what is heard.
+ */
+export interface GhostSfxContext {
+  /** The deciding decision's intensity (0.05–0.9). */
+  intensity?: number;
+  temperament?: GhostVoiceTemperament;
+  /** The ghost's stamina reading, 0–100. */
+  stamina?: number;
+  /** Heartbeat answers: the ghost's live tempo. */
+  bpm?: number;
+}
 
 export interface GhostSfxPlayOptions {
   /**
@@ -67,45 +112,52 @@ export interface GhostSfxPlayOptions {
    * voice is a home-device pleasure for now).
    */
   voice?: GhostVoiceVariant;
+  /** Slice 47: what caused the sound — see GhostSfxContext. */
+  articulation?: GhostSfxContext;
+  /**
+   * Slice 47: an explicit variation seed (tests, deliberate
+   * replays). Absent = the hook derives the next seed from its
+   * per-ghost utterance counter, so consecutive utterances vary.
+   */
+  seed?: number;
 }
 
-export type GhostVoiceVariant = "standard" | "second";
+export type { GhostVoiceVariant };
+
+/** The fixed seed cueSpecsFor snapshots the articulation at. */
+const CUE_SNAPSHOT_SEED = 7;
 
 /**
  * A cue map in a given voice. Pure, so the check can prove the
  * second voice is a TIMBRE change only: same cue count, same
  * delays, gains untouched — ratios shifted a musical fourth
- * (×4/3) and the two soft waveforms traded places.
+ * (×4/3) and the two soft waveforms traded places. Slice 47: the
+ * map is one fixed-seed articulation of the kind's family (the
+ * live path articulates per utterance, with fresh seeds); the
+ * second-voice law holds by construction in ghostVoice.
  */
 export function cueSpecsFor(
   kind: GhostSfxKind,
   voice: GhostVoiceVariant
 ): ToneSpec[] {
-  const base = CUES[kind];
-  if (voice === "standard") return base;
-  return base.map((spec) => ({
-    ...spec,
-    ratio: spec.ratio * (4 / 3),
-    ratioEnd: spec.ratioEnd ? spec.ratioEnd * (4 / 3) : undefined,
-    type:
-      spec.type === "triangle"
-        ? "sine"
-        : spec.type === "sine"
-          ? "triangle"
-          : spec.type,
-  }));
+  return articulateGhostUtterance(
+    { family: ghostFamilyForCue(kind), intensity: 0.55, voice },
+    CUE_SNAPSHOT_SEED
+  ).notes;
 }
 
 const MASTER_GAIN = 0.024; // below useAudioCues' levels — ghosts whisper
 const MIN_CUE_GAP_MS = 1_500;
 const PRIORITY: Record<GhostSfxKind, number> = {
   mirror: 1,
+  thinking: 1,
   sniff: 2,
   play: 2,
   sleep: 2,
   wake: 2,
   startle: 3,
   heart: 3,
+  heartbeat: 3,
 };
 
 function getAudioContextCtor(): (new () => AudioContext) | null {
@@ -146,36 +198,6 @@ interface ToneSpec {
   gain?: number;
 }
 
-const CUES: Record<GhostSfxKind, ToneSpec[]> = {
-  sniff: [
-    { ratio: 1.5, durMs: 50, type: "triangle" },
-    { ratio: 1.85, durMs: 45, delayMs: 70, type: "triangle" },
-  ],
-  play: [
-    { ratio: 1.0, durMs: 65, type: "triangle" },
-    { ratio: 1.25, durMs: 65, delayMs: 55, type: "triangle" },
-    { ratio: 1.5, durMs: 80, delayMs: 110, type: "triangle" },
-  ],
-  mirror: [{ ratio: 1.2, durMs: 60, type: "sine" }],
-  startle: [
-    { ratio: 2.3, ratioEnd: 1.9, durMs: 90, type: "sine", gain: 0.45 },
-  ],
-  sleep: [
-    { ratio: 1.2, durMs: 140, type: "sine", gain: 0.8 },
-    { ratio: 1.0, durMs: 140, delayMs: 125, type: "sine", gain: 0.8 },
-    { ratio: 0.8, durMs: 170, delayMs: 250, type: "sine", gain: 0.8 },
-  ],
-  wake: [
-    { ratio: 0.8, durMs: 110, type: "sine", gain: 0.8 },
-    { ratio: 1.0, durMs: 110, delayMs: 100, type: "sine", gain: 0.8 },
-    { ratio: 1.2, durMs: 130, delayMs: 200, type: "sine", gain: 0.8 },
-  ],
-  heart: [
-    { ratio: 1.0, durMs: 150, type: "sine" },
-    { ratio: 1.5, durMs: 180, delayMs: 95, type: "sine", gain: 0.9 },
-  ],
-};
-
 interface PurrVoice {
   osc: OscillatorNode;
   gain: GainNode;
@@ -185,11 +207,6 @@ interface PurrVoice {
   voice: GhostVoiceVariant;
 }
 
-/** The purr's pitch factor for a voice (Second Voice sits a fourth up). */
-function purrBaseFactor(voice: GhostVoiceVariant): number {
-  return voice === "second" ? 0.5 * (4 / 3) : 0.5;
-}
-
 export function useGhostSfx() {
   const { audioEnabled } = usePreferences();
   const ctxRef = useRef<AudioContext | null>(null);
@@ -197,6 +214,10 @@ export function useGhostSfx() {
   const lastPriorityRef = useRef(0);
   const purrRef = useRef<PurrVoice | null>(null);
   const purrSweeperRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Slice 47: the per-ghost utterance counter the variation seeds
+  // derive from — it only ever increments, so consecutive
+  // utterances from a ghost never share a seed (the streak law).
+  const utteranceCounterRef = useRef(0);
 
   const ensureCtx = useCallback((): AudioContext | null => {
     if (ctxRef.current) {
@@ -248,9 +269,39 @@ export function useGhostSfx() {
       lastCueAtRef.current = now;
       lastPriorityRef.current = priority;
 
+      // Slice 47: articulate THIS utterance — the family from
+      // the cue kind, the parameters from the caller's context,
+      // the variation from a fresh seed (the counter advances
+      // only when a cue actually sounds, so a dropped cue never
+      // burns a variation).
+      const family = ghostFamilyForCue(kind);
+      const seed =
+        opts?.seed ??
+        ghostUtteranceSeed(hue, family, utteranceCounterRef.current);
+      utteranceCounterRef.current += 1;
+      const art = articulateGhostUtterance(
+        {
+          family,
+          intensity: opts?.articulation?.intensity,
+          temperament: opts?.articulation?.temperament,
+          stamina: opts?.articulation?.stamina,
+          bpm: opts?.articulation?.bpm,
+          voice: opts?.voice ?? "standard",
+        },
+        seed
+      );
+
       const base = ghostBaseFreq(hue);
       const start = ctx.currentTime;
-      cueSpecsFor(kind, opts?.voice ?? "standard").forEach((spec) => {
+      // One lowpass per utterance: the timbre's brightness is
+      // part of the articulation (it tracks the decision's
+      // intensity), not a fixed channel strip.
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(art.filterCutoffHz, start);
+      filter.Q.setValueAtTime(art.filterQ, start);
+      filter.connect(ctx.destination);
+      art.notes.forEach((spec) => {
         const t0 = start + (spec.delayMs ?? 0) / 1000;
         const dur = spec.durMs / 1000;
         const osc = ctx.createOscillator();
@@ -268,7 +319,7 @@ export function useGhostSfx() {
         gain.gain.linearRampToValueAtTime(peak, t0 + 0.008);
         gain.gain.linearRampToValueAtTime(0, t0 + dur);
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(filter);
         osc.start(t0);
         osc.stop(t0 + dur + 0.02);
       });
@@ -350,6 +401,20 @@ export function useGhostSfx() {
       if (!ctx) return;
       const now = performance.now();
 
+      // Slice 47: each purr START articulates its own warble —
+      // rate, depth and base factor drawn from a fresh seed, so
+      // two petting sessions never purr identically. A refresh
+      // (petting continues) sustains the SAME purr; a new ghost
+      // taking over re-articulates under its own hue.
+      const articulate = (h: number, v: GhostVoiceVariant) => {
+        const spec = articulateGhostUtterance(
+          { family: "purr", voice: v },
+          ghostUtteranceSeed(h, "purr", utteranceCounterRef.current)
+        ).purr ?? { baseFactor: 0.5, lfoHz: 8.5, lfoDepth: 0.045 };
+        utteranceCounterRef.current += 1;
+        return spec;
+      };
+
       if (purrRef.current) {
         // Refresh: sustain, and retune if a different ghost took over.
         purrRef.current.stopAt = now + 2_800;
@@ -360,7 +425,7 @@ export function useGhostSfx() {
           purrRef.current.hue = hue;
           purrRef.current.voice = voice;
           purrRef.current.osc.frequency.setTargetAtTime(
-            ghostBaseFreq(hue) * purrBaseFactor(voice),
+            ghostBaseFreq(hue) * articulate(hue, voice).baseFactor,
             ctx.currentTime,
             0.1
           );
@@ -368,16 +433,17 @@ export function useGhostSfx() {
         return;
       }
 
-      const base = ghostBaseFreq(hue) * purrBaseFactor(voice); // purrs sit an octave down
+      const purrSpec = articulate(hue, voice);
+      const base = ghostBaseFreq(hue) * purrSpec.baseFactor; // purrs sit an octave down
       const osc = ctx.createOscillator();
       osc.type = "sine";
       osc.frequency.setValueAtTime(base, ctx.currentTime);
       // Warble: a slow LFO wobbling the pitch a few percent.
       const lfo = ctx.createOscillator();
       lfo.type = "sine";
-      lfo.frequency.setValueAtTime(8.5, ctx.currentTime);
+      lfo.frequency.setValueAtTime(purrSpec.lfoHz, ctx.currentTime);
       const lfoGain = ctx.createGain();
-      lfoGain.gain.setValueAtTime(base * 0.045, ctx.currentTime);
+      lfoGain.gain.setValueAtTime(base * purrSpec.lfoDepth, ctx.currentTime);
       lfo.connect(lfoGain);
       lfoGain.connect(osc.frequency);
       const gain = ctx.createGain();

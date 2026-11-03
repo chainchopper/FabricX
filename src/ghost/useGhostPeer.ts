@@ -119,7 +119,7 @@ import {
   setGhostPublicState,
   type GhostBrainStatus,
 } from "./ghostStore";
-import type { GhostSfxKind } from "./useGhostSfx";
+import type { GhostSfxContext, GhostSfxKind } from "./useGhostSfx";
 
 export const GHOST_PREF_KEY = "fabric_ghost_v1";
 
@@ -152,7 +152,7 @@ export interface UseGhostPeerOptions {
    */
   layerEnabled?: boolean;
   /** Semantic sound events from the brain (see useGhostSfx). */
-  onSfx?: (kind: GhostSfxKind) => void;
+  onSfx?: (kind: GhostSfxKind, ctx?: GhostSfxContext) => void;
   /**
    * Fabric awareness (Slice 23): the canvas's read of where the
    * ghost is — active fabric, canvas kind, session role, host
@@ -280,6 +280,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   broadcastRef.current = options.broadcast;
   const onSfxRef = useRef(options.onSfx);
   onSfxRef.current = options.onSfx;
+  /** Slice 47: the latest stamina reading (publishVitals keeps it fresh). */
+  const staminaRef = useRef<number | undefined>(undefined);
   const humanPeersRef = useRef(options.humanPeers);
   humanPeersRef.current = options.humanPeers;
   const layerEnabledRef = useRef(options.layerEnabled !== false);
@@ -324,6 +326,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     if (!peer) return;
     try {
       const v = computeGhostVitals(peer.getVitalsSnapshot());
+      staminaRef.current = v.stamina;
       const key = `${v.health}|${v.stamina}|${v.vigor}|${v.why.health}|${v.why.stamina}|${v.why.vigor}`;
       if (key === vitalsKeyRef.current) return;
       vitalsKeyRef.current = key;
@@ -669,7 +672,14 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         onGhostsChange: (otherGhostCount) => {
           setGhostPublicState({ otherGhostCount });
         },
-        onSfx: (kind) => onSfxRef.current?.(kind),
+        // Slice 47: the articulation context rides through, and
+        // the hook adds the stamina reading it already computes
+        // for the card — a drained ghost sounds drained.
+        onSfx: (kind, ctx) =>
+          onSfxRef.current?.(kind, {
+            ...ctx,
+            stamina: ctx?.stamina ?? staminaRef.current,
+          }),
         ghostName: id.name,
         onPerformance: (label) => {
           publishBrain({
