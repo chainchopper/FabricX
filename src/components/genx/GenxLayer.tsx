@@ -146,7 +146,18 @@ export default function GenxLayer(props: GenxLayerProps) {
   const [ident, setIdent] = useState<IdentitySnapshot>(() =>
     getIdentitySnapshot()
   );
-  const [boardOpen, setBoardOpen] = useState(true);
+  // Slice 46: ONE open state for the Fold's whole panel cluster
+  // (field card + node card + board). Before, the only toggle
+  // ("Hide bounties") gated the board alone — the cards and all
+  // their text stayed stuck over the fabric forever, which is
+  // what Terrell hit on device Nov 3 ("the fold menu sticks
+  // along with its text"). Closed now means the panels UNMOUNT:
+  // no rect, no text, no touch — only the small toggle pill
+  // stays, docked at the cluster's anchor. The state is local
+  // to this component, and LegacyFluid mounts this layer only
+  // while the Fold is the active experience — leaving the Fold
+  // unmounts the layer and its panel state with it, full stop.
+  const [panelOpen, setPanelOpen] = useState(true);
   useEffect(() => subscribeGenx(setSnap), []);
   useEffect(() => subscribeIdentity(setIdent), []);
 
@@ -553,6 +564,7 @@ export default function GenxLayer(props: GenxLayerProps) {
             gap: 6,
           }}
         >
+          {panelOpen ? (
           <View
             style={{
               backgroundColor: "rgba(2,8,23,0.82)",
@@ -627,9 +639,10 @@ export default function GenxLayer(props: GenxLayerProps) {
               <Text style={{ color: colors.accent, fontSize: 11 }}>{latestAlert.text}</Text>
             ) : null}
           </View>
+          ) : null}
 
           {/* The GenX node card — the node's own reports, labelled. */}
-          {node || props.nodeUrl ? (
+          {panelOpen && (node || props.nodeUrl) ? (
             <View
               style={{
                 backgroundColor: "rgba(2,8,23,0.82)",
@@ -680,9 +693,9 @@ export default function GenxLayer(props: GenxLayerProps) {
 
           <Pressable
             pointerEvents="auto"
-            onPress={() => setBoardOpen((o) => !o)}
+            onPress={() => setPanelOpen((o) => !o)}
             accessibilityRole="button"
-            accessibilityLabel="Toggle the bounty board"
+            accessibilityLabel={panelOpen ? "Hide the Fold panel" : "Show the Fold panel"}
             style={{
               alignSelf: "flex-start",
               paddingVertical: 6,
@@ -694,14 +707,14 @@ export default function GenxLayer(props: GenxLayerProps) {
             }}
           >
             <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "700" }}>
-              {boardOpen ? "Hide bounties" : "Bounties"}
+              {panelOpen ? "Hide panel" : "Show panel"}
             </Text>
           </Pressable>
 
           {/* Slice 40: open the molecular view — the active mission's
               bound structure, or hemoglobin (the room fold's target,
               RCSB 4HHB) as the standing sample. */}
-          {missionStructureId || sampleMeta ? (
+          {panelOpen && (missionStructureId || sampleMeta) ? (
             <Pressable
               pointerEvents="auto"
               onPress={() =>
@@ -732,17 +745,17 @@ export default function GenxLayer(props: GenxLayerProps) {
               </Text>
             </Pressable>
           ) : null}
-          {structureBusy ? (
+          {panelOpen && structureBusy ? (
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               Loading the structure…
             </Text>
           ) : null}
-          {resultBusy ? (
+          {panelOpen && resultBusy ? (
             <Text style={{ color: colors.textDim, fontSize: 11 }}>
               Fetching the node's result…
             </Text>
           ) : null}
-          {resultNote ? (
+          {panelOpen && resultNote ? (
             <Text style={{ color: colors.danger, fontSize: 11 }}>{resultNote}</Text>
           ) : null}
         </View>
@@ -755,7 +768,7 @@ export default function GenxLayer(props: GenxLayerProps) {
             ChromeMount (fade + rise) instead of popping in
             and out of the cluster's remaining space. */}
         <ChromeMount
-          visible={boardOpen}
+          visible={panelOpen}
           pointerEvents="box-none"
           style={{ flex: 1, minHeight: 0, minWidth: 0 }}
         >

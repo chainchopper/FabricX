@@ -12,8 +12,11 @@
  *    permanently in AI Services and Your Ghostie.
  *
  * 2. THE PROGRESS CHIP. While the model downloads or warms, a
- *    slim pill at the top edge reports the real percentage
- *    ("Brain arriving… 42%"). It is pointerEvents="none" and
+ *    slim pill at the top edge NAMES the brain and reports the
+ *    real percentage ("Ghostie 1B (Llama 3.2 1B) arriving… 42%",
+ *    via onDeviceBrain.brainTransferLabel — Slice 46: a bare
+ *    "downloading a brain" told Terrell nothing about WHAT was
+ *    arriving). It is pointerEvents="none" and
  *    visually light — the doctrine is that nothing covers the
  *    work, and the canvas never waits on the brain anyway: the
  *    rule interpreter and the decision table answer underneath
@@ -31,6 +34,7 @@ import { Pressable, Text, View } from "react-native";
 import {
   answerBrainConsent,
   brainChipVisible,
+  brainTransferLabel,
   getBrainSnapshot,
   subscribeOnDeviceBrain,
   type BrainSnapshot,
@@ -43,7 +47,6 @@ export default function BrainChrome() {
 
   useEffect(() => subscribeOnDeviceBrain(setSnap), []);
 
-  const pct = Math.round(snap.progress * 100);
   const showChip = brainChipVisible(snap);
 
   // Slice 44 (chrome discipline): the ask and the chip used to
@@ -157,7 +160,13 @@ export default function BrainChrome() {
         <View
           pointerEvents="none"
           style={{
-            maxWidth: 200,
+            // Slice 46: widened 200 → 264 so the chip's named
+            // label ("Ghostie 1B (Llama 3.2 1B) arriving… 42%")
+            // stays on ONE line — Slice 44's slot (right edge
+            // held 112pt off the right; 278pt wide at a 390pt
+            // phone) still contains it, and the pill still can
+            // never reach the Essence's corner.
+            maxWidth: 264,
             borderWidth: 1,
             borderColor: colors.ghostLine,
             borderRadius: 999,
@@ -167,9 +176,11 @@ export default function BrainChrome() {
           }}
         >
           <Text style={{ color: colors.text, fontSize: typeScale.caption, fontWeight: "600" }}>
-            {snap.state === "warming"
-              ? "Brain warming up…"
-              : `Brain arriving… ${pct}%`}
+            {/* Slice 46: the chip NAMES the brain — the label
+                comes from the store's one naming source, built
+                from the snapshot's own model (product name +
+                honest base), never a bare "Brain arriving…". */}
+            {brainTransferLabel(snap)}
           </Text>
         </View>
       </ChromeMount>
