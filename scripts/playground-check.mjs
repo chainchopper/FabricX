@@ -34,7 +34,7 @@
  *       Playground only and routes both note gates through
  *       isGhostNoteLayer (the old hard piano gate is gone).
  *   F — the info panel: a complete Playground record; its icon
- *       dock; ghostToolsHere offers all six tools on the
+ *       dock; ghostToolsHere offers all seven tools on the
  *       Playground and keeps Slice 49's piano/stage truths;
  *       the Dancer Stage record carries the possession lines.
  *   G — possession on stage: the pill exists, is ChromeMount-
@@ -358,9 +358,12 @@ check(
 check("F2 its icon dock is the fluid band's", finfo.iconBottomFor(PG) === 110);
 {
   const here = finfo.ghostToolsHere(PG, "fluid", permissive);
+  // Union pin (chain push seat, Nov 3): Slice 52 grew the registry
+  // 6 → 7 (sound-craft), so the full-registry count here moves with
+  // it — same discipline as ghostvoice-check's §B1 pin in Slice 53.
   check(
-    "F3 the panel offers the ghost all six tools in its Playground",
-    here.length === 6 && here.every((t) => t.available),
+    "F3 the panel offers the ghost all seven tools in its Playground",
+    here.length === 7 && here.every((t) => t.available),
     here.map((t) => `${t.id}:${t.available}`).join(" ")
   );
 }

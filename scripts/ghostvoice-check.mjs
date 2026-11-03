@@ -119,7 +119,7 @@ for (const fam of FAMILIES) {
 // read off the hook's own type, so the mirror cannot drift).
 const kindUnion = sfxSrc.match(/export type GhostSfxKind =([\s\S]*?);/)?.[1] ?? "";
 const kinds = [...kindUnion.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
-ok(kinds.length === 9, `A1 the hook's cue union has 9 kinds (${kinds.join(", ")})`);
+ok(kinds.length === 10, `A1 the hook's cue union has 10 kinds (${kinds.join(", ")})`); // 9 at Slice 47; Slice 52 adds "composed"
 for (const k of kinds) {
   ok(
     typeof voice.GHOST_CUE_FAMILIES[k] === "string",
@@ -438,6 +438,13 @@ const wellFormed = (intent) => {
   if (intent === "draw") d.draw_shape = "ring";
   if (intent === "play-note") d.note_name = "C4";
   if (intent === "play") d.pattern_id = "solo_zigzag";
+  // Slice 52: compose requires its sound_spec, like draw its shape.
+  if (intent === "compose")
+    d.sound_spec = {
+      notes: [
+        { wave: "sine", ratio: 1, delay_ms: 0, dur_ms: 120, gain: 0.7, env: "soft" },
+      ],
+    };
   return d;
 };
 for (const id of [...catalogIds, "some-undeclared-fabric"]) {

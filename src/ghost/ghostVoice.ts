@@ -557,6 +557,10 @@ export const GHOST_CUE_FAMILIES: Record<string, GhostVoiceFamily> = {
   sleep: "sleepy",
   wake: "waking",
   thinking: "thinking",
+  // Slice 52: a "composed" cue WITH its spec renders through
+  // ghostSound, not a family; the family here is only the
+  // honest degradation when a composed cue arrives specless.
+  composed: "play",
 };
 
 export function ghostFamilyForCue(kind: string): GhostVoiceFamily {
@@ -574,4 +578,7 @@ export const GHOST_INTENT_FAMILIES: Record<string, GhostVoiceFamily | null> = {
   idle: null,
   draw: null,
   "play-note": null,
+  // Slice 52: a compose decision's sound is the composition
+  // itself (ghostSound) — there is no family cue behind it.
+  compose: null,
 };
