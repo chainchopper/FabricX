@@ -80,6 +80,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Canvas } from "@react-three/fiber";
+import { ChromeMount } from "../components/ui/ChromeMount";
 import { useExperience } from "../contexts/ExperienceContext";
 import { noteBus } from "../../shared/utils/noteBus";
 import ToneEngine from "../components/audio/ToneEngine";
@@ -386,15 +387,21 @@ export default function DancerStage({
           mannequin and read as "my character is ignored". The
           pill is honest, small, and gone the moment a character
           binds. pointerEvents none: it reports, it never blocks. */}
-      {charState.status === "failed" ? (
-        <View pointerEvents="none" style={styles.charFailWrap}>
-          <View style={styles.charFailPill}>
-            <Text style={styles.charFailText}>
-              Character didn’t load — showing the fallback figure
-            </Text>
-          </View>
+      {/* Slice 44 (chrome discipline): the pill enters/leaves
+          through ChromeMount and sits at the stage's declared
+          status anchor (top:106 — below the shared status-chip
+          slot), not bare-mounted at top:72 inside it. */}
+      <ChromeMount
+        visible={charState.status === "failed"}
+        pointerEvents="none"
+        style={styles.charFailWrap}
+      >
+        <View style={styles.charFailPill}>
+          <Text style={styles.charFailText}>
+            Character didn’t load — showing the fallback figure
+          </Text>
         </View>
-      ) : null}
+      </ChromeMount>
       {/* While a character (the built-in default/pick, or a
           picked file) is loading, the stage stands EMPTY —
           DancerRig renders no figure for a loading slot — and
@@ -403,13 +410,15 @@ export default function DancerStage({
           the dancer", which is the exact misread Terrell
           flagged. The note is product language, pointerEvents
           none, gone the moment the character binds. */}
-      {charState.status === "loading" ? (
-        <View pointerEvents="none" style={styles.charLoadWrap}>
-          <View style={styles.charLoadPill}>
-            <Text style={styles.charLoadText}>Loading your character…</Text>
-          </View>
+      <ChromeMount
+        visible={charState.status === "loading"}
+        pointerEvents="none"
+        style={styles.charLoadWrap}
+      >
+        <View style={styles.charLoadPill}>
+          <Text style={styles.charLoadText}>Loading your character…</Text>
         </View>
-      ) : null}
+      </ChromeMount>
     </View>
   );
 }
@@ -440,7 +449,9 @@ const styles = StyleSheet.create({
   note: { color: "#8fa3b8", fontSize: 13, margin: 24 },
   charFailWrap: {
     position: "absolute",
-    top: 72,
+    // Slice 44: the stage's declared status anchor — clears the
+    // shared chip slot (ends y=97) and the Essence (ends y=86).
+    top: 106,
     left: 0,
     right: 0,
     alignItems: "center",
@@ -457,7 +468,7 @@ const styles = StyleSheet.create({
   charFailText: { color: "#fecaca", fontSize: 12, fontWeight: "600" },
   charLoadWrap: {
     position: "absolute",
-    top: 72,
+    top: 106,
     left: 0,
     right: 0,
     alignItems: "center",

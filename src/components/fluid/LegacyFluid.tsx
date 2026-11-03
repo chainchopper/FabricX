@@ -173,6 +173,19 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // as fabric:background-ready).
   const [engineError, setEngineError] = useState<string | null>(null);
   const [engineErrorDismissed, setEngineErrorDismissed] = useState(false);
+  // Slice 44 (chrome discipline): the engine-failure notice
+  // fades/rises in over 280ms (the tokens' base motion step)
+  // instead of popping, and it no longer sits in the HUD's
+  // bottom band — see its style below.
+  const [engineNoticeIn, setEngineNoticeIn] = useState(false);
+  useEffect(() => {
+    if (engineError && !engineErrorDismissed) {
+      const raf = requestAnimationFrame(() => setEngineNoticeIn(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setEngineNoticeIn(false);
+    return undefined;
+  }, [engineError, engineErrorDismissed]);
   // Hotfix 1.5: diagnostics panel state (null unless diag mode is on).
   const [diagStats, setDiagStats] = useState<EngineStats | null>(null);
   // Hotfix 1.6: signaling resolution shown in the same panel — the
@@ -2106,7 +2119,12 @@ brain   ${diagBrain}`}
             position: "absolute",
             left: 12,
             right: 12,
-            bottom: 12,
+            // Slice 44: moved out of the HUD's bottom band (it
+            // rendered across the control cluster on every
+            // fluid-ground fabric) to the declared alert anchor
+            // below the status slot, and it transitions in
+            // (280ms, the tokens' base step) instead of popping.
+            top: 104,
             zIndex: 5,
             display: "flex",
             alignItems: "flex-start",
@@ -2115,6 +2133,12 @@ brain   ${diagBrain}`}
             border: "1px solid rgba(34,211,238,0.45)",
             borderRadius: 10,
             padding: "8px 10px",
+            opacity: engineNoticeIn ? 1 : 0,
+            transform: engineNoticeIn
+              ? "translateY(0px)"
+              : "translateY(8px)",
+            transition:
+              "opacity 280ms cubic-bezier(0.33, 1, 0.68, 1), transform 280ms cubic-bezier(0.33, 1, 0.68, 1)",
           }}
         >
           <span style={{ flex: 1, color: "#e5e7eb", fontSize: 12, lineHeight: 1.45 }}>

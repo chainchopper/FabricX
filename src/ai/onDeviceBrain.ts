@@ -220,6 +220,22 @@ export function getBrainSnapshot(): BrainSnapshot {
   return snapshot;
 }
 
+/**
+ * Slice 44: THE predicate for "the brain's progress chip is on
+ * screen" — one expression, read by BrainChrome (which renders
+ * the chip), GroundingChrome (whose chip yields to it: the top
+ * status slot has one occupant) and GenxLayer (whose top
+ * cluster drops below it). Before, each site kept its own copy
+ * of the condition and they could disagree; the chip is up
+ * exactly when the one-time ask is not and a download or warm
+ * is in flight.
+ */
+export function brainChipVisible(s: BrainSnapshot): boolean {
+  return (
+    !s.askVisible && (s.state === "downloading" || s.state === "warming")
+  );
+}
+
 export function subscribeOnDeviceBrain(
   fn: (s: BrainSnapshot) => void
 ): () => void {
