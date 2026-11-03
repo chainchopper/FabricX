@@ -14,8 +14,6 @@ import {
   subscribeSessionState,
   type SessionPublicState,
 } from "../../src/session/sessionStore";
-import { displayNameFor } from "../../src/identity/identityStore";
-import { useIdentitySnapshot } from "../../src/identity/useIdentity";
 import {
   audioGestureSeen,
   subscribeAudioState,
@@ -83,10 +81,10 @@ export default function ExperienceHUD() {
     getSessionPublicState()
   );
   useEffect(() => subscribeSessionState(setSession), []);
-  // Slice 6: subscribing to identity changes is what lets the driver
-  // line below swap a peer's short id for their name the moment
-  // their card lands — the snapshot itself is read via the resolver.
-  useIdentitySnapshot();
+  // Slice 49: the identity subscription that fed the standing
+  // driver-name line left with it — names are no longer pinned on
+  // the canvas (the FabricInfo panel's room section resolves the
+  // current driver on open instead).
   // Hotfix 1.8: shared-audio state for the "Sound on" chip below.
   const audioState = useAudioContextState();
   const [gestured, setGestured] = useState<boolean>(() => audioGestureSeen());
@@ -174,13 +172,10 @@ export default function ExperienceHUD() {
                   : ""}
             </Text>
           ) : null}
-          {session.hostId && session.mode === "control" && session.driverId ? (
-            <Text style={{ color: colors.textDim, fontSize: 11 }}>
-              {session.driverId === session.selfId
-                ? "you're driving"
-                : `${displayNameFor(session.driverId, session.selfId)} driving`}
-            </Text>
-          ) : null}
+          {/* Slice 49: the standing "{name} driving" line is retired —
+              a participant's name is never pinned over the view space.
+              Who is driving now lives in the FabricInfo panel's room
+              section, read when someone actually asks. */}
           {isARCameraActive ? (
             <Text style={{ color: "#34d399", fontSize: 11 }}>AR On</Text>
           ) : null}

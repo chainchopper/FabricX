@@ -40,7 +40,8 @@ export type IconName =
   | "message"
   | "bag"
   | "wallet"
-  | "eye";
+  | "eye"
+  | "info";
 
 type El = {
   el: "path" | "circle" | "line" | "rect";
@@ -161,6 +162,9 @@ const PATHS: Record<IconName, El[]> = {
     p("M2.5 12S6 5.6 12 5.6 21.5 12 21.5 12 18 18.4 12 18.4 2.5 12 2.5 12z"),
     c(12, 12, 3),
   ],
+  // Slice 49: the one info icon per fabric (FabricInfo) — a plain
+  // ring with the i's dot and stem.
+  info: [c(12, 12, 9.2), dot(12, 7.6, 1.15), l(12, 11, 12, 16.6)],
 };
 
 export type IconProps = {

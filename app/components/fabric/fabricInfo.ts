@@ -1,0 +1,312 @@
+/**
+ * fabricInfo — Slice 49: what the one info icon has to say.
+ *
+ * Terrell (Nov 3, 2026): "too much menu stuff is included over
+ * our fabric space still, so a small animated info icon seems
+ * in order which will pull up the fabric's information panel —
+ * each fabric is different so."
+ *
+ * This module is the panel's whole content source, and it is
+ * deliberately boring data: for every fabric, what it is (a
+ * human line or two), its modes, the rules that matter to a
+ * participant, and its controls — written from the fabric's own
+ * truths (its ExperienceLayer definition, its layer laws), never
+ * invented. The ghostie's tools here are NOT a second registry:
+ * they are computed from the one registry (src/ghost/
+ * ghostTools.ts) through the same gates the ghost itself is
+ * refused by — the fabric rules resolved for this participant
+ * exactly as the canvas resolves them for the ghost's scenario
+ * (LegacyFluid's getGhostFabricContext: a guest is bound by the
+ * host's rules; a host and an open room are permissive) and the
+ * piano-layer gate Slice 31 put on the note tools. When Slice
+ * 47's per-fabric tool manifest lands, it joins HERE — this
+ * resolver is the seam it plugs into, and the panel never
+ * changes.
+ *
+ * Pure module (type-only imports of the stores), so the check
+ * can bundle it and prove the content.
+ *
+ * Powered by Nirvana
+ */
+
+import { GHOST_PIANO_LAYER_ID } from "../../../src/ghost/GhostBrain";
+import {
+  GHOST_TOOL_REGISTRY,
+  type GhostToolId,
+} from "../../../src/ghost/ghostTools";
+import type { FabricRules } from "../../../src/session/fabricStore";
+
+export interface FabricInfo {
+  /** What this fabric is — one or two human lines. */
+  about: string;
+  /** The ways this fabric can be entered / run. */
+  modes: readonly string[];
+  /** Rules that matter to a participant standing in it. */
+  rules: readonly string[];
+  /** The controls that live on (or for) this fabric. */
+  controls: readonly string[];
+}
+
+export const FABRIC_INFO: Record<string, FabricInfo> = {
+  "default-fluid": {
+    about:
+      "The living liquid canvas — the fabric every other fabric grows from. A touch here lands as light, sound and a haptic bloom, on your screen and on every other screen in the room.",
+    modes: [
+      "Alone — the fluid breathes and drifts on its own while the room is quiet",
+      "Together — everyone in the room draws on the same living surface",
+      "Hosted — a host leads the session and picks the fabric for the room",
+    ],
+    rules: [
+      "Nothing here is private to your screen: what you draw, the room feels",
+      "In a hosted session, guests are told before the fabric changes",
+      "Your ghostie lives on this canvas — touch it to pet it; it answers in light and sound, never words",
+    ],
+    controls: [
+      "Draw — touch or drag anywhere on the canvas",
+      "Ask — speak it into the compose bar at the bottom (“tickle, Boop”, “draw a heart”); typing lives in the Companion",
+      "Sign — with Hands on, a held hand sign performs a verb (F menu → This layer)",
+      "This fabric's settings — F menu → This layer",
+    ],
+  },
+  "ar-piano": {
+    about:
+      "A piano layered over the living fluid — the fluid stays the ground, the keys are the instrument. Every note sounds here, streams through the liquid, and lands on every screen in the room.",
+    modes: [
+      "On the fluid — the piano never replaces the canvas; it plays on it",
+      "Camera — the real room shows through behind the keys",
+      "MIDI — a connected keyboard plays through the same note pipeline",
+    ],
+    rules: [
+      "Every note is shared the moment it sounds — the room hears what you play",
+      "The ghostie may answer a note with one of its own — an echo, an octave, a fifth — when the room's rules allow notes",
+      "The keys stay while you play: they are the fabric, not chrome over it",
+    ],
+    controls: [
+      "Play — the key strip at the bottom (tap, hold, glide)",
+      "Ask the ghostie to play — say “play middle C” to the compose bar",
+      "Hand tracking + MIDI — F menu → This layer",
+    ],
+  },
+  "dancer-stage": {
+    about:
+      "A lit 3D stage of its own — not a layer on the fluid. The dancer standing on it is a ghostie embodied: yours is your own ghost, in its hue, moving to every note the room plays.",
+    modes: [
+      "Alone — the figure breathes and sways, the camera drifts; the stage is alive in the quiet",
+      "Played — the key strip and the room's notes choreograph the rig",
+      "Your character — Trauma stands here by default; load your own UE5-boned character, or choose none, in This layer",
+    ],
+    rules: [
+      "One dancer per participant — a figure on this stage is its owner's ghostie",
+      "Asking lives on the fluid — speak it there; on stage, you play the dancer",
+      "There is never a bare figure by accident: no character is a choice, and a failed load says so",
+    ],
+    controls: [
+      "Stage keys — the slim strip at the bottom plays the dancer",
+      "Verbs — sent from the fluid or a profile card, the dancer performs them as choreography",
+      "Character + stage theme — F menu → This layer",
+    ],
+  },
+  "genx-fold": {
+    about:
+      "The room's devices, one computer. Jobs are posted as bounties, split into shards, computed for real on the devices that join, and re-computed by the host before they count — verified work settles as Juice.",
+    modes: [
+      "Watch — spectate the field, or ride a participant's view without claiming work",
+      "Join — lend this device to a mission after a short measured benchmark",
+      "Node — a GenX node-controller on your network reports into the same field",
+    ],
+    rules: [
+      "Lending is opt-in and off by default — this device computes only when you turn it on",
+      "A shard counts only when the host re-computes it and the checksums match: claimed is not verified",
+      "Juice is paid only for verified work, split by verified share — the shares sum to one",
+      "The host allocates; in an open room, whoever starts a mission is its allocator",
+    ],
+    controls: [
+      "The bounty board — join, follow, spectate (the board is this fabric's own surface)",
+      "View structure — open the molecule a job is folding",
+      "Lend this device + the node address — F menu → This layer",
+    ],
+  },
+  "sam-see": {
+    about:
+      "The camera, made touchable. Name a thing the camera sees and SAM 3.1 cuts it out as a region on the fabric — touch the region and the act lands on the shared canvas.",
+    modes: [
+      "Layered — the camera runs under the fluid, and the fluid draws over the picture",
+      "Segment — name it, and its outline becomes a handle",
+    ],
+    rules: [
+      "A region fired from here is a touch on the shared fabric — the room sees and feels it land",
+      "A resting layer is a resting eye: nothing self-plays, and the camera pauses when this layer isn't front",
+    ],
+    controls: [
+      "Name a thing — the layer's field, above the canvas",
+      "Touch an outline — segment, then act",
+      "This fabric's settings — F menu → This layer",
+    ],
+  },
+  "camera-effects": {
+    about:
+      "Real-time filters worn over the fabric — the camera dresses itself while the room's shared state stays exactly as it was.",
+    modes: ["Wear — pick a filter and wear it over the live camera"],
+    rules: [
+      "Filters dress your camera only — they never change what the room shares",
+    ],
+    controls: ["Filter + intensity — F menu → This layer"],
+  },
+};
+
+/** The info record for a fabric id, or null when it has none. */
+export function fabricInfoFor(id: string | null | undefined): FabricInfo | null {
+  if (!id) return null;
+  return FABRIC_INFO[id] ?? null;
+}
+
+/** Canvas kinds, derived exactly as the ghost's fabric context derives them. */
+export type FabricCanvasKind = "fluid" | "stage3d" | "camera";
+
+export function canvasKindFor(exp: {
+  canvas?: string;
+  type?: string;
+}): FabricCanvasKind {
+  if (exp.canvas === "stage3d") return "stage3d";
+  if (exp.type === "sam-see") return "camera";
+  return "fluid";
+}
+
+/**
+ * Where the info icon docks, per fabric: bottom-right, riding
+ * above the fabric's own bottom control band so it never covers
+ * a play surface. The band heights are the ones Slice 44's
+ * anchor map certified (fluid HUD band 98, stage 144, piano
+ * 214) + 12 of air. The Fold is the exception that proves the
+ * rule: its board cluster's bottom edge sits at 118, so the
+ * icon rides in the air gap UNDER the board — bottom edge 66
+ * (above the compose pill's 62), top edge 110, a clear 8pt of
+ * air below the board — right-aligned with the board's frame,
+ * overlapping nothing. The check asserts these gaps numerically.
+ */
+export const FABRIC_ICON_BOTTOM: Record<string, number> = {
+  "default-fluid": 110,
+  "ar-piano": 226,
+  "dancer-stage": 156,
+  "genx-fold": 66,
+  "sam-see": 110,
+  "camera-effects": 110,
+};
+export const FABRIC_ICON_BOTTOM_DEFAULT = 110;
+export const FABRIC_ICON_RIGHT = 12;
+export const FABRIC_ICON_SIZE = 44;
+
+export function iconBottomFor(id: string | null | undefined): number {
+  if (!id) return FABRIC_ICON_BOTTOM_DEFAULT;
+  return FABRIC_ICON_BOTTOM[id] ?? FABRIC_ICON_BOTTOM_DEFAULT;
+}
+
+/* ------------------------------------------------------------------ */
+/* The ghostie's tools, here                                          */
+/* ------------------------------------------------------------------ */
+
+export interface GhostToolHere {
+  id: GhostToolId;
+  /** Short human name. */
+  label: string;
+  /** What it does, in one line. */
+  line: string;
+  /** May the ghost use it on THIS fabric, under these rules? */
+  available: boolean;
+  /** When not available: why, in product language. Null when available. */
+  note: string | null;
+}
+
+const TOOL_LABEL: Record<GhostToolId, { label: string; line: string }> = {
+  "splat-play": {
+    label: "Splat & verb play",
+    line: "Mirror, sniff, startle, drift, play, nap — and the heart — performed in light and sound.",
+  },
+  draw: {
+    label: "Drawing",
+    line: "The ghost draws shapes at its body — ring, spiral, line, arc, burst, heart.",
+  },
+  "verb-perform": {
+    label: "Asked verbs",
+    line: "Name a verb (“tickle, Boop”) and the ghost performs it as its own act.",
+  },
+  "heartbeat-answer": {
+    label: "Heartbeat answers",
+    line: "Ask for its heartbeat and it answers with a pulse at its own live tempo.",
+  },
+  "play-note": {
+    label: "Note answers",
+    line: "Play a note and the ghost may answer — an echo, an octave, a fifth by temperament.",
+  },
+  "note-perform": {
+    label: "Asked notes",
+    line: "Ask it to play — “play middle C”, “play that again”, an arpeggio.",
+  },
+};
+
+const RULES_OFF = "Off under this room's rules";
+
+/**
+ * The ghost's tool list for one fabric, in registry order, with
+ * availability computed through the registry's own gates:
+ * draw is refused where the fabric's rules refuse drawing (and
+ * the stage has no drawing surface — the draw sink is the
+ * fluid's recipe player); the note tools live at the piano
+ * layer under the notes rule (Slice 31); asked verbs ride the
+ * verbs rule the send funnel enforces. Slice 47's per-fabric
+ * manifest joins at this seam when it lands.
+ */
+export function ghostToolsHere(
+  layerId: string,
+  canvas: FabricCanvasKind,
+  rules: FabricRules
+): GhostToolHere[] {
+  return GHOST_TOOL_REGISTRY.map((tool) => {
+    const base = { id: tool.id, ...TOOL_LABEL[tool.id] };
+    switch (tool.id) {
+      case "draw":
+        if (canvas === "stage3d")
+          return {
+            ...base,
+            available: false,
+            note: "The stage has no drawing surface",
+          };
+        return rules.draw
+          ? { ...base, available: true, note: null }
+          : { ...base, available: false, note: RULES_OFF };
+      case "verb-perform":
+        return rules.verbs
+          ? { ...base, available: true, note: null }
+          : { ...base, available: false, note: RULES_OFF };
+      case "play-note":
+      case "note-perform":
+        if (layerId !== GHOST_PIANO_LAYER_ID)
+          return {
+            ...base,
+            available: false,
+            note: "The ghost plays notes at the Piano",
+          };
+        return rules.notes
+          ? { ...base, available: true, note: null }
+          : { ...base, available: false, note: RULES_OFF };
+      case "heartbeat-answer":
+        return canvas === "stage3d"
+          ? {
+              ...base,
+              available: false,
+              note: "Ask on the fluid — the answer is a pulse of light",
+            }
+          : { ...base, available: true, note: null };
+      case "splat-play":
+      default:
+        return canvas === "stage3d"
+          ? {
+              ...base,
+              available: true,
+              note: null,
+              line: "On stage, these become the dancer's choreography.",
+            }
+          : { ...base, available: true, note: null };
+    }
+  });
+}

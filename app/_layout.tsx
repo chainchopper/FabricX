@@ -45,6 +45,7 @@ import {
 } from "./components/fabric/FabricChromeContext";
 import FabricAnchor from "./components/fabric/FabricAnchor";
 import FabricMenu from "./components/fabric/FabricMenu";
+import FabricInfo from "./components/fabric/FabricInfo";
 import FabricSessionFollower, {
   HostChangeNotifier,
 } from "./components/fabric/FabricSessionFollower";
@@ -147,6 +148,11 @@ function ChromeLayer() {
           same zIndex family, same data sources; the badge file is
           retired, not deleted). */}
       <Essence />
+      {/* Slice 49: the ONE standing element the loaded fabric itself
+          adds — its animated info icon, edge-docked bottom-right, and
+          that fabric's own information panel. Everything else here is
+          universal (identity, brain, voice, menu), never per-fabric. */}
+      <FabricInfo />
       <FabricAnchor />
       {/* Slice 10: the First Breath card — chrome state only (a
           first-run gate + a menu-requested palette replay). It

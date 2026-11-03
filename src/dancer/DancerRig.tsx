@@ -48,7 +48,7 @@
  *     mixer rests and the body returns to its bind pose like the
  *     rest of the cast. The character's authored materials stay,
  *     washed lightly toward the owner's hue so the ghostie's
- *     identity still reads (the name tag flies regardless).
+ *     identity still reads in the cast.
  *
  * The DancerDriver is the only choreographer: tick() yields
  * per-band offsets (spring return-to-rest) + the breath phase, and
@@ -70,7 +70,6 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { DancerDriver, DancerPose, DancerBandId } from "./DancerDriver";
 import type { StageFxState } from "./stageFx";
 import { NEUTRAL_STYLE, type RigStyle } from "./stageRoster";
-import RigLabel from "./RigLabel";
 import { resolveContractBoneName } from "./mixamoBones";
 import {
   getStageCharacterState,
@@ -474,7 +473,7 @@ export default function DancerRig({
   rigKey: string;
   position?: [number, number, number];
   rotationY?: number;
-  /** Owner's signature hue; tints the mannequin + the name tag. */
+  /** Owner's signature hue; tints the mannequin. */
   tintHue?: number | null;
   /** Floating name over the rig (local: the ghost's name). */
   label?: string | null;
@@ -577,9 +576,9 @@ export default function DancerRig({
         }
         // Identity wash: the character keeps its authored
         // materials, tinted lightly toward the owner's hue so
-        // the ghostie still reads as ITSELF in the cast (its
-        // name tag carries the same hue). Each unique material
-        // is washed once, however many meshes share it.
+        // the ghostie still reads as ITSELF in the cast. Each
+        // unique material is washed once, however many meshes
+        // share it.
         if (tintHue !== null) {
           const wash = new THREE.Color().setHSL(
             (((tintHue % 360) + 360) % 360) / 360,
@@ -745,7 +744,12 @@ export default function DancerRig({
       <group ref={groupRef}>
         <primitive object={mannequin.mesh} visible={!character && !slotLoading} />
         {character ? <primitive object={character.scene} /> : null}
-        {label ? <RigLabel name={label} hue={tintHue ?? 190} /> : null}
+        {/* Slice 49 (Nov 3 chrome doctrine addendum): the standing
+            RigLabel name tag is retired — a participant's name is
+            never pinned over the canvas; presence is announced in
+            the moment of an act, not labeled. The `label` prop stays
+            in the signature for caller compatibility; RigLabel.tsx
+            itself remains in the tree, unmounted. */}
       </group>
       {aura ? (
         <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
