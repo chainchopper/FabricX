@@ -46,17 +46,28 @@ export default function ExperienceRenderer() {
   // mounted beneath them. The Dancer Stage is the first; the fluid
   // experience above is untouched.
   const isStageCanvas = activeExperience?.canvas === "stage3d";
-  const lastMode = useRef<boolean>(wantsAROrCamera);
+  // Slice 44 (chrome discipline): the curtain used to fire only
+  // when the AR/camera branch flipped, so entering or leaving
+  // the Dancer Stage — a whole different CANVAS — hard-cut with
+  // no transition at all ("no transition between elements and
+  // the fabric canvas"). The trigger key is now the canvas
+  // family: AR/camera OR the stage. Switches inside the fluid
+  // family (fluid ↔ Fold ↔ piano layers) still share one
+  // branch and crossfade through their own layer chrome; only
+  // a real canvas swap takes the curtain. Total 120+40+140 =
+  // 300ms, inside the tokens' 240–320 motion range.
+  const curtainKey = wantsAROrCamera || isStageCanvas;
+  const lastMode = useRef<boolean>(curtainKey);
 
   useEffect(() => {
-    if (lastMode.current !== wantsAROrCamera) {
+    if (lastMode.current !== curtainKey) {
       Animated.sequence([
         Animated.timing(curtainOpacity, { toValue: 1, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
         Animated.timing(curtainOpacity, { toValue: 0, duration: 140, delay: 40, easing: Easing.in(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
       ]).start();
-      lastMode.current = wantsAROrCamera;
+      lastMode.current = curtainKey;
     }
-  }, [wantsAROrCamera, curtainOpacity]);
+  }, [curtainKey, curtainOpacity]);
 
   // Honest ready signal (Slice 1): the flag used to be set on mount,
   // before the WebGL engine had initialized — a cold load could report

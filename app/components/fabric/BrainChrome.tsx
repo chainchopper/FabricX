@@ -30,11 +30,13 @@ import React, { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import {
   answerBrainConsent,
+  brainChipVisible,
   getBrainSnapshot,
   subscribeOnDeviceBrain,
   type BrainSnapshot,
 } from "../../../src/ai/onDeviceBrain";
 import { colors, radius, spacing, type as typeScale } from "../../../src/theme/tokens";
+import { ChromeMount } from "../../../src/components/ui/ChromeMount";
 
 export default function BrainChrome() {
   const [snap, setSnap] = useState<BrainSnapshot>(() => getBrainSnapshot());
@@ -42,26 +44,32 @@ export default function BrainChrome() {
   useEffect(() => subscribeOnDeviceBrain(setSnap), []);
 
   const pct = Math.round(snap.progress * 100);
-  const showChip =
-    !snap.askVisible &&
-    (snap.state === "downloading" || snap.state === "warming");
+  const showChip = brainChipVisible(snap);
 
-  if (!snap.askVisible && !showChip) return null;
-
+  // Slice 44 (chrome discipline): the ask and the chip used to
+  // share one wrapper at top:60 and mount by bare conditional —
+  // the ask card landed across the corner row and both popped.
+  // Now each owns a DECLARED slot and enters/leaves through
+  // ChromeMount: the chip takes the top status slot (top:68,
+  // its right edge held 112pt off the right so its pill can
+  // never reach the Essence's corner), and the one-time ask
+  // takes the card slot below it (top:160), clear of the
+  // corner row and the chip alike.
   return (
-    <View
-      pointerEvents="box-none"
-      style={{
-        position: "absolute",
-        top: 60,
-        left: 0,
-        right: 0,
-        alignItems: "center",
-        paddingHorizontal: spacing.md,
-        zIndex: 40,
-      }}
-    >
-      {snap.askVisible ? (
+    <>
+      <ChromeMount
+        visible={snap.askVisible}
+        pointerEvents="box-none"
+        style={{
+          position: "absolute",
+          top: 160,
+          left: 0,
+          right: 0,
+          alignItems: "center",
+          paddingHorizontal: spacing.md,
+          zIndex: 40,
+        }}
+      >
         <View
           pointerEvents="auto"
           style={{
@@ -133,10 +141,23 @@ export default function BrainChrome() {
             interpreter and your ghost&rsquo;s table are already here.
           </Text>
         </View>
-      ) : (
+      </ChromeMount>
+      <ChromeMount
+        visible={showChip}
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 68,
+          left: 0,
+          right: 112,
+          alignItems: "center",
+          zIndex: 40,
+        }}
+      >
         <View
           pointerEvents="none"
           style={{
+            maxWidth: 200,
             borderWidth: 1,
             borderColor: colors.ghostLine,
             borderRadius: 999,
@@ -151,7 +172,7 @@ export default function BrainChrome() {
               : `Brain arriving… ${pct}%`}
           </Text>
         </View>
-      )}
-    </View>
+      </ChromeMount>
+    </>
   );
 }

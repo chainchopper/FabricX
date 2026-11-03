@@ -34,10 +34,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Dimensions, Pressable, ScrollView, Text, View } from "react-native";
 import {
+  brainChipVisible,
   getBrainSnapshot,
   subscribeOnDeviceBrain,
   type BrainSnapshot,
 } from "../../ai/onDeviceBrain";
+import { ChromeMount } from "../ui/ChromeMount";
 import { getGhostPublicState } from "../../ghost/ghostStore";
 import {
   getSessionPublicState,
@@ -106,14 +108,20 @@ interface Entity {
 }
 
 /**
- * Slice 43: how far the top cluster drops while the on-device
- * brain's progress chip is on screen. BrainChrome's wrapper
- * sits at top:60 and its pill is ~29pt tall (5+5 padding, the
- * 12pt caption line, borders), so the chip's bottom edge lands
- * at ≈89pt; the cluster's resting top is 52, so 52 + 44 = 96
- * clears it with room to spare.
+ * Slice 44 (supersedes Slice 43's numbers, same pattern): the
+ * Fold cluster's declared anchors. The chip slot moved in
+ * Slice 44 — BrainChrome's chip wrapper now sits at top:68 and
+ * its pill is ~29pt tall (5+5 padding, the 12pt caption line,
+ * borders), so the chip's bottom edge lands at ≈97pt. The
+ * cluster's resting top is 92 (just under the Essence card's
+ * bottom edge at ≈86), and while the chip is up the cluster
+ * starts at 92 + 12 = 104, clearing the chip with room to
+ * spare. The cluster's bottom is 118, above the Fold HUD
+ * band's top edge (≈98pt of HUD + margin) by ~20pt.
  */
-const BRAIN_CHIP_CLEARANCE = 44;
+const CLUSTER_TOP = 92;
+const CLUSTER_BOTTOM = 118;
+const BRAIN_CHIP_CLEARANCE = 12;
 
 export default function GenxLayer(props: GenxLayerProps) {
   // Allocator eligibility follows the room's authority: the
@@ -154,11 +162,13 @@ export default function GenxLayer(props: GenxLayerProps) {
     getBrainSnapshot()
   );
   useEffect(() => subscribeOnDeviceBrain(setBrainSnap), []);
-  const brainChipUp =
-    !brainSnap.askVisible &&
-    (brainSnap.state === "downloading" || brainSnap.state === "warming");
+  // Slice 44: the predicate is the shared brainChipVisible()
+  // from the brain store — BrainChrome renders by it,
+  // GroundingChrome yields by it, this layer clears by it; one
+  // expression, no copies to drift.
+  const brainChipUp = brainChipVisible(brainSnap);
   const narrow = Dimensions.get("window").width < 640;
-  const clusterTop = 52 + (brainChipUp ? BRAIN_CHIP_CLEARANCE : 0);
+  const clusterTop = CLUSTER_TOP + (brainChipUp ? BRAIN_CHIP_CLEARANCE : 0);
 
   const field = snap.field;
   const mission = field.mission;
@@ -191,6 +201,12 @@ export default function GenxLayer(props: GenxLayerProps) {
     title?: string;
     note?: string;
   } | null>(null);
+  // Slice 44: the structure view fades out through ChromeMount
+  // on close, so the last open viewer is kept for the exit —
+  // clearing `viewer` starts the fade instead of unmounting.
+  const lastViewerRef = useRef(viewer);
+  if (viewer) lastViewerRef.current = viewer;
+  const shownViewer = viewer ?? lastViewerRef.current;
   const [resultBusy, setResultBusy] = useState(false);
   const [resultNote, setResultNote] = useState<string | null>(null);
   const [structureBusy, setStructureBusy] = useState(false);
@@ -512,14 +528,18 @@ export default function GenxLayer(props: GenxLayerProps) {
           remaining height; on wide screens they sit side by
           side, as before. All widths are window-derived pixels
           (the drawer family's pattern), never % caps. */}
-      <View
+      {/* Slice 44: the cluster itself mounts through
+          ChromeMount — entering the Fold fades/rises the whole
+          cluster in instead of snapping it onto the fluid. */}
+      <ChromeMount
+        visible
         pointerEvents="box-none"
         style={{
           position: "absolute",
           top: clusterTop,
           left: 12,
           right: 12,
-          bottom: 90,
+          bottom: CLUSTER_BOTTOM,
           flexDirection: narrow ? "column" : "row",
           gap: narrow ? 6 : 12,
         }}
@@ -731,11 +751,14 @@ export default function GenxLayer(props: GenxLayerProps) {
             below the field card on phones, beside it on wide
             screens. It scrolls inside its share, never over the
             card. */}
-        {boardOpen ? (
-          <View
-            pointerEvents="box-none"
-            style={{ flex: 1, minHeight: 0, minWidth: 0 }}
-          >
+        {/* Slice 44: the board opens/closes through
+            ChromeMount (fade + rise) instead of popping in
+            and out of the cluster's remaining space. */}
+        <ChromeMount
+          visible={boardOpen}
+          pointerEvents="box-none"
+          style={{ flex: 1, minHeight: 0, minWidth: 0 }}
+        >
             <ScrollView
               pointerEvents="auto"
               style={{
@@ -772,20 +795,28 @@ export default function GenxLayer(props: GenxLayerProps) {
                 onViewResult={(jobId) => void openNodeResult(jobId)}
               />
             </ScrollView>
-          </View>
-        ) : null}
-      </View>
+        </ChromeMount>
+      </ChromeMount>
 
-      {/* Slice 40: the molecular view, over the field while open. */}
-      {viewer ? (
-        <StructureView
-          structure={viewer.structure}
-          binding={viewer.binding}
-          title={viewer.title}
-          note={viewer.note}
-          onClose={() => setViewer(null)}
-        />
-      ) : null}
+      {/* Slice 40: the molecular view, over the field while open.
+          Slice 44: it too enters/leaves through ChromeMount
+          (full-canvas wrapper; the view's own root fills it),
+          rendering the last open viewer through its exit fade. */}
+      <ChromeMount
+        visible={!!viewer}
+        pointerEvents="box-none"
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+      >
+        {shownViewer ? (
+          <StructureView
+            structure={shownViewer.structure}
+            binding={shownViewer.binding}
+            title={shownViewer.title}
+            note={shownViewer.note}
+            onClose={() => setViewer(null)}
+          />
+        ) : null}
+      </ChromeMount>
     </View>
   );
 }

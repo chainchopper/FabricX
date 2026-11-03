@@ -44,7 +44,7 @@
  * Powered by Nirvana
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import {
   colors,
@@ -74,6 +74,15 @@ import {
   type PaletteCard,
 } from "../../../src/onboarding/onboardingStore";
 import { useFabricChrome } from "./FabricChromeContext";
+import {
+  getBrainSnapshot,
+  subscribeOnDeviceBrain,
+} from "../../../src/ai/onDeviceBrain";
+import {
+  getGroundingSnapshot,
+  subscribeDeviceGrounding,
+} from "../../../src/sam/deviceGrounding";
+import { ChromeMount } from "../../../src/components/ui/ChromeMount";
 
 function PaletteCardView({
   card,
@@ -166,6 +175,17 @@ export default function FirstBreath() {
   const [ghost, setGhost] = useState<GhostPublicState>(() =>
     getGhostPublicState()
   );
+  // Slice 44 (chrome discipline): the one-time consent asks
+  // (brain, then eyes) outrank this card — while either ask is
+  // raised, the welcome waits instead of stacking under it in
+  // the same top band. The asks are quick; the gate re-opens
+  // the moment they clear (fb state is untouched by the wait).
+  const [brainAskUp, setBrainAskUp] = useState<boolean>(
+    () => getBrainSnapshot().askVisible
+  );
+  const [groundingAskUp, setGroundingAskUp] = useState<boolean>(
+    () => getGroundingSnapshot().askVisible
+  );
   const [step, setStep] = useState<"palette" | "name">("palette");
   const [round, setRound] = useState(0);
   const [chosenHue, setChosenHue] = useState<number | null>(null);
@@ -178,6 +198,14 @@ export default function FirstBreath() {
   }, []);
   useEffect(() => subscribeFirstBreath(setFb), []);
   useEffect(() => subscribeGhostState(setGhost), []);
+  useEffect(
+    () => subscribeOnDeviceBrain((s) => setBrainAskUp(s.askVisible)),
+    []
+  );
+  useEffect(
+    () => subscribeDeviceGrounding((s) => setGroundingAskUp(s.askVisible)),
+    []
+  );
 
   // Every fresh open starts the moment over: palette step, the
   // packet's first deal, the dealt name in the field.
@@ -194,8 +222,18 @@ export default function FirstBreath() {
     [self, round]
   );
 
-  if (!fb.openMode || !self) return null;
-  const mode = fb.openMode;
+  // Slice 44: visibility is computed, not an early return —
+  // ChromeMount owns the enter/exit (the card used to pop at
+  // top:76, inside the corner/chip band). The card now takes
+  // the shared card slot (top:160, below the status slot) and
+  // waits out any consent ask (see the subscriptions above).
+  // The mode freezes at its last open value so the exit fade
+  // never swaps the card's step mid-animation.
+  const modeRef = useRef(fb.openMode);
+  if (fb.openMode) modeRef.current = fb.openMode;
+  const mode = fb.openMode ?? modeRef.current;
+  const wantShow =
+    !!fb.openMode && !!self && !brainAskUp && !groundingAskUp;
   const ghostName = ghost.ghostName;
 
   const enterFabric = () => {
@@ -205,17 +243,19 @@ export default function FirstBreath() {
   };
 
   return (
-    <View
+    <ChromeMount
+      visible={wantShow}
       pointerEvents="box-none"
       style={{
         position: "absolute",
-        top: 76,
+        top: 160,
         left: 0,
         right: 0,
         alignItems: "center",
         paddingHorizontal: spacing.lg,
       }}
     >
+      {self ? (
       <View
         pointerEvents="auto"
         style={{
@@ -442,6 +482,7 @@ export default function FirstBreath() {
           </>
         )}
       </View>
-    </View>
+      ) : null}
+    </ChromeMount>
   );
 }

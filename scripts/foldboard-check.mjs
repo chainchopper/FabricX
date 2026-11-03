@@ -1,4 +1,9 @@
 // foldboard-check.mjs — Slice 43 headless proof.
+// Union note (Slice 44): §B/§D anchor pins updated to Slice 44's
+// re-declared values (cluster resting top 92 / chip-up 104, bottom
+// offset 118 via CLUSTER_BOTTOM, the shared brainChipVisible()
+// predicate, BrainChrome's slot-S wrapper top 68). §A/§C are
+// Slice 43's functional proofs, unchanged.
 //
 // Terrell's Nov 2, 2026 (~6:06 AM) screenshot of The Fold on a
 // ~390pt phone, production: the bounty board panel is clipped
@@ -153,7 +158,8 @@ const clusterLeft = 12;
 const clusterRight = 12;
 check("B1 the cluster's insets are literal window-relative pixels (left 12, right 12)",
   layer.includes("left: 12,") && layer.includes("right: 12,") &&
-    layer.includes("top: clusterTop,") && layer.includes("bottom: 90,"));
+    layer.includes("top: clusterTop,") && layer.includes("bottom: CLUSTER_BOTTOM,") &&
+    layer.includes("const CLUSTER_BOTTOM = 118;"));
 const rectL = clusterLeft;
 const rectR = VIEW_W - clusterRight;
 check(`B2 cluster rect [${rectL}, ${rectR}] lies fully inside [0, ${VIEW_W}]`,
@@ -223,30 +229,34 @@ check("D1 the layer reads the brain from the same store BrainChrome reads",
   layer.includes('from "../../ai/onDeviceBrain"') &&
     layer.includes("subscribeOnDeviceBrain") &&
     layer.includes("getBrainSnapshot()"));
-check("D2 the layer's chip predicate is BrainChrome's showChip condition",
-  layer.includes("!brainSnap.askVisible") &&
-    layer.includes('brainSnap.state === "downloading"') &&
-    layer.includes('brainSnap.state === "warming"') &&
-    chrome.includes('snap.state === "downloading" || snap.state === "warming"') &&
-    chrome.includes("!snap.askVisible"));
-// Chip rect from BrainChrome's own values: wrapper top 60; the
-// pill carries paddingVertical 5 top+bottom, 1pt borders, and
-// the 12pt caption line (line box taken generously at 1.5x).
-const chipTop = Number(chrome.match(/top: (\d+),\n        left: 0,/)?.[1] ?? NaN);
+const brain = read("src/ai/onDeviceBrain.ts");
+check("D2 the layer's chip predicate is the shared brainChipVisible() BrainChrome also uses",
+  layer.includes("brainChipVisible(brainSnap)") &&
+    chrome.includes("brainChipVisible(snap)") &&
+    brain.includes("export function brainChipVisible") &&
+    brain.includes('!s.askVisible && (s.state === "downloading" || s.state === "warming")'));
+// Chip rect from BrainChrome's own values: slot-S wrapper top 68
+// (Slice 44); the pill carries paddingVertical 5 top+bottom, 1pt
+// borders, and the 12pt caption line (line box taken generously
+// at 1.5x).
+const chipTop = Number(chrome.match(/top: (\d+),\n          left: 0,\n          right: 112,/)?.[1] ?? NaN);
 const padV = Number(
   chrome.match(/paddingVertical: (\d+),\n            paddingHorizontal: 12,/)?.[1] ?? NaN
 );
 const captionPx = Number(tokens.match(/caption: (\d+),/)?.[1] ?? NaN);
 const chipBottom = chipTop + padV * 2 + 2 + Math.ceil(captionPx * 1.5);
 const clearance = Number(layer.match(/const BRAIN_CHIP_CLEARANCE = (\d+);/)?.[1] ?? NaN);
-const clusterTopWithChip = 52 + clearance;
+const clusterRestingTop = Number(layer.match(/const CLUSTER_TOP = (\d+);/)?.[1] ?? NaN);
+const clusterTopWithChip = clusterRestingTop + clearance;
 check(`D3 chip bottom (${chipBottom}pt from its own values) clears the dropped cluster top (${clusterTopWithChip}pt)`,
   Number.isFinite(chipBottom) && Number.isFinite(clearance) &&
+    Number.isFinite(clusterRestingTop) &&
     clusterTopWithChip > chipBottom,
   `gap ${clusterTopWithChip - chipBottom}pt`);
-check("D4 the cluster's top is the computed clusterTop (resting 52 + clearance)",
+check("D4 the cluster's top is the computed clusterTop (resting 92 + clearance)",
   layer.includes("top: clusterTop,") &&
-    layer.includes("const clusterTop = 52 + (brainChipUp ? BRAIN_CHIP_CLEARANCE : 0);"));
+    layer.includes("const CLUSTER_TOP = 92;") &&
+    layer.includes("const clusterTop = CLUSTER_TOP + (brainChipUp ? BRAIN_CHIP_CLEARANCE : 0);"));
 
 console.log(`\nfoldboard-check: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

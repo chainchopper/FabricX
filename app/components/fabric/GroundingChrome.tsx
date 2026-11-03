@@ -38,24 +38,27 @@ import {
   type GroundingSnapshot,
 } from "../../../src/sam/deviceGrounding";
 import {
+  brainChipVisible,
   getBrainSnapshot,
   subscribeOnDeviceBrain,
+  type BrainSnapshot,
 } from "../../../src/ai/onDeviceBrain";
+import { ChromeMount } from "../../../src/components/ui/ChromeMount";
 import { colors, radius, spacing, type as typeScale } from "../../../src/theme/tokens";
 
 export default function GroundingChrome() {
   const [snap, setSnap] = useState<GroundingSnapshot>(() =>
     getGroundingSnapshot()
   );
-  const [brainAskVisible, setBrainAskVisible] = useState<boolean>(
-    () => getBrainSnapshot().askVisible
+  // Slice 44: the whole brain snapshot, not just its ask flag —
+  // this chrome yields the top status slot to the brain's CHIP
+  // as well as its ask (see showChip below).
+  const [brainSnap, setBrainSnap] = useState<BrainSnapshot>(() =>
+    getBrainSnapshot()
   );
 
   useEffect(() => subscribeDeviceGrounding(setSnap), []);
-  useEffect(
-    () => subscribeOnDeviceBrain((s) => setBrainAskVisible(s.askVisible)),
-    []
-  );
+  useEffect(() => subscribeOnDeviceBrain(setBrainSnap), []);
   useEffect(() => {
     void ensureGroundingInit();
   }, []);
@@ -63,27 +66,39 @@ export default function GroundingChrome() {
   const pct = Math.round(snap.progress * 100);
   // One ask at a time: the brain's card wins the moment; this
   // ask is still raised in the store and appears when it clears.
-  const showAsk = snap.askVisible && !brainAskVisible;
+  const showAsk = snap.askVisible && !brainSnap.askVisible;
+  // Slice 44: one status slot, one occupant. The ask-yield
+  // above covered the brain's CARD; its progress CHIP rides
+  // the same top slot at the same anchor (both wrappers sat at
+  // top:60 centered, zIndex 40), so while the brain's chip is
+  // up, this chip waits too — the two pills used to render
+  // exactly on top of each other.
   const showChip =
-    !snap.askVisible && !brainAskVisible && snap.state === "downloading";
+    !snap.askVisible &&
+    !brainSnap.askVisible &&
+    !brainChipVisible(brainSnap) &&
+    snap.state === "downloading";
 
-  if (!showAsk && !showChip) return null;
-
+  // Slice 44 (chrome discipline): same slot split as
+  // BrainChrome — the ask takes the card slot (top:160), the
+  // chip the status slot (top:68, right edge held at 112),
+  // both through ChromeMount instead of a bare conditional.
   return (
-    <View
-      pointerEvents="box-none"
-      style={{
-        position: "absolute",
-        top: 60,
-        left: 0,
-        right: 0,
-        alignItems: "center",
+    <>
+      <ChromeMount
+        visible={showAsk}
+        pointerEvents="box-none"
+        style={{
+          position: "absolute",
+          top: 160,
+          left: 0,
+          right: 0,
+          alignItems: "center",
         paddingHorizontal: spacing.md,
         zIndex: 40,
       }}
     >
-      {showAsk ? (
-        <View
+      <View
           pointerEvents="auto"
           style={{
             maxWidth: 440,
@@ -154,10 +169,23 @@ export default function GroundingChrome() {
             has — the camera, touch and your ghostie are unaffected.
           </Text>
         </View>
-      ) : (
+      </ChromeMount>
+      <ChromeMount
+        visible={showChip}
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 68,
+          left: 0,
+          right: 112,
+          alignItems: "center",
+          zIndex: 40,
+        }}
+      >
         <View
           pointerEvents="none"
           style={{
+            maxWidth: 200,
             borderWidth: 1,
             borderColor: colors.ghostLine,
             borderRadius: 999,
@@ -170,7 +198,7 @@ export default function GroundingChrome() {
             {`Eyes arriving… ${pct}%`}
           </Text>
         </View>
-      )}
-    </View>
+      </ChromeMount>
+    </>
   );
 }
