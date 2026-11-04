@@ -26,6 +26,14 @@
  * Pure module (type-only imports of the stores), so the check
  * can bundle it and prove the content.
  *
+ * Slice 63 adds the fabric's feature toggles at the bottom of
+ * this module: the derivation (which boolean per-layer settings
+ * are THIS fabric's features) is data here, and
+ * infotoggles-check proves it against the menu's own sources —
+ * THIS LAYER's rendered blocks and gates, the generic
+ * LayerControls, the fluid's control stack, the registry's
+ * capability table, and the FABRICS editor's curated fields.
+ *
  * Powered by Nirvana
  */
 
@@ -337,4 +345,187 @@ export function ghostToolsHere(
           : { ...base, available: true, note: null };
     }
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* The fabric's features, as toggles (Slice 63)                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A feature of a fabric that can be on or off: one of the
+ * layer's own per-layer settings — a boolean specific.* key in
+ * the config the settings mirror persists per layer id
+ * (fabric_layer_settings_v1:<layerId>) — under the name THIS
+ * LAYER gives it, with the state it rests in when nothing is
+ * stored.
+ */
+export interface LayerFeature {
+  /** The specific.* key the toggle reads and writes. */
+  key: string;
+  /** THIS LAYER's own name for it. */
+  label: string;
+  /**
+   * The resting state when nothing is stored. THIS LAYER reads
+   * a default-on feature as `value !== false` and a default-off
+   * feature as `value === true`; the panel reads it the same
+   * way (layerFeatureActive), so the two surfaces can never
+   * disagree about an untouched layer.
+   */
+  defaultOn: boolean;
+}
+
+const FEATURE_GHOST: LayerFeature = {
+  key: "ghostEnabled",
+  label: "Ghost in this layer",
+  defaultOn: true,
+};
+const FEATURE_AMBIENT: LayerFeature = {
+  key: "ambientEnabled",
+  label: "Ambient life",
+  defaultOn: true,
+};
+const FEATURE_MOTION: LayerFeature = {
+  key: "motionEnabled",
+  label: "Motion",
+  defaultOn: false,
+};
+const FEATURE_HANDS: LayerFeature = {
+  key: "handsEnabled",
+  label: "Hands",
+  defaultOn: false,
+};
+const FEATURE_DANCERS: LayerFeature = {
+  key: "stageDancerEnabled",
+  label: "Dancers",
+  defaultOn: true,
+};
+const FEATURE_CAMERA_DRIFT: LayerFeature = {
+  key: "stageCameraDrift",
+  label: "Camera drift",
+  defaultOn: true,
+};
+const FEATURE_LEND: LayerFeature = {
+  key: "lendDevice",
+  label: "Lend this device",
+  defaultOn: false,
+};
+const FEATURE_MIDI: LayerFeature = {
+  key: "midiEnabled",
+  label: "Notes → Fabric",
+  defaultOn: true,
+};
+const FEATURE_AMBIENCE_SOUND: LayerFeature = {
+  key: "ambienceEnabled",
+  label: "Ambience",
+  defaultOn: false,
+};
+const FEATURE_MUSIC: LayerFeature = {
+  key: "musicEnabled",
+  label: "Generative music",
+  defaultOn: false,
+};
+
+/**
+ * The three features THIS LAYER renders for EVERY layer,
+ * ungated: the ghost's tenancy, the idle contract's ambient
+ * life, and motion. Any layer the ExperienceContext can
+ * activate supports exactly these, before its own extras.
+ */
+export const UNIVERSAL_LAYER_FEATURES: readonly LayerFeature[] = [
+  FEATURE_GHOST,
+  FEATURE_AMBIENT,
+  FEATURE_MOTION,
+];
+
+/**
+ * Each fabric's features, in THIS LAYER's render order. The
+ * table is DERIVED, not freehand — every row names a bool
+ * toggle THIS LAYER (or a control it renders) actually offers
+ * on that fabric, and infotoggles-check re-derives it from the
+ * sources and fails on any drift:
+ *
+ * - THIS LAYER's own blocks (FabricMenu): the universal three
+ *   for every layer; Hands behind its handsAppliesHere gate
+ *   (the fluid + See); Dancers and Camera drift on the Dancer
+ *   Stage; Lend this device on The Fold.
+ * - THIS LAYER's generic LayerControls: a MIDI toggle
+ *   (specific.midiEnabled, resting ON) for every non-fluid
+ *   layer whose registry entry declares the midi capability —
+ *   the Piano, the Stage, the Playground. The fluid never
+ *   renders LayerControls; its own control stack stands there.
+ * - The fluid's stack (its AmbienceControls / MusicControls,
+ *   which render only on the fluid): Ambience and Generative
+ *   music, both resting off.
+ *
+ * Cross-checks the derivation holds: the FABRICS editor's
+ * curated LAYER_EDIT_FIELDS bool entries are a subset of this
+ * table for every fabric it curates, and the Fold and the
+ * Playground — which the editor does not curate at all — take
+ * their features from THIS LAYER alone.
+ *
+ * Deliberately NOT features: the editor's choice fields
+ * (pianoVoice, stageTheme, stageTraumaIdle — picks, not
+ * on/off features; they stay in THIS LAYER and the editor);
+ * the Fold's node address (a value, not a switch); the
+ * Controller role (the device's own store, not the layer's
+ * config — THIS LAYER itself says so); LayerControls' AR
+ * camera switch (the AR context's state, not a layer setting);
+ * samEnabled (a config default no surface toggles).
+ */
+const LAYER_FEATURES: Record<string, readonly LayerFeature[]> = {
+  "default-fluid": [
+    FEATURE_AMBIENCE_SOUND,
+    FEATURE_MUSIC,
+    ...UNIVERSAL_LAYER_FEATURES,
+    FEATURE_HANDS,
+  ],
+  "ar-piano": [FEATURE_MIDI, ...UNIVERSAL_LAYER_FEATURES],
+  "sam-see": [...UNIVERSAL_LAYER_FEATURES, FEATURE_HANDS],
+  "dancer-stage": [
+    FEATURE_MIDI,
+    FEATURE_GHOST,
+    FEATURE_AMBIENT,
+    FEATURE_DANCERS,
+    FEATURE_CAMERA_DRIFT,
+    FEATURE_MOTION,
+  ],
+  "genx-fold": [...UNIVERSAL_LAYER_FEATURES, FEATURE_LEND],
+  "ghostie-playground": [FEATURE_MIDI, ...UNIVERSAL_LAYER_FEATURES],
+};
+
+/**
+ * The features of one fabric. A fabric with no entry of its
+ * own gets exactly the universal three — the blocks THIS LAYER
+ * renders for any layer — and nothing invented.
+ */
+export function layerFeaturesFor(
+  id: string | null | undefined
+): readonly LayerFeature[] {
+  if (!id) return UNIVERSAL_LAYER_FEATURES;
+  return LAYER_FEATURES[id] ?? UNIVERSAL_LAYER_FEATURES;
+}
+
+/** A feature's live state, read exactly as THIS LAYER reads it. */
+export function layerFeatureActive(
+  feature: LayerFeature,
+  specific: Record<string, unknown> | null | undefined
+): boolean {
+  const v = specific?.[feature.key];
+  return feature.defaultOn ? v !== false : v === true;
+}
+
+/**
+ * The write behind a panel toggle: the new specific object
+ * updateConfig merges into the layer's config — the same shape
+ * every THIS LAYER setter builds ({ ...specific, key: next }),
+ * so a flip here and a flip there are the same write into the
+ * same per-layer store, and the settings mirror persists both
+ * under the same key.
+ */
+export function withLayerFeature(
+  specific: Record<string, unknown> | null | undefined,
+  feature: LayerFeature,
+  next: boolean
+): Record<string, unknown> {
+  return { ...(specific ?? {}), [feature.key]: next };
 }

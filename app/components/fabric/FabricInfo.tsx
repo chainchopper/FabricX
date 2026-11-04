@@ -53,6 +53,22 @@
  *   every other state they wear the house accent. A tint and
  *   nothing more — no text, no new element.
  *
+ * - Slice 63: THE PANEL CARRIES THE FABRIC'S OWN SWITCHES.
+ *   Terrell (Nov 3, 2026): "Let's put toggles for the supported
+ *   and active features of a particular fabric in the info
+ *   panel behind that icon as well." A FEATURES section lists
+ *   the loaded fabric's features — derived in ./fabricInfo from
+ *   the very fields THIS LAYER renders (its blocks and gates,
+ *   the generic LayerControls, the fluid's control stack, the
+ *   registry's capability table, the editor's curated fields)
+ *   — each with its live state, read from and written to the
+ *   SAME ExperienceContext config THIS LAYER edits, which the
+ *   settings mirror persists per layer id
+ *   (fabric_layer_settings_v1:<layerId>). One store, two doors:
+ *   flip a feature here and THIS LAYER shows it flipped, and
+ *   the reverse. A feature the fabric does not support does not
+ *   appear — no dead toggles, ever.
+ *
  * Mount point: _layout's ChromeLayer, as a direct child of the
  * root view — the same pointer-events ancestry as every other
  * chrome element (no "none" ancestor; the scrim and the card
@@ -106,8 +122,12 @@ import {
   fabricInfoFor,
   ghostToolsHere,
   iconBottomFor,
+  layerFeatureActive,
+  layerFeaturesFor,
+  withLayerFeature,
   FABRIC_ICON_RIGHT,
   FABRIC_ICON_SIZE,
+  type LayerFeature,
 } from "./fabricInfo";
 
 function useReducedMotion(): boolean {
@@ -154,8 +174,71 @@ function Lines({ lines }: { lines: readonly string[] }) {
   );
 }
 
+/**
+ * One feature row (Slice 63): the feature's name and the same
+ * On/Off pill pair THIS LAYER's BoolPillRow renders — same
+ * styling tokens, same radio semantics — so a switch feels
+ * identical whichever door you flip it through. The row is
+ * pure presentation: the panel's toggleFeature owns the write.
+ */
+function FeatureToggleRow({
+  label,
+  value,
+  onPick,
+}: {
+  label: string;
+  value: boolean;
+  onPick: (next: boolean) => void;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: spacing.sm,
+        paddingVertical: 3,
+      }}
+    >
+      <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body }}>
+        {label}
+      </Text>
+      {([true, false] as const).map((val) => {
+        const selected = value === val;
+        return (
+          <Pressable
+            key={String(val)}
+            pointerEvents="auto"
+            onPress={() => onPick(val)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            accessibilityLabel={`${label} ${val ? "on" : "off"}`}
+            style={{
+              paddingVertical: 8,
+              paddingHorizontal: 14,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: selected ? colors.accent : colors.line,
+              backgroundColor: selected ? colors.accentDim : "transparent",
+            }}
+          >
+            <Text
+              style={{
+                color: selected ? colors.accent : colors.text,
+                fontSize: typeScale.body,
+                fontWeight: "700",
+              }}
+            >
+              {val ? "On" : "Off"}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function FabricInfo() {
-  const { state } = useExperience();
+  const { state, updateConfig } = useExperience();
   const { idle, chromeOpacity, menuOpen, setHoldVisible, noteActivity } =
     useFabricChrome();
   const reduceMotion = useReducedMotion();
@@ -248,6 +331,23 @@ export default function FabricInfo() {
       ? fabricState.rules
       : { draw: true, verbs: true, notes: true };
   const tools = ghostToolsHere(active.id, canvasKindFor(active), rules);
+
+  // Slice 63: this fabric's features, derived in ./fabricInfo
+  // from the same fields THIS LAYER renders. Read and written
+  // through the one ExperienceContext config — the write is
+  // updateConfig with the same specific-merge shape every THIS
+  // LAYER setter builds, and the settings mirror persists the
+  // result under this layer's own key. There is no second
+  // store for the panel to drift from.
+  const features = layerFeaturesFor(active.id);
+  const specific = (state.experienceConfig.specific ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const toggleFeature = (feature: LayerFeature, next: boolean) => {
+    noteActivity();
+    updateConfig({ specific: withLayerFeature(specific, feature, next) });
+  };
 
   // Slice 60: the tint. Reconnecting (connecting, or online with
   // nobody here) is the one state a person should be able to
@@ -476,6 +576,35 @@ export default function FabricInfo() {
 
             <SectionTitle>CONTROLS</SectionTitle>
             <Lines lines={info.controls} />
+
+            <SectionTitle>FEATURES</SectionTitle>
+            {features.length === 0 ? (
+              <Text
+                style={{ color: colors.textDim, fontSize: typeScale.body, lineHeight: 20 }}
+              >
+                This fabric has nothing to switch — everything it does
+                is simply on.
+              </Text>
+            ) : (
+              features.map((feature) => (
+                <FeatureToggleRow
+                  key={feature.key}
+                  label={feature.label}
+                  value={layerFeatureActive(feature, specific)}
+                  onPick={(next) => toggleFeature(feature, next)}
+                />
+              ))
+            )}
+            <Text
+              style={{
+                color: colors.textDim,
+                fontSize: typeScale.caption,
+                marginTop: spacing.xs,
+              }}
+            >
+              The same switches as F menu → This layer — one setting,
+              two doors.
+            </Text>
 
             <SectionTitle>YOUR GHOSTIE HERE</SectionTitle>
             {tools.map((tool) => (

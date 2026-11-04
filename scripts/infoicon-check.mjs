@@ -18,6 +18,13 @@
  *      the pin survives as clearance of the vacated corner, same
  *      rect, same count. The Essence's tenancy of the panel is
  *      essence-check's proof, not this file's.)
+ *      (Slice 63 amendment: B5's section list gains FEATURES —
+ *      the panel grew a headed section by Terrell's order, so
+ *      the anatomy pin names it too. Every other pin in this
+ *      file is untouched, and the count stays 54: B5 asserts a
+ *      list, it does not count sections. The FEATURES section's
+ *      own truth — derivation, store, gates — is
+ *      infotoggles-check's proof, not this file's.)
  *   B. The panel's content is keyed by the loaded fabric id: a
  *      complete FABRIC_INFO record for every builtin fabric, the
  *      view resolving content through fabricInfoFor(active.id)
@@ -191,8 +198,8 @@ check(
   !/active\.id === "/.test(finfo) && !finfo.includes("switch (active.id")
 );
 check(
-  "B5 panel sections: what it is / modes / rules here / controls / ghostie here / this room",
-  ["WHAT THIS FABRIC IS", "MODES", "RULES HERE", "CONTROLS", "YOUR GHOSTIE HERE", "THIS ROOM"].every(
+  "B5 panel sections: what it is / modes / rules here / controls / features / ghostie here / this room",
+  ["WHAT THIS FABRIC IS", "MODES", "RULES HERE", "CONTROLS", "FEATURES", "YOUR GHOSTIE HERE", "THIS ROOM"].every(
     (s) => finfo.includes(s)
   )
 );
