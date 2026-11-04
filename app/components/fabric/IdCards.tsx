@@ -951,8 +951,10 @@ export function LayerCardOverlay({
             </Text>
             <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
               SAM 3.1 names what the camera sees, through the model
-              resolved for this device. The camera is this layer's
-              background; the fluid draws over it.
+              resolved for this device. The camera is this fabric's
+              canvas — the picture itself; the fluid rides over it
+              only as a touch, so outlines and acts land on what
+              you see.
             </Text>
             <Text style={{ color: colors.textDim, fontSize: typeScale.body }}>
               A frame is sent only when you tap Segment — one frame,

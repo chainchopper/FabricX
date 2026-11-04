@@ -19,8 +19,7 @@
  *        friends, call         → PEOPLE
  *        profile, wallet, shop → YOU
  *        studio, plugins       → STUDIO
- *        ai-chat, vision-ai,
- *          companion           → AI SERVICES
+ *        ai-chat, companion  → AI SERVICES
  *        settings              → SETTINGS & HELP
  *      and no door renders in any other section. Two documented
  *      exceptions, both pre-Slice-57 task links, not homes:
@@ -44,6 +43,19 @@
  *  (4) NOTHING BECAME UNREACHABLE. All 14 legacy drawers are
  *      still mounted in app/_layout.tsx — Slice 57 moved doors,
  *      it removed nothing.
+ *
+ * Slice 64 addendum (disclosed pin updates, same check count):
+ * camera vision became a fabric of its own, and the legacy
+ * Vision AI drawer — a second, divergent vision surface — is
+ * RETIRED BY DESIGN. Its door in AI SERVICES now opens the See
+ * fabric (through the same session authority as the fabric's
+ * gallery card), its still-photo analysis moved onto the See
+ * fabric's own surface, and its drawer is unmounted and deleted.
+ * The pins below therefore track 13 drawers, "vision-ai" has no
+ * home because it has no door, and four new pins prove the
+ * re-homing: the See row renders in AI SERVICES, it routes
+ * through onFabricCard, no openPanel("vision-ai") survives, and
+ * no VisionAIDrawer is mounted in _layout.
  *
  * Run from the repo root:
  *   node scripts/menu-check.mjs
@@ -103,7 +115,6 @@ const HOMES = {
   studio: "STUDIO",
   plugins: "STUDIO",
   "ai-chat": "AI SERVICES",
-  "vision-ai": "AI SERVICES",
   companion: "AI SERVICES",
   settings: "SETTINGS & HELP",
   "ai-settings": "AI SERVICES",
@@ -131,7 +142,7 @@ for (const [drawer, home] of Object.entries(HOMES)) {
 // The relocated doors render exactly once each as a DoorRow (or,
 // for plugins, exactly once as a door-list row): one door, one
 // home, no duplicates left behind.
-for (const drawer of ["layer", "neo", "friends", "call", "profile", "wallet", "shop", "ai-chat", "vision-ai", "companion", "settings"]) {
+for (const drawer of ["layer", "neo", "friends", "call", "profile", "wallet", "shop", "ai-chat", "companion", "settings"]) {
   const n = (menu.match(new RegExp(`openPanel\\("${drawer}"\\)`, "g")) ?? []).length;
   ok(n === 1, `door renders exactly once: "${drawer}" (${n})`);
 }
@@ -167,7 +178,7 @@ ok(
   blocks["SETTINGS & HELP"].includes('openPanel("settings")'),
   "the one door SETTINGS & HELP keeps is the Preferences panel"
 );
-ok(!/openPanel\("(profile|neo|layer|studio|plugins|companion|shop|call|wallet|friends|vision-ai|ai-chat)"\)/.test(blocks["SETTINGS & HELP"]), "no relocated door is still opened from SETTINGS & HELP");
+ok(!/openPanel\("(profile|neo|layer|studio|plugins|companion|shop|call|wallet|friends|ai-chat)"\)/.test(blocks["SETTINGS & HELP"]), "no relocated door is still opened from SETTINGS & HELP");
 
 // ------------------------------------------------------------ (3b) Slice 59's door
 // The Find fabrics door is a sub-view door (like the profile
@@ -213,10 +224,28 @@ ok(
 for (const drawer of [
   "NeoLocker", "LayerDrawer", "ProfileDrawer", "StudioDrawer", "PluginsDrawer",
   "CompanionDrawer", "ShopDrawer", "CallDrawer", "WalletDrawer", "FriendsDrawer",
-  "SettingsDrawer", "AISettingsDrawer", "AIChatDrawer", "VisionAIDrawer",
+  "SettingsDrawer", "AISettingsDrawer", "AIChatDrawer",
 ]) {
   ok(layout.includes(`<${drawer} />`), `drawer still mounted in _layout: ${drawer}`);
 }
+
+// ------------------------------------------------------------ (5) Slice 64: Vision AI re-homed to See
+ok(
+  blocks["AI SERVICES"].includes('label="See — the camera fabric"'),
+  "Slice 64: the AI SERVICES row that was Vision AI now opens the See fabric"
+);
+ok(
+  menu.includes('e.id === "sam-see"') && menu.includes("onFabricCard(see)"),
+  "Slice 64: the See door routes through the session-authority card handler"
+);
+ok(
+  !menu.includes('openPanel("vision-ai")'),
+  "Slice 64: no drawer door for vision-ai remains anywhere in the menu"
+);
+ok(
+  !layout.includes("VisionAIDrawer"),
+  "Slice 64: the Vision AI drawer is not mounted (or imported) in _layout"
+);
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

@@ -104,11 +104,19 @@ const builtin: ExperienceLayer[] = [
     name: "See",
     blurb: "Point the camera and name a thing — SAM makes it touchable.",
     description:
-      "SAM 3.1 camera layer — name what the camera sees, get touchable regions on the fabric",
+      "SAM 3.1 camera fabric — the camera is the canvas: name what it sees, get touchable regions on the picture, and let your ghostie act on them",
     type: "sam-see" as ExperienceType,
     version: "1.0.0",
     author: "Fanalogy",
     capabilities: { ...defaultCapabilities, ar: false, camera: true, midi: false, audio: false },
+    // Slice 64 (Terrell: "that camera vision shit should be a
+    // fabric it's own"): See declares its own canvas kind, the
+    // stage3d precedent — the camera surface is this fabric's
+    // ground, and the renderer branches on the declaration
+    // instead of special-casing this id. The id/type stay
+    // "sam-see": the room, the stored per-layer settings, the
+    // session hints and the ghost's manifest all key on them.
+    canvas: "camera",
     // Idle contract: STILL, by decision. The camera pauses when the
     // layer isn't front or the tab hides, and nothing self-plays —
     // a seeing layer at rest should be a resting eye, not a show.

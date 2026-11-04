@@ -27,11 +27,20 @@ export type ExperienceType =
  *   canvas is NOT mounted as its base; fluid-derived work may
  *   appear inside it only as an effect. The Dancer Stage is the
  *   first stage3d fabric.
+ * - "camera": the canvas IS the camera view (Slice 64 — See, a
+ *   fabric of its own). The camera surface is the fabric's ground;
+ *   the fluid engine still mounts over it, but only as a
+ *   transparent interaction layer — the ghost's body, the act
+ *   funnel, region touches — through its transparent-backdrop
+ *   mode. It is never the ground, paints no backdrop of its own,
+ *   and the picture is what the fabric is. See is the first
+ *   camera fabric; its ghost fabric context has reported this
+ *   canvas kind since Slice 23.
  *
  * ExperienceRenderer branches on this field, so a future fabric
  * with its own canvas kind never has to impersonate a fluid layer.
  */
-export type ExperienceCanvasKind = "fluid" | "stage3d";
+export type ExperienceCanvasKind = "fluid" | "stage3d" | "camera";
 
 export interface ExperienceCapabilities {
   ar: boolean;

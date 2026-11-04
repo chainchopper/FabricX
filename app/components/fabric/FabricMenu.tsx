@@ -65,7 +65,11 @@
  * Companion from AI SERVICES (Slice 57) — so nothing that worked
  * becomes unreachable: the rail is gone, the doors remain, there
  * is just one hallway now, with signs, and every door hangs on
- * the wall it belongs to.
+ * the wall it belongs to. (Slice 64: the Vision AI row in AI
+ * SERVICES is no longer a drawer door at all — it opens the See
+ * fabric, which is where camera vision lives now; the drawer
+ * itself is retired, and its still-photo analysis moved onto
+ * the See fabric's own surface.)
  *
  * Powered by Nirvana
  */
@@ -251,8 +255,7 @@ type DrawerName =
   | "friends"
   | "settings"
   | "ai-settings"
-  | "ai-chat"
-  | "vision-ai";
+  | "ai-chat";
 
 /** Slice 57: there is deliberately NO panel-row registry here any
  *  more. The old PANEL_ROWS list fed a "Panels" catch-all at the
@@ -583,6 +586,7 @@ const LAYER_EDIT_FIELDS: Record<string, LayerEditField[]> = {
 /** The canvas a fabric stands on — the badge on its card. */
 function canvasBadge(exp: ExperienceLayer): string {
   if (exp.canvas === "stage3d") return "3D STAGE";
+  if (exp.canvas === "camera") return "CAMERA";
   if (exp.id === "camera-effects") return "CAMERA";
   return "FLUID";
 }
@@ -1702,6 +1706,19 @@ export default function FabricMenu() {
     setLeaveWarn(null);
     setMenuOpen(false);
     void switchExperience(exp.id);
+  };
+
+  // Slice 64: the AI SERVICES door that used to open the legacy
+  // Vision AI drawer now opens the See fabric — camera vision is
+  // a fabric of its own, and this door is simply another road to
+  // its gallery card: it rides onFabricCard exactly, so session
+  // authority (host-led picks, the guest leave-warning) is the
+  // same here as on the card itself. The drawer is retired; its
+  // one real feature (still-photo analysis) lives on the See
+  // fabric's own surface now.
+  const openSeeFabric = () => {
+    const see = state.availableExperiences.find((e) => e.id === "sam-see");
+    if (see) onFabricCard(see);
   };
 
   // Open a card's editor (host / solo only — the render gates it).
@@ -3376,9 +3393,10 @@ export default function FabricMenu() {
           <LayerControls />
         ) : null}
 
-        {/* See layer (Hotfix 2.4): the mechanism + privacy lines
-            moved off the camera into reference copy — one factual
-            line here, the fuller version on the layer's ID card. */}
+        {/* See fabric (Hotfix 2.4; a fabric of its own since
+            Slice 64): the mechanism + privacy lines moved off
+            the camera into reference copy — one factual line
+            here, the fuller version on the fabric's ID card. */}
         {isSamSee ? (
           <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginTop: spacing.sm }}>
             See names what the camera sees with SAM 3.1, through the
@@ -4149,7 +4167,11 @@ export default function FabricMenu() {
         {/* Slice 57: the AI panels live here, with the model
             they belong to — AI Chat, Vision AI, and the
             Companion. They used to sit in the "Panels"
-            catch-all at the menu's tail. */}
+            catch-all at the menu's tail.
+            Slice 64: the middle row is a drawer door no longer.
+            Vision AI's drawer is retired — camera vision is the
+            See fabric, and this row opens it, through the same
+            session authority as its gallery card. */}
         <View style={{ gap: spacing.xs, marginTop: spacing.md }}>
           <DoorRow
             icon="message"
@@ -4158,8 +4180,8 @@ export default function FabricMenu() {
           />
           <DoorRow
             icon="eye"
-            label="Vision AI"
-            onPress={() => openPanel("vision-ai")}
+            label="See — the camera fabric"
+            onPress={() => openSeeFabric()}
           />
           <DoorRow
             icon="message"

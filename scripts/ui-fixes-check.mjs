@@ -236,9 +236,8 @@ const DRAWER_FILES = {
   settings: "SettingsDrawer",
   "ai-settings": "AISettingsDrawer",
   "ai-chat": "AIChatDrawer",
-  "vision-ai": "VisionAIDrawer",
 };
-check("F0 the WIDTHS table parses to all 14 drawers", Object.keys(WIDTHS_PARSED).length === 14, `${Object.keys(WIDTHS_PARSED).length} entries`);
+check("F0 the WIDTHS table parses to all 13 drawers", Object.keys(WIDTHS_PARSED).length === 13, `${Object.keys(WIDTHS_PARSED).length} entries`);
 
 for (const [name, file] of Object.entries(DRAWER_FILES)) {
   const src = read(`app/components/neo/${file}.tsx`);
