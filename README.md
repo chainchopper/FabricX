@@ -1,464 +1,227 @@
-# Fabric — Multi‑Sensory Interactive Platform (Fanalogy)
+# Fabric
 
-**Powered by Nirvana** 🌟
+**You draw it. They feel it.**
 
-## Project Summary
+Fabric is a live multiplayer sensory canvas. A touch drawn on one screen is
+rendered on every other screen in the session as flowing fluid, synthesized
+sound, and vibration — so a heart is not an emoji you tap; it is something you
+draw and the other person feels. Every participant is accompanied by a
+"ghostie," an on-device companion with its own name, color, and temperament
+that perceives the canvas and acts on it alongside them. Fabric is a world of
+standalone canvases ("fabrics") — among them a protein-folding fabric, The
+Fold, where the phones in a session pool their compute on real molecular
+structure work, verified shard by shard.
 
-Fabric is a revolutionary multi‑user, game‑like platform with a liquid 3D surface ("the Fabric") that reacts to touch with coordinated haptics, audio, and visuals. Experience video game-style menus, AR Piano, swarm device coordination, and social broadcasting—all while the Fabric stays persistent as the main event.
+- **Live site:** https://fabric.fanalogy.com
+- **Landing page:** https://fabric.fanalogy.com/welcome.html (source:
+  `public/welcome.html` in this repo)
 
----
+## Try it without installing anything
 
-## ✨ What's New
+Open https://fabric.fanalogy.com on two phones (or a phone and a computer).
+Both land in the same default room, and the session is live immediately —
+no account, no install, no API key.
 
-### 🎮 Video Game Menu System
-- **Sound Effects**: Hover, select, open, close animations with professional audio feedback
-- **Particle Effects**: Visual feedback on menu interactions
-- **Smooth Animations**: Drawer transitions with haptic feedback
-- **Tabbed Interface**: Controls, Social, and Swarm modes in one organized menu
+Things worth trying:
 
-### 🎹 AR Virtual Piano
-- **Full 3D Piano**: Interactive keyboard with 3 octaves (C3-B5)
-- **Real-time Synthesis**: Polyphonic Tone.js synth engine
-- **S3 Matrix Integration**: 
-  - Gyro/accelerometer controls volume and effects
-  - Button presses send haptic feedback
-  - LED feedback on key presses
-- **1-Click Toggle**: Floating button to switch between Fluid and Piano modes
-- **Visual Feedback**: Colored keys light up on press
+- **Draw together.** Touch on one screen ripples, sounds, and vibrates on
+  the other, tinted with your signature color.
+- **Talk to the ghostie.** Ask out loud — "show me your heartbeat," "make
+  some sounds," "tickle" — it answers with acts it composes, not canned
+  buttons, and its sounds are synthesized fresh each time.
+- **The Dancer Stage.** A 3D stage where your ghostie is the performer,
+  embodied in the built-in character.
+- **The Fold.** Join a structure bounty and fold real proteins together —
+  human hemoglobin (4HHB) and an AlphaFold insulin structure ship with the
+  app. Your device appears as a small vehicle whose mobility grows with
+  the work it has *verified*.
+- **Ghostie Playground.** A fabric of the ghostie's own, where its full
+  tool set is available and you can watch it work unprompted.
+- **AR Piano and the other fabrics.** Each fabric is its own canvas with
+  its own rules; open the fabrics gallery and switch.
 
-### 📡 Swarm Mode (Multi-Device Coordination)
-- **Node Assignment**: Coordinate multiple S3 Matrix devices as nodes (1, 2, 3, 4...)
-- **Text Display**: Show words across devices (one letter per node)
-- **Synchronized Effects**: Ripple and wave patterns across swarm
-- **Broadcast Controls**: Send commands to all or specific nodes
-- **Health Monitoring**: Real-time node status tracking
+One honest note: the ghostie's optional **on-device brain** (a real
+language model that runs in the browser) downloads its weights the first
+time you turn it on — about **700 MB** for the default tier, on Wi-Fi,
+only after you say yes. Everything above works before and without that
+download, and the app never asks you for an API key.
 
-### 🌐 Social Broadcasting
-- **Influencer-Follower System**: Subscribe to favorite creators
-- **Live Experiences**: Receive personalized device notifications
-- **Broadcast Events**: Creators send synchronized lighting, vibrations, and text
-- **Subscription Management**: Follow/unfollow multiple influencers
-- **Creator Mode**: Demo broadcasting to your followers
+## Run it locally
 
----
-
-## Current Stack (Expo Variant)
-
-- **Routing**: expo-router (app/)
-- **UI**: React Native primitives with video game-style overlays
-- **3D Graphics**: R3F FabricWeb3D and LegacyFluid (single-canvas authority)
-- **Multi-user**: WebRTC data channels with BroadcastChannel fallback
-- **Audio/Haptics**: Tone.js + Web Audio + expo-haptics/Vibration
-- **Persistence**: AsyncStorage
-- **AR**: getUserMedia → VideoTexture via ARContext
-- **Devices**: Web Serial API, WebSocket, Bluetooth LE (planned)
-
----
-
-## What Exists Today
-
-### Core Features ✓
-- **Persistent Fabric**: ExperienceRenderer on web; FabricCanvas on native
-- **Modern Menu System**: Video game-style with sound effects and particles
-- **Locker + Drawers**: Left-edge tabs with "Powered by Nirvana"
-- **TouchParticles + Fluid Engines**: LegacyFluid + FabricWeb3D surface
-- **Experience System**: default-fluid, ar-piano, camera-effects
-
-### AR & Piano ✓
-- **AR Piano Experience**: Full 3D interactive keyboard
-- **AR Camera Overlay**: Live camera feed as background ✓ NEW
-- **MIDI Integration**: External MIDI keyboard support ✓ NEW
-- **Device Control**: S3 Matrix gyro/accelerometer integration
-- **Quick Toggle**: Floating button for instant experience switching
-
-### Device Integration ✓
-- **Microcontroller Support**: ESP32, Arduino, Raspberry Pi, etc.
-- **Web Serial API**: USB connections for devices
-- **WebSocket**: WiFi-connected device support
-- **InputOrchestrator**: Unified device management
-- **Sensor Mapping**: Gyro/accelerometer → fluid interactions
-- **ESP32-S3 Matrix Firmware**: Full featured with OTA updates
-
-### Multi-Device Coordination ✓
-- **Swarm Manager**: Coordinate multiple S3 Matrix devices
-- **Node Assignment**: Assign devices as nodes 1, 2, 3, 4...
-- **Pattern Sync**: Display synchronized patterns across devices
-- **Text Display**: Show words spanning multiple matrices
-- **Effect Broadcasting**: Ripple, wave, pulse across swarm
-
-### Social Features ✓
-- **Social Broadcast System**: Influencer-to-follower communication
-- **Subscription Management**: Follow multiple creators
-- **Live Notifications**: Device lights, vibrations, and patterns
-- **Creator Tools**: Broadcasting interface for influencers
-- **Event System**: Coordinated multi-sensory experiences
-
-### Networking ✓
-- **useWebRTC Hook**: Real-time data channels
-- **useFluidMultiUser**: Multi-user fluid interactions
-- **Connection Status**: Diagnostics with live monitoring
-- **Fallback Support**: BroadcastChannel for local connections
-
----
-
-## Complete Feature List
-
-### User Interface
-- ✅ Persistent Fabric canvas (single-canvas authority)
-- ✅ Video game-style menu system
-- ✅ Sound effects (hover, select, open, close, success, error)
-- ✅ Particle effects on menu interactions
-- ✅ Haptic feedback throughout
-- ✅ Tabbed drawer interface (Controls, Social, Swarm)
-- ✅ Quick experience toggle button
-- ✅ Auto-hiding icon system
-- ✅ Smooth animations and transitions
-
-### Experiences
-- ✅ Fluid Fabric (default) - Liquid 3D surface with touch interaction
-- ✅ AR Piano - Full 3D keyboard with AR camera overlay ✓ NEW
-- ✅ Camera Effects - Real-time filters and effects
-- ⏳ Custom Experiences (via Layer SDK - future)
-
-### Audio & Music
-- ✅ Menu sound effects system
-- ✅ Polyphonic piano synthesizer
-- ✅ Ambient soundscapes
-- ✅ Audio-reactive visualizations
-- ✅ MIDI input support (keyboard, controllers) ✓ NEW
-- ⏳ MIDI output routing (architecture ready)
-- ⏳ Music controls and composition tools (planned)
-
-### Device Integration
-- ✅ ESP32-S3 Matrix support
-- ✅ Web Serial API (USB)
-- ✅ WebSocket (WiFi)
-- ✅ Gyro/accelerometer input
-- ✅ LED matrix output (8x8)
-- ✅ Vibration control
-- ✅ Two-button input
-- ✅ OTA firmware updates
-- ⏳ Bluetooth LE (planned)
-
-### Swarm & Coordination
-- ✅ Multi-device node system
-- ✅ Broadcast messaging
-- ✅ Targeted messaging
-- ✅ Pattern synchronization
-- ✅ Text display across devices
-- ✅ Ripple and wave effects
-- ✅ Health monitoring
-- ⏳ RX-only firmware lock (UI pending)
-
-### Social & Community
-- ✅ Influencer registration
-- ✅ Follower subscriptions
-- ✅ Broadcast events
-- ✅ Live notifications
-- ✅ Creator tools
-- ⏳ Social feed (UI complete, backend pending)
-- ⏳ Event history and replay (planned)
-- ⏳ Content moderation (planned)
-- ⏳ Analytics dashboard (planned)
-
-### Multi-user & Networking
-- ✅ WebRTC data channels
-- ✅ BroadcastChannel fallback
-- ✅ Room-based sessions
-- ✅ Real-time fluid sync
-- ✅ Connection diagnostics
-- ✅ Graceful reconnection
-
----
-
-## Microcontroller Integration
-
-Fabric supports physical devices to create tangible interactive experiences:
-
-### Supported Connections
-- **USB Serial** (Web Serial API)
-- **WiFi/Network** (WebSocket)
-- **Bluetooth LE** (planned)
-
-### Supported Boards
-- **ESP32-S3** (full support with firmware)
-- ESP32 variants
-- Arduino boards
-- Raspberry Pi
-- ARM-based boards
-- Generic microcontrollers
-
-### Features
-- Real-time sensor streaming (accelerometer, gyroscope, temperature)
-- LED matrix control (WS2812/NeoPixel)
-- Sensor-to-fluid interaction mapping
-- Over-the-air (OTA) firmware updates
-- WebSocket and Serial protocols
-- Device discovery and management UI
-
-### Quick Start
-1. Flash firmware to ESP32-S3 Matrix (see `firmware/esp32-s3-matrix/`)
-2. Open Device Manager in Fabric
-3. Connect via USB or WiFi
-4. Tilt/shake device to create fluid interactions
-5. Control LEDs from Fabric touches
-
-See `PROJECT_STATUS_REPORT.md` for comprehensive architecture details.
-
----
-
-## Getting Started
-
-### Installation
+Prerequisites: Node.js and npm. (The repo does not pin a Node version;
+Node 20+ is a safe choice. The standalone signaling server in
+`server/signaling/` declares Node ≥ 18.)
 
 ```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Build for production
-npm run build:web
-
-# Run on iOS
-npm run ios
-
-# Run on Android
-npm run android
+npm ci          # install exactly what the committed lockfile specifies
+npm run dev     # Expo dev server (all targets); it prints a local URL + QR code
 ```
 
-### Environment Configuration
-
-Fabric uses environment variables for configurable endpoints and feature flags. Create a `.env` file in the project root (see `.env.example` for reference):
+For the web app specifically:
 
 ```bash
-# WebRTC Signaling Server (for multi-user features)
-EXPO_PUBLIC_SIGNALING_SERVER_URL=ws://localhost:8080
-# Production: wss://your-signaling-server.com
-
-# Feature Flags (optional)
-# EXPO_PUBLIC_ENABLE_AR_CAMERA=true
-# EXPO_PUBLIC_ENABLE_MIDI_INPUT=true
-# EXPO_PUBLIC_ENABLE_WEBRTC=true
-
-# Debug Settings (optional)
-# EXPO_PUBLIC_DEBUG_MODE=false
-# EXPO_PUBLIC_LOG_LEVEL=info
+npm run web             # dev server in the browser (usually http://localhost:8081)
+npm run build:web       # static web export — the build that gets deployed
 ```
 
-**Note**: The WebRTC signaling server is optional. When not available, Fabric automatically falls back to `BroadcastChannel` for local multi-tab communication. For production deployments, configure a proper signaling server URL.
+`npm run android` and `npm run ios` exist for the Expo native targets;
+the shipped product, and the one this document describes, is the web
+build.
 
-### Using AR Piano
+## Configuration
 
-1. Click the floating toggle button (🎹 icon) or select "AR Piano" in the experience switcher
-2. **Grant camera permission** for AR overlay (optional) ✓ NEW
-3. Touch the piano keys on screen to play notes
-4. **Connect MIDI keyboard** for external input (optional) ✓ NEW
-5. Connect an S3 Matrix device for enhanced control:
-   - Tilt device to modulate volume
-   - Use buttons for haptic feedback
-   - See LED feedback on key presses
+Fabric runs fully with **no keys and no configuration** — the default
+intelligence is on-device. Environment variables only *add* optional
+tiers. Copy `.env.example` to `.env` to use any of them; these are the
+variables the code actually reads:
 
-**New Features:**
-- **AR Camera Background**: Live camera feed displays behind the piano
-- **MIDI Input**: Connect any MIDI keyboard for real-time playing
-- **Visual Status**: Shows camera state and active MIDI notes
+| Variable | What it does |
+|---|---|
+| `EXPO_PUBLIC_SIGNALING_SERVER_URL` | Points the app at your own signaling relay (see below). Unset: the web app uses the built-in production relay; a localhost dev build stays in local mode. |
+| `EXPO_PUBLIC_FANALOGY_LLM_API_KEY` | Turns on Fanalogy's built-in cloud tier. Production sets this on the hosting project behind a hard spend cap. **Not needed to run or evaluate the app.** |
+| `EXPO_PUBLIC_FANALOGY_LLM_BASE_URL` | Cloud endpoint. Default: `https://api.meta.ai/v1` |
+| `EXPO_PUBLIC_FANALOGY_LLM_MODEL` | Cloud model. Default: `muse-spark-1.3` |
 
-### Using Swarm Mode
+`.env.example` also lists optional feature flags (AR camera, MIDI input,
+WebRTC, an ESP32 device default, debug logging). A user can additionally
+save *their own* model endpoint in the app's AI Services panel — a user's
+own model always wins over the built-in cloud, and local/self-hosted
+endpoints (for example a model server on your own network) are accepted.
 
-1. Open NeoLocker drawer (☰ menu)
-2. Switch to "Swarm" tab
-3. Connect multiple S3 Matrix devices
-4. Each device becomes a node (1, 2, 3, 4...)
-5. Try:
-   - **Display Text**: Type a word and watch it span across devices
-   - **Sync All**: Synchronize all nodes
-   - **Ripple Effects**: Trigger cascading patterns
+`docs/AI.md` documents the full model-resolution order.
 
-### Using Social Features
+## How it works
 
-1. Open NeoLocker drawer
-2. Switch to "Social" tab
-3. Subscribe to featured creators
-4. Try broadcasting (creator demo)
-5. Your connected devices will light up when creators send events
+**Stack.** One codebase: Expo 54 / React Native 0.81 / React 19,
+TypeScript, Metro. The web build (react-native-web) is the deployed
+target. 3D uses three.js via React Three Fiber; audio uses Tone.js and
+the Web Audio API.
 
----
+**Sessions and transport.** Browsers talk over WebRTC data channels.
+Peers find each other through a small signaling relay — a Cloudflare
+Worker backed by one Durable Object per room — whose source lives in
+`server/signaling/` next to a plain Node implementation of the same
+protocol. The app ships with the production relay baked in
+(`wss://fabric-signaling.iaminc.workers.dev`). If a network blocks
+peer-to-peer traffic, interaction frames can also relay through that
+same worker; tabs in one browser can also sync over
+BroadcastChannel. To run your own relay: `cd server/signaling && npm
+install && npm start` (or deploy `worker.js` with the included
+`wrangler.toml`), then set `EXPO_PUBLIC_SIGNALING_SERVER_URL` to its
+`wss://` URL and rebuild. `server/signaling/README.md` has the details.
 
-## Architecture
+**Fabrics, layers, and the ghostie.** A *fabric* is a standalone canvas
+with its own rules, modes, and tools — the fluid, the AR Piano, the
+Dancer Stage, See, Camera Effects, The Fold, the Ghostie Playground.
+A fabric's *layers* are the interface and tools it offers (drawing,
+notes, camera, voice). A *ghostie* is each participant's companion: it
+is born from the participant's LifePacket seed (a Game-of-Life pattern
+that serves as their identity — see `src/identity/`), keeps a persistent
+name and signature color, and *possesses* the loaded fabric through its
+layers, acting with the fabric's own tools under the fabric's own rules.
+It never produces words; it acts, draws, plays notes, and sounds — its
+voice is a generative synthesizer, so the same act never sounds
+identical twice.
 
-### Core Principles
-- **Single Canvas Authority**: Fabric canvas never unmounts
-- **Additive Features**: New features alongside existing ones
-- **Modular Design**: Hook-based architecture
-- **Event-Driven**: Real-time coordination
-- **Safety First**: No breaking changes, backwards compatible
+**The Fold — verified compute.** The Fold turns a session into a small
+distributed computer. Folding jobs are posted as bounties on a board and
+split into shards (residue ranges of a structure). A device computes a
+shard and submits a claim; **a claim counts only when the host
+recomputes the shard and the resulting checksum matches** — that is the
+only door to verified work, and the in-app currency (Juice) is paid
+pro-rata for verified shards only. The structures are real: human
+deoxyhemoglobin (4HHB, 574 residues, from RCSB) and the AlphaFold
+prediction for human insulin (AF-P01308, 110 residues), served from
+`public/structures/`. One honesty line, stated in the code as well:
+the relaxation the room computes is a **deterministic demonstration
+computation** — its checksum proves the specified work ran; it is not
+a scientific folding prediction.
 
-### Key Hooks
-- `useMenuSounds()` - Video game menu audio
-- `useSwarmManager()` - Multi-device coordination
-- `useSocialBroadcast()` - Influencer broadcasting
-- `useFluidMultiUser()` - Multi-user fluid sync
-- `useWebRTC()` - Real-time data channels
-- `useDeviceManager()` - Physical device integration
-- `useExperience()` - Experience switching
-- `useHaptics()` - Tactile feedback
-- `useAudioCues()` - Sound effects
+**Hardware (optional).** ESP32-S3 firmware for a physical LED-matrix
+device lives under `firmware/`. No hardware is needed to evaluate
+anything above.
 
-### Component Structure
+## Meta AI in this project
+
+- **Muse Spark (Meta Model API)** is the cloud deliberation tier:
+  when a cloud model is configured, Spark deliberates for the ghostie
+  and composes open-ended performances for the pattern composer
+  (`muse-spark-1.3` via `https://api.meta.ai/v1`; see
+  `src/ai/PatternComposer.ts` and `docs/AI.md`). With nothing
+  configured, the on-device tiers below answer instead.
+- **A Spark-distilled decision corpus.** The ghostie's decision
+  behavior was taught with **3,383 scenario→decision pairs distilled
+  from Muse Spark**, covering the possession model (a ghost acting
+  through a fabric's layers), per-fabric tool rules and refusals,
+  waveform sound-craft, and the Ghostie Playground. The corpus and the
+  training pipeline live in Fanalogy's training workspace, **not in
+  this repo**; this repo carries the decision schema, the strict
+  validator every model answer must pass, and the in-browser decision
+  floor the tiers fall back to.
+- **SAM 3.1** powers segmentation for the **See** fabric (cloud SAM 3.1
+  when a model is configured; on-device grounding otherwise) —
+  natural commands like "touch the apple" are grounded to regions the
+  ghostie can then act on (`src/sam/`).
+- **On-device models (WebLLM / MLC over WebGPU).** Three named tiers,
+  chosen in AI Services: **Ghostie 1B** (Llama 3.2 1B, ≈700 MB —
+  the default), **Ghostie 1.5B** (Qwen 2.5 1.5B, ≈1 GB), and
+  **Ghostie 3B** (Llama 3.2 3B, ≈1.8 GB). The runtime library loads
+  from the esm.sh CDN at first use; weights download once, only after
+  an explicit yes, are cached by the browser, and then work offline.
+- **Muse Code**, Meta's coding agent, was used extensively in
+  developing this project.
+
+## Checks
+
+The repo carries 43 headless check programs in `scripts/`, named
+`*-check.mjs`. They run under Node — no browser, no device — and prove
+behavior rather than eyeball it: the ghostie's voice articulation, the
+canvas/chrome discipline, the Fold's verification door and camera rig,
+the settings and naming law, the structure data's integrity, and more.
+Run one from the repo root after `npm ci`:
+
+```bash
+node scripts/chrome-check.mjs
 ```
-app/
-├── components/
-│   ├── neo/                    # Modern drawer system
-│   │   ├── NeoLocker.tsx       # Main menu drawer
-│   │   ├── SwarmControlDrawer.tsx  # Swarm coordination
-│   │   ├── SocialFeedDrawer.tsx    # Social features
-│   │   └── ...
-│   ├── QuickExperienceToggle.tsx  # Floating toggle
-│   └── ...
-src/
-├── components/
-│   ├── menu/
-│   │   └── MenuParticles.tsx   # Particle effects
-│   ├── piano/
-│   │   └── ARPianoExperience.tsx  # AR Piano
-│   └── ...
-├── hooks/
-│   ├── useMenuSounds.ts        # Menu audio
-│   ├── useSwarmManager.ts      # Swarm coordination
-│   ├── useSocialBroadcast.ts   # Social features
-│   └── ...
-```
 
----
+Most checks are self-contained like that; a few take pre-built bundles
+as arguments, with the exact `esbuild` commands printed in the check
+file's own header (for example `scripts/ghostvoice-check.mjs`).
 
-## Roadmap
+An honest note so a full battery run doesn't surprise you: at this
+commit, three checks carry pre-existing failures — `hotfix24-check`
+(44 passed / 4 failed), `agent-answers-check` (31 passed / 4 failed),
+and `cleanup2-check` (68 passed / 3 failed). The rest of the battery
+passes.
 
-### Completed ✓
-- ✅ Multi-user WebRTC with fallback
-- ✅ Microcontroller integration (ESP32)
-- ✅ Video game menu system
-- ✅ AR Piano experience
-- ✅ Swarm device coordination
-- ✅ Social broadcasting system
-- ✅ Device Manager UI
-- ✅ Experience switching
-- ✅ Sound effects and haptics
+## Repo layout
 
-### In Progress ⏳
-- ⏳ MIDI input/output routing
-- ⏳ AR camera overlay for piano
-- ⏳ RX-only firmware lock
-- ⏳ Hardware testing with multiple devices
-- ⏳ Performance optimization
-- ⏳ Cross-platform testing
+- `app/` — expo-router routes and screens.
+- `src/` — the application itself: `ai/` (model resolution, composer,
+  on-device brain), `ghost/` (the ghostie's brain, peer, voice, tools),
+  `genx/` (The Fold: shards, structures, verification, bounty board
+  data), `sam/` (See-layer segmentation), `identity/` (LifePacket /
+  fDNA identity), `services/` (WebRTC, signaling, LLM, voice, devices),
+  `session/`, `components/`, and the feature areas they serve.
+- `server/signaling/` — the signaling relay: Node server, Cloudflare
+  Worker, and its own README with deploy/self-host instructions.
+- `public/` — static assets served with the app: `structures/` (the
+  Fold's PDB files + index), `animations/` (the Dancer Stage
+  character's animation data), `soundfonts/` (piano sample packs), and
+  `welcome.html` (the landing page).
+- `scripts/` — the headless check programs described above, plus their
+  fixtures.
+- `firmware/` — ESP32-S3 firmware for the optional physical device.
+- `docs/` — `AI.md` (model defaults and resolution order), `DANCER.md`,
+  `LINT.md`. `GETTING_STARTED.md` at the root is a short orientation.
+  The root also carries development-era planning and status documents;
+  they are the project's working papers, not product documentation.
 
-### Planned 📋
-- 📋 Bluetooth LE device support
-- 📋 Layer SDK for custom experiences
-- 📋 Social feed with persistent storage
-- 📋 Event history and replay
-- 📋 Content moderation tools
-- 📋 Analytics dashboard
-- 📋 Marketplace for experiences
-- 📋 Creator monetization tools
+## Status
 
----
+Built by **Fanalogy** (Terrell Hill) during the **Meta Global AI
+Developer Hackathon, October 26 – November 4, 2026** (Startup track —
+Build for Your World). Live at https://fabric.fanalogy.com.
 
-## Safety Rules
-
-### Non-Negotiable
-- ✅ Preserve R3F scene, LegacyFluid, contexts
-- ✅ Never add another full-screen canvas
-- ✅ No app remounts during navigation
-- ✅ Features default off or gated
-- ✅ Small, focused changes only
-- ✅ No heavy dependencies without approval
-
-### Database Safety
-- ✅ NEVER delete existing tables
-- ✅ Use `fabric_` prefix for new tables
-- ✅ RLS policies for all tables
-- ✅ Migrations only for schema changes
-- ✅ Least privilege access
-
----
-
-## Contributing
-
-1. Verify feature doesn't already exist
-2. Use additive code over invasive edits
-3. Maintain backwards compatibility
-4. Use overlays/drawers for UI
-5. Keep Fabric canvas persistent
-6. Include test checklist in PR
-7. Maintain "Powered by Nirvana" branding
-
-### Testing Checklist
-- [ ] 60fps maintained
-- [ ] Multi-user sync works
-- [ ] MIDI triggers correctly
-- [ ] Experience switches smoothly
-- [ ] Devices connect properly
-- [ ] Swarm coordination functions
-- [ ] Social features operational
-- [ ] Sound effects play correctly
-- [ ] Haptics feel appropriate
-- [ ] No memory leaks
-- [ ] Cross-platform compatibility
-
----
-
-## Documentation
-
-- **README.md** (this file) - Complete feature overview and getting started
-- **IMPLEMENTATION_GUIDE.md** - Developer guide with API reference and examples
-- **IMPLEMENTATION_SUMMARY.md** - Executive summary of implementation
-- **HARDWARE_TESTING_GUIDE.md** - Comprehensive hardware testing procedures ✓ NEW
-- **AGENTS.md** - Agent responsibilities and handoffs
-- **AI_RULES.md** - Development guidelines and stack details
-- **MICROCONTROLLER_GUIDE.md** - Device integration guide
-- **PROJECT_STATUS_REPORT.md** - Comprehensive architecture
-- **firmware/esp32-s3-matrix/README.md** - Firmware documentation
-
----
-
-## Support & Community
-
-- **Issues**: GitHub Issues for bug reports
-- **Discussions**: GitHub Discussions for questions
-- **Discord**: Coming soon
-- **Twitter**: Follow for updates
-
----
-
-## License
-
-[Add license information]
-
----
-
-## Acknowledgments
-
-**Powered by Nirvana** - AI-assisted development platform
-
-Built with love by the Fanalogy team and the open source community.
-
----
-
-## Tech Stack Summary
-
-- **Frontend**: React + React Native (Expo)
-- **3D Graphics**: Three.js + React Three Fiber
-- **Audio**: Tone.js + Web Audio API
-- **Networking**: WebRTC + WebSocket
-- **Devices**: Web Serial API + ESP32 firmware
-- **UI**: Custom game-style components
-- **State**: React Hooks + Context
-- **Routing**: Expo Router
-- **Storage**: AsyncStorage + Supabase (planned)
-
----
-
-**Ready to weave reality together? Start with `npm run dev` and explore the Fabric! 🌈✨**
+No license file is included in this repo yet; all rights are reserved
+by Fanalogy unless and until a license is added.
