@@ -89,14 +89,27 @@ import { useAutoMicRequest } from "./useAutoMicRequest";
  * so a known answer means no ask at all. (2) The recognizer's
  * own outcomes now feed that memory (useComposeVoice), so a
  * grant actually persists across surfaces and fabrics.
- * (3) The Voice input setting (Tap to talk / Natural / Both):
- * in Natural and Both, a listener waits for the ghostie's
- * NAME; from the name on, the person just talks and every
- * spoken final enters this same submit path. There is no
- * conversation and no window — the ghostie shows that it
- * hears with its own body (halo, perk; GhostPeer.
+ * (3) The Voice input setting: in Natural, a listener waits
+ * for the ghostie's NAME; from the name on, the person just
+ * talks and every spoken final enters this same submit path.
+ * There is no conversation and no window — the ghostie shows
+ * that it hears with its own body (halo, perk; GhostPeer.
  * expressAttention), and nothing on this bar gains a
  * listening indicator for the natural path.
+ *
+ * Slice 65: the setting is ONE OR THE OTHER (Terrell's
+ * correction, Nov 4) — Natural (hands off the screen) or Tap
+ * to talk (hands on it); the Slice 58 "Both" is gone. In
+ * Natural the listener's lifecycle is its own — this bar
+ * mounting plus the mode and the grant state — and the mic
+ * button is NOT an input door: it carries no arm/disarm and
+ * starts no one-off listen. The only presses that do anything
+ * in Natural are platform compatibility: a tap is the gesture
+ * a blocked (gesture-starved) listener start was waiting for,
+ * and on a browser with no speech recognizer at all the
+ * capture door is the honest remainder (name-listening is
+ * impossible there; listening is never faked). Neither makes
+ * tap part of the mode.
  *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
@@ -186,7 +199,7 @@ export default function ComposeBar() {
   const voice = useComposeVoice(submitText);
 
   // Slice 58: the ghostie's name is the wake phrase, and the
-  // Voice input mode gate decides which doors are open. Both
+  // Voice input mode gate decides which door exists. Both
   // are live subscriptions — a rename or a settings flip
   // reaches the listener the moment it happens.
   const [ghost, setGhost] = useState<GhostPublicState>(() =>
@@ -198,38 +211,44 @@ export default function ComposeBar() {
     ensureVoiceInputModePref();
     return subscribeVoiceInputMode(setMode);
   }, []);
-  // In Natural mode the mic button arms/disarms the listener
-  // (a session choice, not a preference — the setting is the
-  // mode; this is the off switch in reach).
-  const [naturalArmed, setNaturalArmed] = useState(true);
 
   // The one proactive mic ask, framed as the ghostie asking
   // to hear. Silent whenever the grant memory already knows.
   const autoMic = useAutoMicRequest({ ghostName: ghost.ghostName });
 
+  // Slice 65: in Natural the listener lives on its OWN
+  // lifecycle — this voice-capable surface mounted, the mode
+  // set, the grant state known. No button state gates it:
+  // Slice 58's arm/disarm coupling is deleted, because an
+  // arm switch is a tap feature and Natural has none.
   const wake = useWakeWord({
-    enabled: naturalArmedInMode(mode) && naturalArmed,
+    enabled: naturalArmedInMode(mode),
     phrase: ghost.ghostName,
     suspended: voice.listening || voice.busy,
     onAsk: submitText,
   });
 
-  // What the mic button does, per mode. Where the platform
-  // has no recognizer at all (Firefox), every mode falls back
-  // to the tap door rather than stranding the person.
+  // What the mic button does, per mode — one or the other.
+  // Tap: the button is the only voice door (Slice 58's tap
+  // behavior, unchanged). Natural: the button is NOT a door —
+  // the two live branches below are platform compatibility,
+  // not mode features, and nothing describes them otherwise:
+  // a blocked listener start was refused for want of a user
+  // gesture, and this press IS that gesture; and where the
+  // platform has no speech recognizer at all (Firefox), the
+  // capture door is the only way anything can be heard —
+  // name-listening is impossible there, never faked. While
+  // the listener is live, a press does nothing at all: hands
+  // off the screen means the screen is not the input.
   const onMicPress = () => {
-    if (mode === "natural" && wake.state !== "unsupported") {
+    if (mode === "natural") {
       if (wake.state === "blocked") {
-        // A real gesture is exactly what a blocked start was
-        // waiting for.
         wake.restart();
-        setNaturalArmed(true);
-      } else {
-        setNaturalArmed((a) => !a);
+      } else if (wake.state === "unsupported") {
+        voice.toggle();
       }
       return;
     }
-    if (mode === "both" && wake.state === "blocked") wake.restart();
     voice.toggle();
   };
 
@@ -281,10 +300,12 @@ export default function ComposeBar() {
           accessibilityLabel={
             voice.listening
               ? "Stop listening"
-              : mode === "natural" && wake.state !== "unsupported"
-                ? naturalArmed
-                  ? "Stop listening for your ghostie's name"
-                  : "Listen for your ghostie's name"
+              : mode === "natural"
+                ? wake.state === "blocked"
+                  ? "Tap once so your ghostie can start listening"
+                  : wake.state === "unsupported"
+                    ? "Ask by voice"
+                    : "Your ghostie is listening for its name"
                 : "Ask by voice"
           }
           style={({ pressed }) => ({
