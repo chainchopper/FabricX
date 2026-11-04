@@ -83,6 +83,26 @@ export type IdleBehavior = "ambient" | "breathe" | "still";
 export interface ExperienceConfig {
   common: {
     backgroundColor: string;
+    /**
+     * Slice 62: what sits BEHIND the liquid canvas on the fluid
+     * layer — a color preset (the default), one of your photos,
+     * or your live camera feed, with the fluid drawn over it.
+     * Absent = "preset", so every config saved before this slice
+     * keeps its exact meaning. Persisted per layer by
+     * LayerSettingsMirror like every common field.
+     */
+    backgroundSource?: "preset" | "photo" | "camera";
+    /**
+     * The photo backdrop as a data URL, downscaled at pick time
+     * (see BackgroundControls). Read only when backgroundSource
+     * is "photo".
+     */
+    backgroundPhoto?: string;
+    /**
+     * Which camera the live backdrop uses. Absent = "user" —
+     * the front camera is the default (Terrell, Nov 3).
+     */
+    backgroundCameraFacing?: "user" | "environment";
     particleDensity: number;
     audioVolume: number;
     hapticIntensity: number;

@@ -129,6 +129,10 @@ import {
   type ControllerSnapshot,
 } from "../../sensors/controllerStore";
 import ControllerSurface from "./ControllerSurface";
+import {
+  getFluidBackdropSnapshot,
+  subscribeFluidBackdrop,
+} from "./fluidBackdropStore";
 import GenxLayer from "../genx/GenxLayer";
 import PlaygroundLayer from "../playground/PlaygroundLayer";
 import { subscribeGenx } from "../../genx/genxStore";
@@ -916,9 +920,13 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     // compositing — entering the app ON See starts with the camera
     // already beneath a transparent fluid (the watcher below keeps
     // it current across switches; the canvas never remounts).
+    // Slice 62: same honesty for the fluid's own photo/camera
+    // backdrop — a cold load onto a live backdrop starts
+    // transparent over the picture, never opaque over it.
     engine.transparentBackdrop =
       experienceRef.current?.id === "sam-see" ||
-      getHandsSnapshot().cameraLive;
+      getHandsSnapshot().cameraLive ||
+      getFluidBackdropSnapshot().live;
     engine.onError = reportEngineError;
     engine.onLocalInteraction = (interaction) => {
       // Hotfix 1.9: engine stroke points opt into the funnel's
@@ -960,7 +968,8 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     if (engineRef.current) {
       engineRef.current.transparentBackdrop =
         state.activeExperience?.id === "sam-see" ||
-        getHandsSnapshot().cameraLive;
+        getHandsSnapshot().cameraLive ||
+        getFluidBackdropSnapshot().live;
     }
   }, [state.activeExperience?.id]);
 
@@ -973,7 +982,28 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     return subscribeHands((s) => {
       if (engineRef.current) {
         engineRef.current.transparentBackdrop =
-          experienceRef.current?.id === "sam-see" || s.cameraLive;
+          experienceRef.current?.id === "sam-see" ||
+          s.cameraLive ||
+          getFluidBackdropSnapshot().live;
+      }
+    });
+  }, []);
+
+  // Slice 62: the fluid's own backdrop (FluidBackdrop) — a photo
+  // or a live camera the user put behind the liquid canvas. While
+  // the backdrop store says a picture is live beneath the canvas,
+  // the same compositing applies (picture behind, fluid over), so
+  // the flag follows that store too. The store says live ONLY
+  // while a picture is actually on screen: a camera that was
+  // denied or never started leaves the flag false and the canvas
+  // paints its own opaque backdrop, exactly as before.
+  useEffect(() => {
+    return subscribeFluidBackdrop(() => {
+      if (engineRef.current) {
+        engineRef.current.transparentBackdrop =
+          experienceRef.current?.id === "sam-see" ||
+          getHandsSnapshot().cameraLive ||
+          getFluidBackdropSnapshot().live;
       }
     });
   }, []);

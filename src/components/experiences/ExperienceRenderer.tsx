@@ -7,6 +7,7 @@ import Ambience from "../audio/Ambience";
 import AutoComposer from "../audio/AutoComposer";
 import PianoNoteLayer from "../piano/PianoNoteLayer";
 import SamLayer, { SamCameraBackground } from "../sam/SamLayer";
+import FluidBackdrop from "../fluid/FluidBackdrop";
 import HandsLayer, { HandsCameraBackground } from "../hands/HandsLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
@@ -190,6 +191,19 @@ export default function ExperienceRenderer() {
           opacity: curtainOpacity,
         }}
       />
+
+      {/* Fluid backdrop (Slice 62): the fluid layer's own photo /
+          camera background, in the same never-moving slot
+          discipline as the layers above — appended last so no
+          existing sibling's tree position shifts and the canvas
+          never remounts. Inside, the surface gates itself on the
+          fluid layer + its Background source and renders at
+          zIndex -1: the user's photo or camera feed UNDER the
+          WebFluidBackground canvas, which runs in its
+          transparent-backdrop mode while the backdrop store says
+          a picture is live (LegacyFluid follows the store). The
+          component owns the camera stream's whole lifecycle. */}
+      <FluidBackdrop />
     </View>
   );
 }
