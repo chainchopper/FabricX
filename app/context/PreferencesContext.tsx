@@ -2,8 +2,9 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import { getJSON, setJSON } from "../utils/storage";
 import { mirrorHapticsPreference } from "../../src/sensory/vibration";
 import {
-  isVoiceInputMode,
+  DEFAULT_VOICE_INPUT_MODE,
   mirrorVoiceInputMode,
+  normalizeVoiceInputMode,
   type VoiceInputMode,
 } from "../../src/sensory/voiceMode";
 
@@ -18,8 +19,13 @@ type PreferencesContextValue = {
   setAudioEnabled: (v: boolean) => void;
   toggleAudio: () => void;
 
-  // Slice 58: how a conversation with the ghostie starts —
-  // tap to talk (default, today's behavior), wake word, or both.
+  // Slice 58, corrected by Slice 65: how talking to the
+  // ghostie starts — ONE OR THE OTHER. Natural (hands off the
+  // screen; the ghostie listens for its name; fresh-install
+  // default) or Tap to talk (hands on the screen; the mic
+  // button is the only door). There is no "both": tap-shaped
+  // moments inside Natural are platform compatibility, never
+  // a mode. A stored Slice 58 "both" loads as "natural".
   voiceInputMode: VoiceInputMode;
   setVoiceInputMode: (m: VoiceInputMode) => void;
 
@@ -39,7 +45,7 @@ const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const [hapticsEnabled, setHapticsEnabledState] = useState<boolean>(true);
   const [audioEnabled, setAudioEnabledState] = useState<boolean>(true);
-  const [voiceInputMode, setVoiceInputModeState] = useState<VoiceInputMode>("tap");
+  const [voiceInputMode, setVoiceInputModeState] = useState<VoiceInputMode>(DEFAULT_VOICE_INPUT_MODE);
 
   // New icon behavior
   const [iconsAutoHide, setIconsAutoHideState] = useState<boolean>(true);
@@ -57,7 +63,11 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     } | null>(STORAGE_KEY, null).then((saved) => {
       if (saved && typeof saved.hapticsEnabled === "boolean") setHapticsEnabledState(saved.hapticsEnabled);
       if (saved && typeof saved.audioEnabled === "boolean") setAudioEnabledState(saved.audioEnabled);
-      if (saved && isVoiceInputMode(saved.voiceInputMode)) setVoiceInputModeState(saved.voiceInputMode);
+      // Slice 65: normalize on load — a stored "both" from
+      // Slice 58 migrates to "natural" here, and the save
+      // effect below re-persists it in the two-mode model.
+      const savedMode = saved ? normalizeVoiceInputMode(saved.voiceInputMode) : null;
+      if (savedMode) setVoiceInputModeState(savedMode);
       if (saved && typeof saved.iconsAutoHide === "boolean") setIconsAutoHideState(saved.iconsAutoHide);
       if (saved && typeof saved.iconsAutoHideTimeoutSec === "number") setIconsAutoHideTimeoutSecState(saved.iconsAutoHideTimeoutSec);
       if (saved && typeof saved.iconsLockMode === "string") setIconsLockModeState(saved.iconsLockMode);

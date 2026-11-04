@@ -4212,7 +4212,11 @@ export default function FabricMenu() {
           value={voiceOpen}
           onPress={() => setVoiceOpen(!voiceOpen)}
         />
-        {/* Slice 58: how talking to the ghostie starts. The
+        {/* Slice 58, corrected by Slice 65: how talking to the
+            ghostie starts — ONE OR THE OTHER (Terrell, Nov 4:
+            "there is no natural or both … one keeps hands off
+            the screen one requires them"). The row offers
+            Natural or Tap to talk, never a blend. The
             preference lives in fabric_prefs_v1 with the other
             universal switches (PreferencesContext owns it);
             the wake phrase is the ghostie's own name, and the
@@ -4228,9 +4232,7 @@ export default function FabricMenu() {
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
           {prefs.voiceInputMode === "tap"
             ? "Tap the mic to talk to your ghostie."
-            : prefs.voiceInputMode === "natural"
-              ? `Say “${ghost.ghostName ?? "your ghostie's name"}” to talk to your ghostie — it perks up when it hears its name, and answers in its own way.`
-              : `Tap the mic, or say “${ghost.ghostName ?? "your ghostie's name"}” to talk to your ghostie.`}
+            : `Say “${ghost.ghostName ?? "your ghostie's name"}” to talk to your ghostie — it perks up when it hears its name, and answers in its own way.`}
         </Text>
 
         {/* Diagnostics — the panel that used to need a drawer hunt. */}

@@ -18,10 +18,16 @@
 //    refusal (no user activation on record) is NOT remembered
 //    as a denial — nobody refused anything.
 //
-// 3. Voice modes, configurable: Tap to talk / Natural / Both,
-//    default tap (nothing regresses silently). §A drives the
-//    gate (src/sensory/voiceMode): default, labels, cycle,
-//    mirror, persisted read from fabric_prefs_v1. §D pins the
+// 3. Voice modes, configurable — corrected by Slice 65
+//    (Terrell, Nov 4): ONE OR THE OTHER, Natural or Tap to
+//    talk; there is no "both" (tap inside Natural is platform
+//    compatibility, not a mode), and the fresh-install
+//    default is natural. Slice 65's own check (voice65-check)
+//    pins the two-mode model, the stored-"both" migration,
+//    and the listener's decoupling from the mic button; §A
+//    here drives the same gate (src/sensory/voiceMode) at the
+//    corrected pins: default, labels, cycle, mirror,
+//    persisted read from fabric_prefs_v1. §D pins the
 //    settings row (FabricMenu, SETTINGS & HELP) and its copy:
 //    "Say '{name}' to talk to your ghostie."
 //
@@ -78,29 +84,26 @@ async function bundle(rel, out, extra = []) {
     ALIAS
   );
   vm.resetVoiceInputModeForTests();
-  check("§A default mode is tap (today's behavior)", vm.voiceInputModeNow() === "tap");
+  check("§A default mode is natural (Slice 65: fresh installs start hands-free)", vm.voiceInputModeNow() === "natural");
   check(
-    "§A labels are the settings words",
+    "§A labels are the settings words (two modes, no Both)",
     vm.voiceInputModeLabel("tap") === "Tap to talk" &&
-      vm.voiceInputModeLabel("natural") === "Natural" &&
-      vm.voiceInputModeLabel("both") === "Both"
+      vm.voiceInputModeLabel("natural") === "Natural"
   );
   check(
-    "§A cycle runs tap → natural → both → tap",
-    vm.nextVoiceInputMode("tap") === "natural" &&
-      vm.nextVoiceInputMode("natural") === "both" &&
-      vm.nextVoiceInputMode("both") === "tap"
+    "§A cycle runs natural → tap → natural (one or the other)",
+    vm.nextVoiceInputMode("natural") === "tap" &&
+      vm.nextVoiceInputMode("tap") === "natural"
   );
   check(
-    "§A the name-listener is armed in natural + both only",
+    "§A the name-listener is armed in natural only",
     vm.naturalArmedInMode("tap") === false &&
-      vm.naturalArmedInMode("natural") === true &&
-      vm.naturalArmedInMode("both") === true
+      vm.naturalArmedInMode("natural") === true
   );
   let seen = null;
   const off = vm.subscribeVoiceInputMode((m) => (seen = m));
-  vm.mirrorVoiceInputMode("both");
-  check("§A mirror flips the gate + notifies", vm.voiceInputModeNow() === "both" && seen === "both");
+  vm.mirrorVoiceInputMode("tap");
+  check("§A mirror flips the gate + notifies", vm.voiceInputModeNow() === "tap" && seen === "tap");
   off();
   // Persisted read: the gate reads fabric_prefs_v1 (and never writes it).
   vm.resetVoiceInputModeForTests();
