@@ -2,24 +2,34 @@ import React, { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Tone from "tone";
 import { useExperience } from "../../contexts/ExperienceContext";
+import { subscribeGhostMusicPhrases } from "../../ghost/ghostMusicStore";
+import { phraseToEvents } from "./phraseEvents";
 
-type ScaleId = "ionian" | "dorian" | "mixolydian" | "minor";
-type PatternId = "up" | "random" | "triad";
-
-const SCALES: Record<ScaleId, Array<number>> = {
-  ionian:      [0, 2, 4, 5, 7, 9, 11, 12],
-  dorian:      [0, 2, 3, 5, 7, 9, 10, 12],
-  mixolydian:  [0, 2, 4, 5, 7, 9, 10, 12],
-  minor:       [0, 2, 3, 5, 7, 8, 10, 12],
-};
-
-function midiToNote(m: number): string {
-  const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-  const name = names[m % 12];
-  const octave = Math.floor(m / 12) - 1;
-  return `${name}${octave}`;
-}
-
+/**
+ * AutoComposer (Slice 68) — the Generative-music RENDERER.
+ *
+ * Until Slice 68 this component was a standalone player: it
+ * owned a Tone.Sequence and chose every pitch itself (a fixed
+ * ascending loop, a fixed triad cycle, or Math.random over a
+ * scale pool). No part of the ghost's decision path fed it,
+ * which is exactly the "mockup" Terrell called out on Nov 4,
+ * 2026: "if no intelligence is attached to this, we fail."
+ *
+ * Now the intelligence lives where every other ghost act
+ * lives — the brain (GhostBrain's music overlay authors each
+ * phrase from temperament, perception and room state under the
+ * standing request GhostPeer feeds it) — and this component is
+ * demoted to a loudspeaker: it subscribes to the authored-
+ * phrase store and schedules EXACTLY the notes the brain
+ * wrote, at the phrase's own tempo, through phraseToEvents
+ * (the one pure transform, shared with the music check). It
+ * contains no pitch choice, no pattern, no randomness.
+ *
+ * Honest silence: when the ghost is off or absent in the
+ * layer, no phrases are authored, nothing arrives here, and
+ * the music does not play. The toggle asks the GHOST to play;
+ * there is no fallback sequencer pretending otherwise.
+ */
 export default function AutoComposer() {
   if (Platform.OS !== "web") return null;
 
@@ -30,14 +40,10 @@ export default function AutoComposer() {
   const isDefaultFluid = activeExperience?.id === "default-fluid";
   const s = (experienceConfig.specific as Record<string, unknown>) || {};
   const enabled = Boolean((s.musicEnabled as boolean) ?? false);
-  const bpm = Number.isFinite(s.musicTempo) ? Number(s.musicTempo) : 100;
-  const scale = ((s.musicScale as ScaleId) ?? "ionian") as ScaleId;
-  const pattern = ((s.musicPattern as PatternId) ?? "up") as PatternId;
   // Overall volume comes from common config (0..1 mapped to dB)
   const vol = Number(experienceConfig.common?.audioVolume ?? 0.7);
 
   const synthRef = useRef<Tone.PolySynth<Tone.Synth> | null>(null);
-  const seqRef = useRef<Tone.Sequence | null>(null);
 
   useEffect(() => {
     if (!isDefaultFluid || !enabled) {
@@ -46,11 +52,9 @@ export default function AutoComposer() {
 
     let disposed = false;
 
-    const start = async () => {
+    const ensureSynth = async (): Promise<Tone.PolySynth<Tone.Synth> | null> => {
       await Tone.start().catch(() => {});
-      if (disposed) return;
-
-      // Create synth if not present
+      if (disposed) return null;
       if (!synthRef.current) {
         const synth = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: "sine" },
@@ -59,69 +63,41 @@ export default function AutoComposer() {
         }).toDestination();
         synthRef.current = synth;
       }
-
       // Volume mapping -36dB..0dB
       Tone.Destination.volume.value = -36 + Math.max(0, Math.min(1, vol)) * 36;
+      return synthRef.current;
+    };
 
-      // Build note pool in C4 range
-      const base = 60 + 12; // C5 base range
-      const offsets = SCALES[scale] || SCALES.ionian;
-      const notes: string[] = offsets.map((off) => midiToNote(base + off));
+    // Warm the synth up front so the first authored phrase is
+    // not lost to audio-context startup.
+    void ensureSynth();
 
-      // Pattern function
-      const pickNote = (() => {
-        if (pattern === "random") {
-          return () => notes[Math.floor(Math.random() * notes.length)];
-        }
-        if (pattern === "triad") {
-          const triadIdx = [0, 2, 4, 7].map((i) => i % notes.length);
-          let j = 0;
-          return () => {
-            const n = notes[triadIdx[j % triadIdx.length]];
-            j++;
-            return n;
-          };
-        }
-        // "up" arpeggio
-        let i = 0;
-        return () => {
-          const n = notes[i % notes.length];
-          i++;
-          return n;
-        };
-      })();
-
-      // Create/recreate sequence
-      seqRef.current?.dispose();
-      const seq = new Tone.Sequence(
-        (time) => {
-          const n = pickNote();
+    const unsubscribe = subscribeGhostMusicPhrases((phrase) => {
+      void (async () => {
+        const synth = await ensureSynth();
+        if (!synth || disposed) return;
+        const startAt = Tone.now() + 0.06;
+        for (const ev of phraseToEvents(phrase)) {
           try {
-            synthRef.current?.triggerAttackRelease(n, "8n", time, 0.7);
+            synth.triggerAttackRelease(
+              ev.note,
+              ev.durationSec,
+              startAt + ev.offsetSec,
+              ev.velocity
+            );
           } catch {
             // ignore synth trigger failures
           }
-        },
-        new Array(16).fill(0), // 16 steps; actual pitch chosen in callback
-        "8n"
-      );
-      seqRef.current = seq;
-
-      Tone.Transport.bpm.value = Math.max(40, Math.min(180, Math.round(bpm)));
-      try { seq.start(); } catch {}
-      try { Tone.Transport.start("+0.05"); } catch {}
-    };
-
-    void start();
+        }
+      })();
+    });
 
     return () => {
       disposed = true;
-      try { seqRef.current?.stop(); } catch {}
-      try { seqRef.current?.dispose(); } catch {}
-      seqRef.current = null;
+      unsubscribe();
       // Keep synth alive for fast resume; Tone dest remains configured
     };
-  }, [isDefaultFluid, enabled, bpm, scale, pattern, vol]);
+  }, [isDefaultFluid, enabled, vol]);
 
   return null;
 }

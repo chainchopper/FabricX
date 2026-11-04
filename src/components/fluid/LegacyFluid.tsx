@@ -53,6 +53,8 @@ import {
 import type { GhostFabricContext } from "../../ghost/GhostBrain";
 import { isGhostNoteLayer } from "../../ghost/GhostBrain";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
+import { publishGhostMusicPhrase } from "../../ghost/ghostMusicStore";
+import { fetchFirstMusicPackSeed } from "../../ghost/midiPhrase";
 import { vibrate } from "../../sensory/vibration";
 import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
 import { useGhostSharedSettings } from "../../ghost/ghostSharedPref";
@@ -557,6 +559,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     getFabricContext: getGhostFabricContext,
     onDrawRecipe: onGhostDrawRecipe,
     onNote: onGhostNote,
+    onMusicPhrase: (phrase) => {
+      // Slice 68: a phrase the brain authored, complete — hand
+      // it to the renderer untouched (see ghostMusicStore).
+      publishGhostMusicPhrase(phrase);
+    },
     onSfx: (kind, sfxCtx) => {
       // Own ghost: sounds are pitched from its signature hue.
       // Slice 47: the peer's articulation context (the causing
@@ -573,6 +580,61 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   useEffect(() => {
     if (ghost.identity) ghostSelfHueRef.current = ghost.identity.hue;
   }, [ghost.identity]);
+
+  // Slice 68: the Generative-music standing request. While the
+  // toggle is on and the ghost is present in this layer, the
+  // layer's music framing — the human's chosen scale, the
+  // pattern control (now a hint the brain weighs), and the
+  // tempo — stands in the peer, and the brain authors phrases
+  // against it on its phrase clock. Toggle off, or the ghost
+  // out of the layer, clears the request: no request, no
+  // phrases, and the renderer stays silent rather than faking
+  // a performance nobody authored.
+  const musicSpecific = state.experienceConfig?.specific as
+    | Record<string, unknown>
+    | undefined;
+  const musicEnabled = Boolean(musicSpecific?.musicEnabled ?? false);
+  const musicScale =
+    typeof musicSpecific?.musicScale === "string"
+      ? musicSpecific.musicScale
+      : "ionian";
+  const musicPattern =
+    typeof musicSpecific?.musicPattern === "string"
+      ? musicSpecific.musicPattern
+      : "up";
+  const musicTempo = Number.isFinite(musicSpecific?.musicTempo)
+    ? Number(musicSpecific?.musicTempo)
+    : 100;
+  useEffect(() => {
+    ghostRef.current.setMusicStanding(
+      musicEnabled && ghostLayerEnabled
+        ? {
+            scale: musicScale,
+            patternHint: musicPattern,
+            tempoBpm: musicTempo,
+          }
+        : null
+    );
+  }, [musicEnabled, musicScale, musicPattern, musicTempo, ghostLayerEnabled]);
+
+  // Slice 68: the MIDI pack seam — the first bundled pack's
+  // seed phrase loads once (packs are static assets) and waits
+  // in the peer for the brain to quote and vary. Best-effort:
+  // no pack loaded, no quote — phrases are still authored.
+  const musicPackLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!musicEnabled || musicPackLoadedRef.current) return;
+    musicPackLoadedRef.current = true;
+    let cancelled = false;
+    void fetchFirstMusicPackSeed().then((seed) => {
+      if (!cancelled && seed) {
+        ghostRef.current.setMusicPackNotes(seed.notes);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [musicEnabled]);
 
   // Per-ghost render-path tracking for visiting ghosts' sounds: last
   // position (sniff proximity), signature hue learned from their splat

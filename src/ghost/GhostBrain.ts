@@ -111,6 +111,7 @@ export const GHOST_INTENTS = [
   "draw",
   "play-note",
   "compose",
+  "play-music",
 ] as const;
 export type GhostIntent = (typeof GHOST_INTENTS)[number];
 
@@ -584,6 +585,7 @@ export const GHOST_TOOL_IDS = [
   "heartbeat-answer",
   "note-perform",
   "sound-craft",
+  "play-music",
 ] as const;
 
 /**
@@ -607,6 +609,7 @@ export const GHOST_FABRIC_TOOL_MANIFEST: Record<
     "verb-perform",
     "heartbeat-answer",
     "sound-craft",
+    "play-music",
   ],
   // The ghostie's own playground (its test fabric): the whole
   // bench is out — every tool the registry holds, sound-craft
@@ -620,6 +623,12 @@ export const GHOST_FABRIC_TOOL_MANIFEST: Record<
     "heartbeat-answer",
     "note-perform",
     "sound-craft",
+    // Slice 68: the bench holds every tool the registry holds —
+    // play-music included. It can still only FIRE under a
+    // standing request with a due phrase clock, which only the
+    // fluid's Generative-music toggle creates; the playground
+    // offers the tool, the request never stands there.
+    "play-music",
   ],
   // The piano: the full music surface — the note bus is its own.
   "ar-piano": [
@@ -678,6 +687,7 @@ export const GHOST_INTENT_TOOL: Record<GhostIntent, string> = {
   draw: "draw",
   "play-note": "play-note",
   compose: "sound-craft",
+  "play-music": "play-music",
 };
 
 /**
@@ -851,6 +861,14 @@ export interface GhostScenario {
    * legacy scenario and the whole v1 dataset stay byte-identical.
    */
   genx?: GhostGenxContext;
+  /**
+   * Slice 68: the standing Generative-music request (see
+   * GhostMusicContext). Present only while the fluid's music
+   * toggle is on and the host feeds the peer a standing
+   * request — absent on every legacy scenario, so the music
+   * overlay never fires anywhere else.
+   */
+  music?: GhostMusicContext;
 }
 
 /** Who said the utterance, as far as this client honestly knows. */
@@ -1000,6 +1018,8 @@ export interface GhostDecision {
   note_name: string | null;
   /** Slice 52: the SOUND-CRAFT tool's composition; null unless intent is "compose". */
   sound_spec: GhostSoundSpec | null;
+  /** Slice 68: the PLAY-MUSIC tool's authored phrase; null unless intent is "play-music". */
+  music_phrase: GhostMusicPhrase | null;
   intensity: number;
   linger_s: number;
 }
@@ -1127,6 +1147,21 @@ export function validateGhostDecision(
     if (!soundSpec) return null;
   }
 
+  // Slice 68: "play-music" carries the same structural
+  // discipline again — the music_phrase is required and must
+  // sanitize to a real authored phrase — PLUS the standing-
+  // request law: the intent validates only when the scenario
+  // carries a DUE music request. The Generative-music toggle
+  // is the human's standing ask; no tier may invent music
+  // nobody asked for, and a phrase on any other intent is
+  // dropped, never fatal.
+  let musicPhrase: GhostMusicPhrase | null = null;
+  if (intent === "play-music") {
+    musicPhrase = sanitizeGhostMusicPhrase(d.music_phrase);
+    if (!musicPhrase) return null;
+    if (scenario && scenario.music?.due !== true) return null;
+  }
+
   let moodShift: GhostBrainTemperament | null = null;
   if (d.mood_shift !== undefined && d.mood_shift !== null) {
     if (
@@ -1161,6 +1196,7 @@ export function validateGhostDecision(
     draw_shape: drawShape,
     note_name: noteName,
     sound_spec: soundSpec,
+    music_phrase: musicPhrase,
     intensity,
     linger_s: linger,
   };
@@ -1292,6 +1328,7 @@ const dec = (
   draw_shape: null,
   note_name: null,
   sound_spec: null,
+  music_phrase: null,
   intensity,
   linger_s,
 });
@@ -1634,6 +1671,409 @@ export function genxDecisionFor(
  * output is run through the same validator as a Spark reply, so
  * both tiers share one safety gate. Never throws.
  */
+/* ------------------------------------------------------------------ */
+/* Generative music (Slice 68, "the brain plays")                      */
+/* ------------------------------------------------------------------ */
+/*
+ * Terrell's call (Nov 4, 2026): "Generative music seems to just
+ * play music rather than give the model the tools it needs to
+ * do so — if no intelligence is attached to this, it's mockup
+ * work." He was right about the build he was looking at: the
+ * toggle mounted a standalone sequencer (a fixed scale loop, a
+ * fixed triad cycle, or Math.random over a scale pool) that no
+ * part of the ghost's decision path ever fed.
+ *
+ * This section is the fix, built the way every other ghost act
+ * is built — a decision, not a player:
+ *
+ *   - The toggle is a STANDING REQUEST from the human. While it
+ *     is on, the host (GhostPeer) feeds the request into the
+ *     deliberation scenario (scenario.music) and, on the
+ *     phrase clock, marks one deliberation DUE. Only a due
+ *     deliberation may answer with music — the validator
+ *     refuses "play-music" without a due request, so no brain
+ *     tier can invent music nobody asked for.
+ *   - The phrase is AUTHORED here, by the overlay below, from
+ *     the same digest every other overlay reads: temperament,
+ *     the last note a human played (recent_events), the last
+ *     note the ghost itself played, room energy trend, quiet
+ *     length — plus the human's musical framing from the
+ *     toggle's own controls (scale = the key they chose,
+ *     tempo, and the pattern control demoted to a HINT the
+ *     brain weighs and may depart from, the way a musician
+ *     treats a requested style). Nothing in the phrase comes
+ *     from a fixed sequence, and the walk is seeded by the
+ *     ghost's identity + phrase count + state, so the same
+ *     ghost in the same state plays the same phrase (its
+ *     choices are ITS choices, reproducible) while a different
+ *     state — another temperament, another heard note, a
+ *     rising room — authors a different one. The check script
+ *     proves both halves.
+ *   - A MIDI pack seed may ride the request (pack_notes, from
+ *     the pack seam in midiPhrase.ts): when one does, the
+ *     brain QUOTES its contour — transposed into the chosen
+ *     scale — and then varies onward in its own temperament.
+ *     Selection and variation, authored like everything else.
+ *   - The renderer (AutoComposer) is demoted to a loudspeaker:
+ *     it schedules exactly the authored phrase on its synth
+ *     and chooses nothing. If the ghost is off or absent in
+ *     the layer, no phrases are authored and the music is
+ *     SILENT — the honest semantics of "your ghostie plays
+ *     for you": no ghost, no performance. The old standalone
+ *     sequencer is deleted, not kept as a fallback.
+ */
+
+/** The four scales the toggle offers — semitone offsets over a tonic. */
+export const GHOST_MUSIC_SCALES: Record<string, readonly number[]> = {
+  ionian: [0, 2, 4, 5, 7, 9, 11],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+};
+
+/** One authored note in a phrase: bus vocabulary, placed on the step grid. */
+export interface GhostMusicPhraseNote {
+  note: string;
+  step: number;
+  len_steps: number;
+  velocity: number;
+}
+
+/** A phrase the brain authored: notes on a step grid at a tempo. */
+export interface GhostMusicPhrase {
+  bpm: number;
+  steps: number;
+  notes: GhostMusicPhraseNote[];
+}
+
+/**
+ * The standing Generative-music request, riding the scenario
+ * (Slice 68). Built by GhostPeer from the layer's music config
+ * while the toggle is on; `due` is the one-shot phrase-clock
+ * mark — it is true on exactly the deliberations the clock
+ * fired, and it is what licenses a "play-music" decision.
+ */
+export interface GhostMusicContext {
+  due: boolean;
+  scale: string;
+  pattern_hint: string;
+  tempo_bpm: number;
+  phrase_index: number;
+  last_played_note: string | null;
+  last_phrase_signature: string | null;
+  pack_notes: number[] | null;
+}
+
+/** The refusal the registry names when no standing request is live. */
+export const GHOST_MUSIC_REFUSAL_TEXT =
+  "no standing music request in this fabric";
+
+export const GHOST_MUSIC_PHRASE_STEPS = 16;
+const GHOST_MUSIC_MAX_NOTES = 24;
+
+/**
+ * Clamp an unknown value to a GhostMusicPhrase, or null when it
+ * is not one — the sanitizeGhostSoundSpec discipline: every
+ * note must be in the bus vocabulary, placed inside the grid,
+ * and the phrase must actually contain notes (an empty phrase
+ * is not a decision).
+ */
+export function sanitizeGhostMusicPhrase(
+  raw: unknown
+): GhostMusicPhrase | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const bpm =
+    typeof rec.bpm === "number" && Number.isFinite(rec.bpm)
+      ? Math.min(180, Math.max(40, Math.round(rec.bpm)))
+      : 100;
+  const steps =
+    typeof rec.steps === "number" && Number.isFinite(rec.steps)
+      ? Math.min(32, Math.max(4, Math.floor(rec.steps)))
+      : GHOST_MUSIC_PHRASE_STEPS;
+  if (!Array.isArray(rec.notes) || rec.notes.length === 0) return null;
+  const notes: GhostMusicPhraseNote[] = [];
+  const seenStarts = new Set<number>();
+  for (const item of rec.notes.slice(0, GHOST_MUSIC_MAX_NOTES)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const n = item as Record<string, unknown>;
+    if (!isGhostNoteName(n.note)) continue;
+    const step =
+      typeof n.step === "number" && Number.isFinite(n.step)
+        ? Math.floor(n.step)
+        : -1;
+    if (step < 0 || step >= steps || seenStarts.has(step)) continue;
+    seenStarts.add(step);
+    const len =
+      typeof n.len_steps === "number" && Number.isFinite(n.len_steps)
+        ? Math.min(8, Math.max(1, Math.floor(n.len_steps)))
+        : 1;
+    const velocity =
+      typeof n.velocity === "number" && Number.isFinite(n.velocity)
+        ? Math.min(1, Math.max(0.05, n.velocity))
+        : 0.6;
+    notes.push({ note: n.note as string, step, len_steps: len, velocity });
+  }
+  if (notes.length === 0) return null;
+  notes.sort((a, b) => a.step - b.step);
+  return { bpm, steps, notes };
+}
+
+/** A phrase's identity, for the never-repeat-yourself law. */
+export function ghostMusicPhraseSignature(phrase: GhostMusicPhrase): string {
+  return phrase.notes.map((n) => `${n.step}:${n.note}`).join("|");
+}
+
+/** The phrase's length in seconds (steps are eighth notes). */
+export function ghostMusicPhraseSeconds(phrase: GhostMusicPhrase): number {
+  return (phrase.steps * 30) / phrase.bpm;
+}
+
+/** Small deterministic PRNG — the buildDrawRecipe discipline. */
+function musicRng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function musicSeedFor(scenario: GhostScenario, salt: number): number {
+  const id = scenario.ghost_identity;
+  const basis = `${id?.name ?? "Ghost"}|${Math.round(id?.hue ?? 0)}|${scenario.temperament}|${salt}`;
+  let h = 2166136261;
+  for (let i = 0; i < basis.length; i++) {
+    h ^= basis.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Author one phrase from the ghost's live state. Pure: the same
+ * scenario authors the same phrase. See the section header for
+ * the laws it follows.
+ */
+function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
+  const ctx = scenario.music;
+  if (!ctx) return null;
+  const scale =
+    GHOST_MUSIC_SCALES[ctx.scale] ?? GHOST_MUSIC_SCALES.ionian;
+  const bpm = Math.min(180, Math.max(40, Math.round(ctx.tempo_bpm || 100)));
+  const hint = ctx.pattern_hint;
+
+  // The tonic follows what the ghost last HEARD (a human's
+  // played note rides recent_events) or last PLAYED; untouched
+  // rooms start at C5, the old player's home octave.
+  let heard: number | null = null;
+  for (const label of scenario.recent_events) {
+    const m = /^human played ([A-G]#?[0-8])$/.exec(label);
+    if (m) heard = ghostNoteNumber(m[1]);
+  }
+  const anchor =
+    heard ??
+    (ctx.last_played_note && isGhostNoteName(ctx.last_played_note)
+      ? ghostNoteNumber(ctx.last_played_note)
+      : null) ??
+    72;
+  const tonicPc = ((anchor % 12) + 12) % 12;
+  let tonic = 60 + tonicPc;
+  while (tonic + 12 <= anchor) tonic += 12;
+  // The degree ladder: every scale note across two octaves
+  // around the tonic, indexed so the walk can roam.
+  const ladder: number[] = [];
+  for (let midi = tonic - 12; midi <= tonic + 23; midi++) {
+    const pc = (((midi - tonic) % 12) + 12) % 12;
+    if (scale.includes(pc)) ladder.push(midi);
+  }
+  if (ladder.length < 7) return null;
+  let degree = ladder.indexOf(tonic);
+  if (degree < 0) degree = Math.floor(ladder.length / 2);
+
+  const t = scenario.temperament;
+  let density =
+    t === "playful" ? 11 : t === "curious" ? 9 : t === "affectionate" ? 8 : t === "sassy" ? 7 : 4;
+  if (scenario.room_energy_trend === "rising") density += 2;
+  if (scenario.room_energy_trend === "falling") density -= 2;
+  if (scenario.seconds_since_human_touch > 60) density -= 1;
+  density = Math.max(3, Math.min(14, density));
+
+  const baseVelocity =
+    t === "playful" ? 0.8 : t === "sassy" ? 0.72 : t === "curious" ? 0.65 : t === "affectionate" ? 0.6 : 0.45;
+
+  const build = (salt: number): GhostMusicPhrase => {
+    const rand = musicRng(
+      musicSeedFor(scenario, (ctx.phrase_index + 1) * 7919 + salt)
+    );
+    const notes: GhostMusicPhraseNote[] = [];
+    let deg = degree;
+    // Pack quote: the seed phrase's contour, transposed into
+    // this scale from the tonic, opens the phrase; the walk
+    // varies onward from wherever the quote lands.
+    const pack =
+      ctx.pack_notes && ctx.pack_notes.length >= 3 ? ctx.pack_notes : null;
+    let step = 0;
+    if (pack) {
+      const packRoot = pack[0];
+      const quoteLen = Math.min(pack.length, 7);
+      for (let i = 0; i < quoteLen && step < GHOST_MUSIC_PHRASE_STEPS; i++) {
+        const target = tonic + (pack[i] - packRoot);
+        let best = ladder[deg];
+        let bestDist = Infinity;
+        for (const midi of ladder) {
+          const d = Math.abs(midi - target);
+          if (d < bestDist) {
+            bestDist = d;
+            best = midi;
+          }
+        }
+        deg = ladder.indexOf(best);
+        notes.push({
+          note: ghostNoteName(best),
+          step,
+          len_steps: 1,
+          velocity: clamp(baseVelocity + (i === 0 ? 0.1 : 0), 0.3, 0.95),
+        });
+        step += 1;
+      }
+    }
+    while (notes.length < density && step < GHOST_MUSIC_PHRASE_STEPS) {
+      // Contour step by temperament — the ghostAnswerNote
+      // lineage, widened from one answer note to a walk.
+      let move: number;
+      const roll = rand();
+      if (t === "playful") {
+        move = roll < 0.2 ? 0 : Math.round((rand() * 8 - 4) * 1.4);
+      } else if (t === "curious") {
+        move = roll < 0.55 ? 1 + Math.floor(rand() * 3) : -1;
+      } else if (t === "affectionate") {
+        move = Math.round(rand() * 4 - 2);
+      } else if (t === "sassy") {
+        move = roll < 0.18 ? -7 : Math.round(rand() * 4 - 3);
+      } else {
+        move = roll < 0.6 ? -1 : roll < 0.8 ? 0 : 1;
+      }
+      // The pattern HINT biases the walk; it never chooses.
+      // (Sassy ignores the request almost half the time.)
+      const honorsHint = !(t === "sassy" && rand() < 0.45);
+      if (honorsHint && hint === "up" && rand() < 0.35) {
+        move = Math.abs(move) || 1;
+      }
+      if (honorsHint && hint === "random") {
+        move = Math.round(move * 1.5);
+      }
+      deg = Math.max(0, Math.min(ladder.length - 1, deg + move));
+      if (honorsHint && hint === "triad" && rand() < 0.5) {
+        // Snap toward the nearest chord tone: the ladder starts
+        // exactly one octave under the tonic, so ladder indices
+        // with (index % 7) in {0, 2, 4} are the tonic triad.
+        const local = ((deg % 7) + 7) % 7;
+        const snap = [0, 2, 4].reduce((a, b) =>
+          Math.abs(b - local) < Math.abs(a - local) ? b : a
+        );
+        deg = Math.max(0, Math.min(ladder.length - 1, deg - local + snap));
+      }
+      const len =
+        t === "sleepy"
+          ? 2 + Math.floor(rand() * 3)
+          : t === "affectionate" && rand() < 0.3
+            ? 2
+            : 1;
+      const energyAdj =
+        scenario.room_energy_trend === "rising"
+          ? 0.08
+          : scenario.room_energy_trend === "falling"
+            ? -0.08
+            : 0;
+      notes.push({
+        note: ghostNoteName(ladder[deg]),
+        step,
+        len_steps: Math.min(len, GHOST_MUSIC_PHRASE_STEPS - step),
+        velocity: clamp(
+          baseVelocity + energyAdj + (rand() * 0.16 - 0.08),
+          0.3,
+          0.95
+        ),
+      });
+      // Gaps: legato by default; sassy and sleepy breathe.
+      const gap =
+        t === "sassy" && rand() < 0.35
+          ? 1 + Math.floor(rand() * 2)
+          : t === "sleepy"
+            ? Math.floor(rand() * 2)
+            : 0;
+      step += len + gap;
+    }
+    // Curious phrases resolve upward — a question left hanging
+    // on the fifth or the octave, never the note it started on.
+    if (t === "curious" && notes.length >= 2) {
+      const last = notes[notes.length - 1];
+      const fifth = ladder[Math.min(ladder.length - 1, degree + 4)];
+      if (last.step < GHOST_MUSIC_PHRASE_STEPS - 1) {
+        notes.push({
+          note: ghostNoteName(fifth),
+          step: GHOST_MUSIC_PHRASE_STEPS - 1,
+          len_steps: 1,
+          velocity: clamp(baseVelocity + 0.05, 0.3, 0.95),
+        });
+      }
+    }
+    return { bpm, steps: GHOST_MUSIC_PHRASE_STEPS, notes };
+  };
+
+  let phrase = build(0);
+  // The variation law (Slice 52's sound law, widened): never
+  // play the identical phrase twice in a row — re-seed once.
+  if (
+    ctx.last_phrase_signature &&
+    ghostMusicPhraseSignature(phrase) === ctx.last_phrase_signature
+  ) {
+    phrase = build(0x9e37);
+  }
+  return phrase.notes.length > 0 ? phrase : null;
+}
+
+/**
+ * The music overlay — decideOnDevice's standing-request desk.
+ * Fires only on a DUE deliberation (the phrase clock's mark),
+ * only where the fabric offers the play-music tool and the
+ * room's notes rule allows the ghost's side to sound. Any other
+ * deliberation passes through to the table untouched: the
+ * toggle being on never hijacks the ghost's other acts.
+ */
+export function musicDecisionFor(scenario: GhostScenario): {
+  decision: GhostDecision;
+  ruleId: string;
+} | null {
+  const ctx = scenario.music;
+  if (!ctx || ctx.due !== true) return null;
+  if (!fabricAllowsIntent(scenario, "play-music")) return null;
+  if (scenario.fabric && scenario.fabric.rules.notes === false) return null;
+  const phrase = authorMusicPhrase(scenario);
+  if (!phrase) return null;
+  const decision = validateGhostDecision(
+    {
+      mood_shift: null,
+      intent: "play-music",
+      pattern_id: null,
+      draw_shape: null,
+      note_name: null,
+      sound_spec: null,
+      music_phrase: phrase,
+      intensity: Math.min(
+        0.9,
+        0.3 + phrase.notes.length / GHOST_MUSIC_PHRASE_STEPS
+      ),
+      linger_s: ghostMusicPhraseSeconds(phrase),
+    },
+    scenario
+  );
+  return decision ? { decision, ruleId: "music-standing-request" } : null;
+}
+
 export function decideOnDevice(scenario: GhostScenario): {
   decision: GhostDecision;
   ruleId: string;
@@ -1657,6 +2097,12 @@ export function decideOnDevice(scenario: GhostScenario): {
     // The overlay must never take the table down with it.
   }
   try {
+    const music = musicDecisionFor(scenario);
+    if (music) return music;
+  } catch {
+    // The overlay must never take the table down with it.
+  }
+  try {
     const draw = drawDecisionFor(scenario);
     if (draw) return draw;
   } catch {
@@ -1673,7 +2119,7 @@ export function decideOnDevice(scenario: GhostScenario): {
     }
   }
   return {
-    decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.25, linger_s: 5 },
+    decision: { mood_shift: null, intent: "drift", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, music_phrase: null, intensity: 0.25, linger_s: 5 },
     ruleId: "fallback-drift",
   };
 }
@@ -2638,7 +3084,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Mango", hue: 35, seed_traits: ["bouncy", "giggly"] },
     },
-    decision: { mood_shift: null, intent: "startle", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.8, linger_s: 1.5 },
+    decision: { mood_shift: null, intent: "startle", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, music_phrase: null, intensity: 0.8, linger_s: 1.5 },
   },
   {
     scenario: {
@@ -2652,7 +3098,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "steady",
       ghost_identity: { name: "Biscuit", hue: 335, seed_traits: ["cuddly", "loyal"] },
     },
-    decision: { mood_shift: null, intent: "heart", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.75, linger_s: 7 },
+    decision: { mood_shift: null, intent: "heart", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, music_phrase: null, intensity: 0.75, linger_s: 7 },
   },
   {
     scenario: {
@@ -2666,7 +3112,7 @@ export const GHOST_BRAIN_FEW_SHOT: { scenario: GhostScenario; decision: GhostDec
       room_energy_trend: "falling",
       ghost_identity: { name: "Pesto", hue: 135, seed_traits: ["drowsy", "dim glow"] },
     },
-    decision: { mood_shift: null, intent: "nap", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, intensity: 0.15, linger_s: 24 },
+    decision: { mood_shift: null, intent: "nap", pattern_id: null, draw_shape: null, note_name: null, sound_spec: null, music_phrase: null, intensity: 0.15, linger_s: 24 },
   },
 ];
 

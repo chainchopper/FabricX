@@ -102,6 +102,8 @@ import type {
   GhostFabricContext,
   GhostGenxContext,
   GhostGestureReading,
+  GhostMusicContext,
+  GhostMusicPhrase,
   GhostScenario,
   GhostScenarioOther,
   GhostUtteranceContext,
@@ -110,6 +112,8 @@ import type {
 import {
   fabricContextAllowsIntent,
   isGhostNoteLayer,
+  ghostMusicPhraseSeconds,
+  ghostMusicPhraseSignature,
   ghostNoteName,
   ghostNoteNumber,
   isGhostNoteName,
@@ -491,6 +495,16 @@ export interface GhostPeerOptions {
    * the budget charge; the host owns the bus.
    */
   onNote?: (note: string, velocity: number, durationMs: number) => void;
+  /**
+   * The PLAY-MUSIC tool's sink (Slice 68): one phrase the brain
+   * authored under the layer's standing Generative-music
+   * request — notes, steps, velocities, tempo, complete. The
+   * host hands it to the layer's music renderer, which sounds
+   * exactly those notes and chooses nothing. The peer owns the
+   * authoring cadence, the gates and the budget charge; the
+   * host owns the synth.
+   */
+  onMusicPhrase?: (phrase: GhostMusicPhrase) => void;
 }
 
 export const MAX_GHOSTS_PER_ROOM = 4;
@@ -572,6 +586,17 @@ const NOTE_MIN_INTERVAL_MS = 8_000;
  */
 const SOUND_BUDGET_COST = 3;
 const SOUND_MIN_INTERVAL_MS = 20_000;
+/**
+ * The PLAY-MUSIC tool's price and pace (Slice 68). An authored
+ * phrase is one performance — a sequence, not a splat — priced
+ * with the arpeggio and the composition (3 emit slots). Its
+ * deliberation floor sits with the utterance's: a due phrase
+ * window opens promptly, but phrases are paced by their own
+ * length (performPlayMusic sets the next due time from the
+ * phrase it just played), never back-to-back.
+ */
+const MUSIC_BUDGET_COST = 3;
+const MUSIC_MIN_INTERVAL_MS = 2_000;
 const NOTE_DURATION_MS = 900;
 const ARPEGGIO_STEP_MS = 150;
 /**
@@ -796,6 +821,28 @@ export class GhostPeer {
   private lastNoteAt = 0;
   /** SOUND-CRAFT tool state (Slice 52): last composed performance. */
   private lastSoundAt = 0;
+  /**
+   * PLAY-MUSIC tool state (Slice 68): the standing Generative-
+   * music request the host feeds while the toggle is on (null =
+   * no request, no music), the pack seed's notes when a pack is
+   * loaded, the phrase bookkeeping (count, last signature for
+   * the never-repeat law, last note for the next phrase's
+   * anchor), and the phrase clock (next due time, the one-shot
+   * due mark the next buildScenario consumes, and the last
+   * music deliberation's time for the cadence floor).
+   */
+  private musicStanding: {
+    scale: string;
+    patternHint: string;
+    tempoBpm: number;
+  } | null = null;
+  private musicPackNotes: number[] | null = null;
+  private musicPhraseIndex = 0;
+  private musicLastSignature: string | null = null;
+  private musicLastNote: string | null = null;
+  private nextMusicAt = 0;
+  private musicDuePending = false;
+  private lastMusicDeliberationAt = 0;
   /** The last note a HUMAN played at the piano (call-and-response memory). */
   private lastHumanNote: string | null = null;
   /** The last note this ghost itself played ("play that again"). */
@@ -1752,6 +1799,39 @@ export class GhostPeer {
   }
 
   /**
+   * The Generative-music standing request (Slice 68). The host
+   * (LegacyFluid) feeds the layer's music framing while the
+   * toggle is on — the human's chosen scale, pattern hint and
+   * tempo — and clears it when the toggle goes off. This is a
+   * STANDING REQUEST, not a stimulus: it rides every scenario
+   * while it stands, and the phrase clock alone marks a
+   * deliberation due (see tick). Setting it never performs
+   * anything by itself.
+   */
+  setMusicStanding(
+    standing: { scale: string; patternHint: string; tempoBpm: number } | null
+  ): void {
+    this.musicStanding = standing;
+    if (!standing) {
+      this.musicDuePending = false;
+    } else if (this.nextMusicAt === 0) {
+      // First phrase comes promptly; the clock paces the rest.
+      this.nextMusicAt = Date.now() + MUSIC_MIN_INTERVAL_MS;
+    }
+  }
+
+  /**
+   * A MIDI pack's seed phrase (Slice 68), parsed by the host
+   * through the pack seam (midiPhrase.ts) and handed over as
+   * plain MIDI numbers. The brain may quote and vary it when
+   * authoring; the pack never plays itself.
+   */
+  setMusicPackNotes(notes: number[] | null): void {
+    this.musicPackNotes =
+      notes && notes.length >= 3 ? notes.slice(0, 32) : null;
+  }
+
+  /**
    * The compute field moved (Slice 36, "The Fold"). LegacyFluid
    * forwards the field's digest (src/genx's senseSnapshotOf, via
    * the genx store) whenever it changes while the Fold is the
@@ -2694,13 +2774,25 @@ export class GhostPeer {
     const utteranceDue =
       this.pendingUtterance !== null &&
       now - this.lastUtteranceDeliberationAt >= UTTERANCE_MIN_INTERVAL_MS;
+    // Slice 68: the phrase clock. While a Generative-music
+    // standing request stands, a deliberation falls DUE when
+    // the last phrase has finished (plus a breath) — it opens
+    // the window on the music floor, marks the one scenario
+    // buildScenario is about to take as due, and that scenario
+    // alone may answer with a phrase.
+    const musicDue =
+      this.musicStanding !== null &&
+      now >= this.nextMusicAt &&
+      now - this.lastMusicDeliberationAt >= MUSIC_MIN_INTERVAL_MS;
+    if (musicDue) this.musicDuePending = true;
     if (
       this.options.onDeliberate &&
       this.enabled &&
       !this.dismissing &&
       ((now - this.lastDeliberationAt >= DELIBERATION_MIN_MS &&
         this.deliberationDirty) ||
-        utteranceDue)
+        utteranceDue ||
+        musicDue)
     ) {
       this.lastDeliberationAt = now;
       this.deliberationDirty = false;
@@ -2714,6 +2806,18 @@ export class GhostPeer {
         if (scenario.utterance) {
           this.pendingUtterance = null;
           this.lastUtteranceDeliberationAt = now;
+        }
+        if (scenario.music?.due) {
+          this.lastMusicDeliberationAt = now;
+          // If this window answers with anything other than a
+          // phrase (an utterance outranks the music desk), the
+          // clock retries on the music floor instead of waiting
+          // for a phrase that never played; a real performance
+          // pushes the next due time out to the phrase's end.
+          this.nextMusicAt = Math.max(
+            this.nextMusicAt,
+            now + MUSIC_MIN_INTERVAL_MS
+          );
         }
         // Slice 47: thinking is audible now — a soft murmur while
         // the brain consults (the SFX limiter keeps it rare; the
@@ -2894,6 +2998,23 @@ export class GhostPeer {
       this.genxFoldJustCompleted = false;
       this.genxShardJustStalled = false;
     }
+    // Slice 68: the standing Generative-music request rides
+    // every snapshot while it stands; the due mark is one-shot
+    // (consumed by this snapshot, like the genx event flags) —
+    // only the phrase clock's own deliberation may answer it.
+    const music: GhostMusicContext | null = this.musicStanding
+      ? {
+          due: this.musicDuePending,
+          scale: this.musicStanding.scale,
+          pattern_hint: this.musicStanding.patternHint,
+          tempo_bpm: this.musicStanding.tempoBpm,
+          phrase_index: this.musicPhraseIndex,
+          last_played_note: this.musicLastNote,
+          last_phrase_signature: this.musicLastSignature,
+          pack_notes: this.musicPackNotes,
+        }
+      : null;
+    if (music) this.musicDuePending = false;
     return {
       temperament: this.temperament,
       seconds_since_human_touch: Math.round((now - this.lastActivityAt) / 100) / 10,
@@ -2925,6 +3046,9 @@ export class GhostPeer {
       // Slice 36: the compute field's digest (see above); the
       // key is omitted entirely when the sense is quiet or stale.
       ...(genx ? { genx } : {}),
+      // Slice 68: the standing music request (see above); the
+      // key is omitted entirely while the toggle is off.
+      ...(music ? { music } : {}),
     };
   }
 
@@ -3004,6 +3128,9 @@ export class GhostPeer {
         break;
       case "compose":
         this.performCompose(decision);
+        break;
+      case "play-music":
+        this.performPlayMusic(decision);
         break;
       case "mirror":
         // Amplify the reflex mirror/response path for the linger.
@@ -3288,6 +3415,43 @@ export class GhostPeer {
       `composed a sound — ${spec.notes.length} notes (${waves})`
     );
     this.emitSfx("composed", { sound: spec });
+  }
+
+  /**
+   * Perform a deliberated "play-music" decision (Slice 68) —
+   * the PLAY-MUSIC tool's performance. The brain authored the
+   * phrase entire (the decision's music_phrase); the peer
+   * prices it like every other authored performance — the
+   * shared budget charges MUSIC_BUDGET_COST before anything
+   * sounds — records it for the next phrase's authoring (count,
+   * signature, closing note), paces the phrase clock to the
+   * phrase's own end plus a breath, and hands the phrase to the
+   * host's renderer through onMusicPhrase. The peer never adds,
+   * drops or reorders a note: what the brain wrote is what
+   * sounds. If the budget is spent, the phrase is not played
+   * and the clock retries later — the ghost goes quiet rather
+   * than borrowing a sequencer.
+   */
+  private performPlayMusic(decision: GhostDecision): void {
+    if (!this.canAct()) return;
+    const phrase = decision.music_phrase;
+    if (!phrase || phrase.notes.length === 0) return;
+    const now = Date.now();
+    if (!this.chargePerformanceBudget(MUSIC_BUDGET_COST)) {
+      this.journal("wanted to play a phrase — budget spent", now);
+      this.nextMusicAt = now + MUSIC_MIN_INTERVAL_MS * 2;
+      return;
+    }
+    this.musicPhraseIndex += 1;
+    this.musicLastSignature = ghostMusicPhraseSignature(phrase);
+    this.musicLastNote = phrase.notes[phrase.notes.length - 1].note;
+    this.nextMusicAt =
+      now + ghostMusicPhraseSeconds(phrase) * 1000 + 400;
+    this.journal(`played a phrase (${phrase.notes.length} notes)`, now);
+    this.options.onPerformance?.(
+      `played a phrase — ${phrase.notes.length} notes`
+    );
+    this.options.onMusicPhrase?.(phrase);
   }
 
   private performPlayPattern(
