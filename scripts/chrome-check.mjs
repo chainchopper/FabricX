@@ -55,6 +55,15 @@
 //    brain store and is consumed by BrainChrome,
 //    GroundingChrome and GenxLayer — one expression, no copies.
 //
+// Slice 60 amendment (Nov 3): the Essence left the canvas — it
+// renders inside the fabric info panel now (Terrell: the ghostie
+// icon "needs to be in the info panel with the fabric info").
+// Section D's resident model drops the essence rect from the
+// overlap sets and the center-clear loop, and asserts its old
+// footprint (the vacated corner) EMPTY of every resident rect
+// instead: one check out, one check in, the count is unchanged.
+// The corner's tenancy change itself is essence-check's proof.
+//
 // Run: node scripts/chrome-check.mjs   (from the repo root)
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -265,7 +274,7 @@ const H = 844;
 // Rects [x0, y0, x1, y1] from the components' own style values.
 const R = {
   fAnchor: [12, 12, 64, 64], // FabricAnchor: top/left 12, 52×52
-  essence: [276, 12, 378, 86], // Essence compact: top/right 12, 84×56 + padding
+  vacatedCorner: [276, 12, 378, 86], // Slice 60: the Essence's old footprint — asserted EMPTY below, never a resident
   toast: [77, 14, 273, 56], // slot wrapper 70..280, pill ≤196 centered, ~42 tall
   chip: [7, 68, 271, 97], // slot wrapper 0..278 (right:112), pill ≤264 centered (Slice 46: widened for the named brain label), ~29 tall
   arChip: [12, 104, 332, 158], // top:104 left:12, maxWidth 320, error variant (tallest)
@@ -291,18 +300,25 @@ function assertSet(label, names) {
   }
   check(`${label}: zero pairwise overlaps`, bad === 0, names.join(" + "));
 }
-const COMMON = ["fAnchor", "essence", "toast", "chip"];
+const COMMON = ["fAnchor", "toast", "chip"];
 assertSet("fluid (default)", [...COMMON, "arChip", "hudFluid"]);
 assertSet("piano", [...COMMON, "arChip", "hudPiano"]);
-assertSet("Fold (chip down)", ["fAnchor", "essence", "toast", "foldCluster", "hudFluid"]);
+assertSet("Fold (chip down)", ["fAnchor", "toast", "foldCluster", "hudFluid"]);
 assertSet("Fold (chip up)", [...COMMON, "foldClusterChipUp", "hudFluid"]);
 assertSet("Dancer Stage", [...COMMON, "stagePill", "hudStage"]);
 assertSet("modal slot A vs resident set", [...COMMON, "arChip", "askCard"]);
 
 const CENTER = [98, 211, 292, 633]; // middle 50% × 50% keep-clear
-for (const name of ["fAnchor", "essence", "toast", "chip", "arChip", "stagePill"]) {
+for (const name of ["fAnchor", "toast", "chip", "arChip", "stagePill"]) {
   check(`center stays clear of ${name}`, !overlaps(R[name], CENTER));
 }
+check(
+  "Slice 60: the vacated top-right corner holds no resident chrome",
+  Object.entries(R).every(
+    ([name, r]) => name === "vacatedCorner" || !overlaps(r, R.vacatedCorner)
+  ),
+  "the Essence's old footprint stays empty — nothing took its place"
+);
 // The declared values the rects rest on, pinned in the sources:
 const genx = read("src/components/genx/GenxLayer.tsx");
 check(
