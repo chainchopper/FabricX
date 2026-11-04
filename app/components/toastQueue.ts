@@ -23,11 +23,35 @@
  *   a repeating status ("Peers disconnected" flapping) holds
  *   its one slot instead of queueing copies of itself.
  *
+ * Slice 61: an item may carry ONE action (a label + press
+ * handler — the haptics-off toast's "Enable"), its own hold
+ * time, and an onSettle callback the provider fires exactly
+ * once when the item leaves the slot, however it left. All
+ * three are optional; every pre-61 item is message-only and
+ * behaves exactly as before. The queue discipline itself is
+ * unchanged — an actionable toast waits in the same FIFO and
+ * holds the same ONE slot.
+ *
  * No imports — this module is bundled and driven directly by
  * scripts/chrome-check.mjs.
  */
 
-export type ToastItem = { id: number; message: string };
+export type ToastAction = { label: string; onPress: () => void };
+
+export type ToastItem = {
+  id: number;
+  message: string;
+  /** Slice 61: the item's one action, rendered in the pill. */
+  action?: ToastAction;
+  /** Slice 61: ms this item holds the slot (default TOAST_DISPLAY_MS). */
+  displayMs?: number;
+  /**
+   * Slice 61: fired exactly once when the item leaves the
+   * slot — "action" if its action dismissed it, "expired" if
+   * its turn simply ran out.
+   */
+  onSettle?: (how: "action" | "expired") => void;
+};
 
 export type ToastQueueState = {
   visible: ToastItem | null;
