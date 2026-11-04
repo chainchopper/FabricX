@@ -1236,6 +1236,32 @@ export class GhostPeer {
   }
 
   /**
+   * Notice an encounter (Slice 59): someone the primary follows
+   * or friended just listed a fabric in the lobby, and the
+   * discovery service's discipline (once per encounter, first
+   * sync silent, bursts coalesced) decided this arrival earns a
+   * reaction. The reaction is a greeting chirp — the "sniff"
+   * cue, the greeting family of the generative voice — and
+   * nothing else: the person is NOT in this room, so there is
+   * no verb, no splat, no room act to perform, and pretending
+   * otherwise would be theater. Presence and budget gates bind
+   * exactly as they do for every other utterance: a sleeping or
+   * absent ghost does not chirp. Returns true when it reacted.
+   */
+  noteEncounter(name: string): boolean {
+    if (this.destroyed || !this.enabled || this.dismissing) return false;
+    // Being noticed is itself company: wake and timestamp it.
+    this.noteUserActivity();
+    if (!this.canAct()) return false;
+    const now = Date.now();
+    const who = typeof name === "string" && name.trim() ? name.trim().slice(0, 40) : "someone";
+    this.journal(`noticed ${who} in the lobby`, now);
+    this.options.onPerformance?.(`noticed: ${who} is around`);
+    this.emitSfx("sniff");
+    return true;
+  }
+
+  /**
    * Answer a direct verb request ("tickle, Boop") by performing
    * the verb as the ghost's own act (Slice 23, the verb-perform
    * tool). This is not the VerbBar macro and not the generic

@@ -180,6 +180,23 @@ export const FABRIC_PET_GHOST_EVENT = "fabric:pet-ghost";
 export const FABRIC_WARM_WELCOME_EVENT = "fabric:warm-welcome";
 
 /**
+ * Window event chrome -> canvas (Slice 59): someone the primary
+ * follows or friended just listed a fabric in the lobby — an
+ * encounter, detected by the discovery service under its
+ * once-per-encounter discipline (lobbyProtocol's encounter
+ * tracker: the first sync is silent, bursts coalesce). Detail
+ * is the arriving person's display name. The canvas answers
+ * through GhostPeer.noteEncounter — a greeting chirp in the
+ * ghost's own generative voice and nothing more: the person is
+ * not in this room, so the ghost performs no room act. No
+ * listener (the fluid isn't the live canvas) means no reaction:
+ * the ghost isn't on that canvas to give one. This is network
+ * presence, NOT physical proximity — the literal walk-past
+ * version waits on the Bluetooth option.
+ */
+export const FABRIC_GHOST_ENCOUNTER_EVENT = "fabric:ghost-encounter";
+
+/**
  * Window event chrome -> canvas (Hotfix 2.5): the compose bar
  * asked for the microphone and the browser said no. The canvas
  * answers the way it answers any moment it can't help with —
