@@ -62,6 +62,7 @@ import { validateRecipe, type Recipe } from "../ai/RecipeCore";
 import { recipeBus } from "../ai/RecipePlayer";
 import { ingestGenxWire } from "../genx/genxStore";
 import type { GenxWireMessage } from "../genx/genxTypes";
+import { noteKnownPerson } from "../discovery/knownPeople";
 
 type TransportMsg =
   | { type: "fluid-interaction"; data: FluidInteraction }
@@ -967,7 +968,15 @@ export function useFluidMultiUser(roomId: string) {
         // anything learns them (a malformed tag never reaches a
         // card), and an extras-free legacy announce teaches the
         // profile store nothing.
-        setPeerProfileExtras(msg.from, sanitizePeerExtras(msg));
+        const peerExtras = sanitizePeerExtras(msg);
+        setPeerProfileExtras(msg.from, peerExtras);
+        // Slice 59: a face met in a shared fabric is a face this
+        // device remembers — the known half of the Friends set
+        // (the deliberate half is marked in the Find gallery).
+        // Only the public face is kept: secure tag, name, hue.
+        if (peerExtras.tag) {
+          noteKnownPerson({ tag: peerExtras.tag, name: typeof msg.name === "string" ? msg.name : "", hue: msg.hue });
+        }
       } else if (msg.type === "peer-request") {
         // Slice 6: someone (usually a fresh joiner) asks who's who.
         // Everyone answers with their own card — cheap and complete.

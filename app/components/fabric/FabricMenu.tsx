@@ -19,6 +19,10 @@
  *   rules that bind a guest on the session fabric. Since Slice 21
  *   a roster row is a door: it opens that person's profile card
  *   (their tag, ghostie, fabric, and badges) as a sub-view here.
+ *   Since Slice 59 PEOPLE also reaches OUT of the room: the Find
+ *   fabrics door opens the lobby gallery (listed hosts, follows,
+ *   friends, ask-to-join), and the host's side carries the
+ *   opt-in "List my fabric" toggle and the join requests.
  *
  *   YOU — the user's own face and ghost: your profile card first
  *   (Slice 21 — what the room sees, built from the broadcast
@@ -86,7 +90,13 @@ import { usePreferences } from "../../context/PreferencesContext";
 import { getJSON, setJSON } from "../../utils/storage";
 import { buildInviteUrl } from "../../utils/invite";
 import * as Clipboard from "expo-clipboard";
+import FindFabricsView, { useLobbySnapshot } from "./FindFabrics";
+import { lobbyService } from "../../../src/discovery/lobbyService";
+import { useSocial } from "../../../src/discovery/socialStore";
+import { vibrate } from "../../../src/sensory/vibration";
+import { useToast } from "../Toast";
 import {
+  FABRIC_GHOST_ENCOUNTER_EVENT,
   FABRIC_GHOST_SESSION_EVENT,
   FABRIC_PET_GHOST_EVENT,
   getGhostPublicState,
@@ -855,6 +865,149 @@ export default function FabricMenu() {
       : profilePeerId
         ? ownCardData
         : null;
+
+  // ---- Discovery (Slice 59): the lobby seat --------------------
+  // The Find fabrics sub-view (PEOPLE), the host's opt-in listing,
+  // and everything the lobby service asks of the menu because the
+  // menu is where the session, the identity and the Experience
+  // context all live:
+  //   - this device's public face (name, hue, secure tag) is the
+  //     voice beacons and asks speak in;
+  //   - while I host, the host fields follow the session (fabric,
+  //     room, mode, my ghostie's name, my badges); hosting ending
+  //     unlists — there is nothing left to list;
+  //   - holding any follow or friend keeps a silent watch seat,
+  //     so arrivals of people I care about reach my ghostie even
+  //     with the gallery shut (the encounter rider);
+  //   - a granted ask lands me in the room through the same
+  //     transition an invite link performs;
+  //   - a new ask while I host surfaces as a toast pointing at
+  //     PEOPLE, where the answer buttons live.
+  const lobby = useLobbySnapshot();
+  const social = useSocial();
+  const toast = useToast();
+  const [findOpen, setFindOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) setFindOpen(false);
+  }, [menuOpen]);
+
+  const ownLobbyTag = ownCardData?.tag ?? null;
+  useEffect(() => {
+    if (!identity.self || !ownLobbyTag) return;
+    lobbyService.setIdentity({
+      name: identity.self.name,
+      hue: identity.self.hue,
+      tag: ownLobbyTag,
+    });
+  }, [identity.self, ownLobbyTag]);
+
+  const iAmHostForLobby = session.role === "host";
+  useEffect(() => {
+    if (!iAmHostForLobby) {
+      lobbyService.setHostFields(null);
+      if (lobbyService.getSnapshot().listed) lobbyService.setListed(false);
+      return;
+    }
+    const fabricId = fabric.layerId ?? active?.id ?? "default-fluid";
+    lobbyService.setHostFields({
+      fabricId,
+      fabricName:
+        state.availableExperiences.find((e) => e.id === fabricId)?.name ?? "Fabric",
+      roomId: session.roomId,
+      mode: session.mode,
+      ghostName: ghost.ghostName ?? null,
+      badges: localExtras.badges,
+    });
+  }, [
+    iAmHostForLobby,
+    fabric.layerId,
+    active?.id,
+    session.roomId,
+    session.mode,
+    ghost.ghostName,
+    localExtras.badges,
+    state.availableExperiences,
+  ]);
+
+  useEffect(() => {
+    if (social.followTags.size + social.friendTags.size > 0) {
+      lobbyService.startWatching();
+    } else {
+      lobbyService.stopWatching();
+    }
+  }, [social.followTags, social.friendTags]);
+
+  // Encounters: the ghostie reacts on the canvas (its chirp is
+  // the fluid's business, through the ghost-encounter event) and
+  // the pulse goes through the app's ONE vibration gate — if the
+  // Vibration switch is off the gate holds it, like every other.
+  useEffect(
+    () =>
+      lobbyService.onEncounter(({ name }) => {
+        vibrate([0, 35, 50, 35]);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(FABRIC_GHOST_ENCOUNTER_EVENT, { detail: name })
+          );
+        }
+      }),
+    []
+  );
+
+  const seenLobbyAskIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const known = seenLobbyAskIdsRef.current;
+    for (const r of lobby.requests) {
+      if (!known.has(r.requestId)) {
+        known.add(r.requestId);
+        toast.show(`${r.from.name} wants to join your fabric — answer in PEOPLE`);
+      }
+    }
+    const liveIds = new Set(lobby.requests.map((r) => r.requestId));
+    known.forEach((id) => {
+      if (!liveIds.has(id)) known.delete(id);
+    });
+  }, [lobby.requests, toast]);
+
+  // A granted ask: the invite transition, applied in-app. The
+  // boot path (ExperienceProvider) reads ?room= into this same
+  // config; here the URL is updated for fidelity (a refresh
+  // keeps the room) and the config moves directly. Once per
+  // request — the ref outlives the outgoing state it consumed.
+  const appliedLobbyGrantRef = useRef<string | null>(null);
+  const expStateRef = useRef(state);
+  expStateRef.current = state;
+  useEffect(() => {
+    const o = lobby.outgoing;
+    if (o.phase !== "granted" || appliedLobbyGrantRef.current === o.requestId) return;
+    appliedLobbyGrantRef.current = o.requestId;
+    if (typeof window !== "undefined") {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("room", o.roomId);
+        url.searchParams.set("mode", o.mode);
+        if (o.fabricId) url.searchParams.set("exp", o.fabricId);
+        window.history.replaceState({}, "", url.toString());
+      } catch {
+        /* the config below is the join; the URL is only fidelity */
+      }
+    }
+    updateConfig({
+      specific: {
+        ...((expStateRef.current.experienceConfig?.specific as
+          | Record<string, unknown>
+          | undefined) ?? {}),
+        roomId: o.roomId,
+      },
+    });
+    lobbyService.resetOutgoing();
+    setFindOpen(false);
+    setMenuOpen(false);
+    const fabricName = o.fabricId
+      ? expStateRef.current.availableExperiences.find((e) => e.id === o.fabricId)?.name
+      : null;
+    toast.show(`You're in — ${o.hostName} opened ${fabricName ?? "their fabric"} to you`);
+  }, [lobby.outgoing, toast, updateConfig]);
 
   // ---- ID cards (Slice 22) --------------------------------------
   const PRESENCE_WORDS: Record<string, string> = {
@@ -1939,6 +2092,13 @@ export default function FabricMenu() {
               </Text>
             ) : null}
           </View>
+        ) : findOpen ? (
+          <FindFabricsView
+            onBack={() => {
+              noteActivity();
+              setFindOpen(false);
+            }}
+          />
         ) : (
           <>
         {/* ----------- FABRICS (Slice 19 · gallery Slice 32) ----------- */}
@@ -2485,6 +2645,84 @@ export default function FabricMenu() {
                   The mode is the room's live law — enforced on every
                   guest's device, not just displayed. Change it any time.
                 </Text>
+                {/* Discovery (Slice 59): people asking in from the
+                    lobby gallery. The host's word is the door —
+                    Let in grants the room through the ordinary
+                    session path (the asker's client lands exactly
+                    like an invite landing); Not now is a plain no.
+                    Unanswered asks fade on their own. */}
+                {lobby.requests.length > 0 ? (
+                  <View
+                    style={{
+                      ...cardStyle,
+                      borderColor: colors.accentLine,
+                      gap: spacing.xs,
+                      marginBottom: spacing.sm,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                      Requests to join
+                    </Text>
+                    {lobby.requests.map((r) => (
+                      <View
+                        key={r.requestId}
+                        style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}
+                      >
+                        <View
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 6,
+                            backgroundColor: hueCss(r.from.hue),
+                          }}
+                        />
+                        <Text style={{ flex: 1, color: colors.text, fontSize: typeScale.body }}>
+                          {r.from.name} wants to join
+                        </Text>
+                        <Pressable
+                          pointerEvents="auto"
+                          onPress={() => {
+                            noteActivity();
+                            lobbyService.respondToRequest(r.requestId, true);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Let ${r.from.name} in`}
+                          style={({ pressed }) => ({
+                            paddingVertical: 6,
+                            paddingHorizontal: 12,
+                            borderRadius: radius.pill,
+                            backgroundColor: pressed ? colors.accentDim : colors.accent,
+                          })}
+                        >
+                          <Text style={{ color: "#06202a", fontSize: typeScale.body, fontWeight: "800" }}>
+                            Let in
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          pointerEvents="auto"
+                          onPress={() => {
+                            noteActivity();
+                            lobbyService.respondToRequest(r.requestId, false);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Not now for ${r.from.name}`}
+                          style={({ pressed }) => ({
+                            paddingVertical: 6,
+                            paddingHorizontal: 12,
+                            borderRadius: radius.pill,
+                            borderWidth: 1,
+                            borderColor: colors.line,
+                            backgroundColor: pressed ? colors.accentDim : "transparent",
+                          })}
+                        >
+                          <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "700" }}>
+                            Not now
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
                 {renderModeRows(hostMode, (m) => {
                   setPickedMode(m);
                   requestHostSession(roomId, m);
@@ -2573,6 +2811,27 @@ export default function FabricMenu() {
                     ) : null}
                   </View>
                 ) : null}
+
+                {/* Discovery (Slice 59): listing is opt-in, per
+                    hosting session — the MicroDuck rule. Off (the
+                    default, and the state every hosting starts
+                    in) this room puts nothing on the air and is
+                    invisible, exactly as before discovery existed;
+                    on, the room beacons to the lobby and people
+                    can ask in, each approved here. */}
+                <ToggleRow
+                  label="List my fabric"
+                  value={lobby.listed}
+                  onPress={() => {
+                    noteActivity();
+                    lobbyService.setListed(!lobby.listed);
+                  }}
+                />
+                <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+                  {lobby.listed
+                    ? "Listed — people can find this fabric in PEOPLE → Find fabrics and ask to join. You approve each one."
+                    : "Unlisted — nobody can discover this room. The invite link is the only door, as always."}
+                </Text>
 
                 <Text
                   selectable
@@ -2733,8 +2992,18 @@ export default function FabricMenu() {
         ) : null}
         {/* Slice 57: the people panels live here, with the
             people — Friends & chat, and Call. They used to sit
-            in the "Panels" catch-all at the menu's tail. */}
+            in the "Panels" catch-all at the menu's tail.
+            Slice 59 adds the Find door above them: the discovery
+            gallery, a sub-view of this sheet like the cards. */}
         <View style={{ gap: spacing.xs, marginTop: spacing.md }}>
+          <DoorRow
+            icon="eye"
+            label="Find fabrics"
+            onPress={() => {
+              noteActivity();
+              setFindOpen(true);
+            }}
+          />
           <DoorRow
             icon="people"
             label="Friends"

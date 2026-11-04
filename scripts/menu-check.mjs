@@ -31,12 +31,15 @@
  *      inside that drawer, outside this file.
  *
  *  (3) NO ENDLESS LIST. Stated bounds: no section renders more
- *      than 6 door rows; the whole menu renders 17 DoorRows in
- *      total, distributed over 6 of the 7 sections; and SETTINGS
- *      & HELP — the old tail — holds exactly ONE door (the
- *      Preferences panel) beside its universal toggles and
- *      diagnostics. A setting never again sits at the bottom of
- *      a 13-door list that belongs to other panels.
+ *      than 6 door rows; the whole menu renders 18 DoorRows in
+ *      total (17 after Slice 57; Slice 59 adds the Find fabrics
+ *      door in PEOPLE — the census below was extended honestly
+ *      for it, with the new door's own pins), distributed over 6
+ *      of the 7 sections; and SETTINGS & HELP — the old tail —
+ *      holds exactly ONE door (the Preferences panel) beside
+ *      its universal toggles and diagnostics. A setting never
+ *      again sits at the bottom of a 13-door list that belongs
+ *      to other panels.
  *
  *  (4) NOTHING BECAME UNREACHABLE. All 14 legacy drawers are
  *      still mounted in app/_layout.tsx — Slice 57 moved doors,
@@ -157,7 +160,7 @@ for (const name of ORDER) {
   totalDoors += n;
   ok(n <= 6, `no endless list: ${name} renders ${n} door rows (bound: 6)`);
 }
-ok(totalDoors === 17, `doors distributed across the menu: 17 rendered DoorRows in total (got ${totalDoors})`);
+ok(totalDoors === 18, `doors distributed across the menu: 18 rendered DoorRows in total (got ${totalDoors})`);
 const settingsDoors = (blocks["SETTINGS & HELP"].match(/<DoorRow/g) ?? []).length;
 ok(settingsDoors === 1, `the old tail is short: SETTINGS & HELP holds exactly 1 door (got ${settingsDoors})`);
 ok(
@@ -165,6 +168,46 @@ ok(
   "the one door SETTINGS & HELP keeps is the Preferences panel"
 );
 ok(!/openPanel\("(profile|neo|layer|studio|plugins|companion|shop|call|wallet|friends|vision-ai|ai-chat)"\)/.test(blocks["SETTINGS & HELP"]), "no relocated door is still opened from SETTINGS & HELP");
+
+// ------------------------------------------------------------ (3b) Slice 59's door
+// The Find fabrics door is a sub-view door (like the profile
+// cards), not a drawer: it renders exactly once, in PEOPLE, and
+// the sub-view branch it opens exists. The host's side of
+// discovery lives in PEOPLE too: the opt-in listing toggle and
+// the join-requests card, both wired to the lobby service.
+ok(
+  (menu.match(/label="Find fabrics"/g) ?? []).length === 1,
+  "Slice 59: the Find fabrics door renders exactly once"
+);
+ok(
+  blocks["PEOPLE"].includes('label="Find fabrics"'),
+  "Slice 59: the Find fabrics door's home is PEOPLE"
+);
+ok(
+  menu.includes("findOpen ?") && menu.includes("<FindFabricsView"),
+  "Slice 59: the Find door opens the FindFabricsView sub-view branch"
+);
+ok(
+  (menu.match(/label="List my fabric"/g) ?? []).length === 1 &&
+    blocks["PEOPLE"].includes('label="List my fabric"'),
+  "Slice 59: the host's opt-in listing toggle lives once, in PEOPLE"
+);
+ok(
+  menu.includes("lobbyService.setListed("),
+  "Slice 59: the listing toggle drives the lobby service"
+);
+ok(
+  blocks["PEOPLE"].includes("Requests to join") &&
+    menu.includes("respondToRequest(r.requestId, true)") &&
+    menu.includes("respondToRequest(r.requestId, false)"),
+  "Slice 59: join requests are answered in PEOPLE (let in / not now)"
+);
+ok(
+  menu.includes("lobbyService.setHostFields(") &&
+    menu.includes("lobbyService.onEncounter(") &&
+    menu.includes("FABRIC_GHOST_ENCOUNTER_EVENT"),
+  "Slice 59: host fields follow the session and encounters reach the ghostie"
+);
 
 // ------------------------------------------------------------ (4) nothing unreachable
 for (const drawer of [

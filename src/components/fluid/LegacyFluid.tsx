@@ -63,6 +63,7 @@ import {
 import {
   setGhostPublicState,
   getGhostPublicState,
+  FABRIC_GHOST_ENCOUNTER_EVENT,
   FABRIC_PET_GHOST_EVENT,
   FABRIC_VOICE_ATTENTION_EVENT,
   FABRIC_VOICE_UNHEARD_EVENT,
@@ -1315,6 +1316,24 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
     window.addEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
     return () => window.removeEventListener(FABRIC_WARM_WELCOME_EVENT, onWarmWelcome as EventListener);
+  }, []);
+
+  // Slice 59: Encounters. The discovery service dispatches
+  // FABRIC_GHOST_ENCOUNTER_EVENT when someone the primary
+  // follows or friended lists a fabric in the lobby (its
+  // tracker already spent the discipline: once per encounter,
+  // first sync silent, bursts coalesced). The answer is the
+  // ghost noticing — a greeting chirp in its own voice via
+  // noteEncounter, no room act: the person is around, not here.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onEncounter = (ev: Event) => {
+      const name = (ev as CustomEvent<string>).detail;
+      if (typeof name !== "string") return;
+      ghostRef.current.noteEncounter(name);
+    };
+    window.addEventListener(FABRIC_GHOST_ENCOUNTER_EVENT, onEncounter as EventListener);
+    return () => window.removeEventListener(FABRIC_GHOST_ENCOUNTER_EVENT, onEncounter as EventListener);
   }, []);
 
   // Hotfix 2.5: the browser refused the compose bar's microphone.
