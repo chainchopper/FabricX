@@ -10,8 +10,14 @@
  *   A. Exactly one info icon exists, it belongs to the loaded
  *      fabric (keyed by fabric id, leaves when the fabric/menu
  *      state leaves), and its docked rect at 390x844 clears the
- *      Essence, the brain chip's slot, the keep-clear center, and
- *      every fabric's own bottom band — numerically.
+ *      top-right corner, the brain chip's slot, the keep-clear
+ *      center, and every fabric's own bottom band — numerically.
+ *      (Slice 60 amendment: A6's corner rect used to be the
+ *      Essence's footprint, which the icon had to clear; the
+ *      Essence lives in this panel now and the corner is empty —
+ *      the pin survives as clearance of the vacated corner, same
+ *      rect, same count. The Essence's tenancy of the panel is
+ *      essence-check's proof, not this file's.)
  *   B. The panel's content is keyed by the loaded fabric id: a
  *      complete FABRIC_INFO record for every builtin fabric, the
  *      view resolving content through fabricInfoFor(active.id)
@@ -122,7 +128,7 @@ const iconRect = (id) => {
   const bottom = iconBottomFor(id);
   return { x0: W - RIGHT - SIZE, x1: W - RIGHT, yb0: bottom, yb1: bottom + SIZE };
 };
-const ESSENCE = { x0: W - 12 - 56, x1: W - 12, yt0: 12, yt1: 76 }; // top-right
+const VACATED_CORNER = { x0: W - 12 - 56, x1: W - 12, yt0: 12, yt1: 76 }; // top-right — the Essence's old footprint (Slice 60: empty)
 const BRAIN_CHIP = { x0: 85, x1: 305, yt0: 60, yt1: 97 }; // top-center slot
 const KEEP_CLEAR = { x0: 98, x1: 292, yt0: 211, yt1: 633 }; // Slice 44 center
 const HUD_BAND = { "default-fluid": 98, "sam-see": 98, "camera-effects": 98, "dancer-stage": 144, "ar-piano": 214 };
@@ -133,8 +139,8 @@ for (const id of ALL) {
   const r = iconRect(id);
   const topY = H - r.yb1;
   check(
-    `A6 ${id}: icon clears the Essence (top-right) and the brain chip slot`,
-    topY > ESSENCE.yt1 && (r.x0 > BRAIN_CHIP.x1 || topY > BRAIN_CHIP.yt1)
+    `A6 ${id}: icon clears the vacated top-right corner and the brain chip slot`,
+    topY > VACATED_CORNER.yt1 && (r.x0 > BRAIN_CHIP.x1 || topY > BRAIN_CHIP.yt1)
   );
   check(
     `A7 ${id}: icon stays out of the keep-clear center`,

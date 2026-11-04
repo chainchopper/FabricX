@@ -14,7 +14,7 @@
  *   docks bottom-right, riding above the fabric's own control
  *   band (fabricInfo's per-fabric offsets, from Slice 44's
  *   certified band heights) so it never covers a play surface,
- *   and clear of the Essence (top-right) and the brain chip's
+ *   and clear of the top-right corner and the brain chip's
  *   slot (top-center). It breathes — a slow pulse with a soft
  *   ring — on the house motion feel, rests still under
  *   reduced-motion, fades with the rest of the chrome at idle,
@@ -35,6 +35,23 @@
  *   the F menu closes it; switching fabrics closes it), and
  *   closed means PARKED: ChromeMount plays the exit and
  *   unmounts, so a closed panel is zero pixels and no touch.
+ *
+ * - Slice 60: THE GHOSTIE LIVES IN THIS PANEL NOW. Terrell (Nov
+ *   3, on device): "That ghostie icon in the top right needs to
+ *   be in the info panel with the fabric info." The panel hosts
+ *   the Essence (./Essence) as a "Your ghostie" block at the top
+ *   of its scroll — the living fDNA emblem (the shared fdna
+ *   sim, stepping while the panel is open), the ghost's name,
+ *   its brain line, and the connection state in words, with
+ *   doors to its ID card and its Ghostie Home (both links into
+ *   the F menu; the Home is linked, never duplicated here). The
+ *   top-right corner the Essence occupied since Slice 29 is
+ *   EMPTY — nothing renders there and nothing took its place.
+ *   The one at-a-glance signal that remains on the canvas is
+ *   THIS ICON'S TINT: while the session is reconnecting, the
+ *   icon's ring, border and glyph take the danger color; in
+ *   every other state they wear the house accent. A tint and
+ *   nothing more — no text, no new element.
  *
  * Mount point: _layout's ChromeLayer, as a direct child of the
  * root view — the same pointer-events ancestry as every other
@@ -61,6 +78,13 @@ import {
 } from "react-native";
 import { useExperience } from "../../context/ExperienceContext";
 import { useFabricChrome } from "./FabricChromeContext";
+import Essence from "./Essence";
+import {
+  getRealtimeStatus,
+  subscribeRealtimeStatus,
+  type RealtimeStatus,
+} from "../../../shared/utils/realtimeStatus";
+import { essenceBehaviorFor } from "../../../src/identity/essenceState";
 import ChromeMount from "../../../src/components/ui/ChromeMount";
 import Icon from "../../../src/components/ui/Icon";
 import { colors, radius, spacing, type as typeScale } from "../../../src/theme/tokens";
@@ -142,8 +166,14 @@ export default function FabricInfo() {
   const [fabricState, setFabricState] = useState<SessionFabricState>(() =>
     getSessionFabricState()
   );
+  // Slice 60: the icon's tint is the canvas's one remaining
+  // connection signal — it follows the same realtime status the
+  // Essence read in the corner (essenceState's behavior mapping,
+  // no second opinion about what "reconnecting" means).
+  const [rt, setRt] = useState<RealtimeStatus>(() => getRealtimeStatus());
   useEffect(() => subscribeSessionState(setSession), []);
   useEffect(() => subscribeSessionFabric(setFabricState), []);
+  useEffect(() => subscribeRealtimeStatus(setRt), []);
 
   const active = state.activeExperience;
   const activeId = active?.id ?? null;
@@ -219,6 +249,15 @@ export default function FabricInfo() {
       : { draw: true, verbs: true, notes: true };
   const tools = ghostToolsHere(active.id, canvasKindFor(active), rules);
 
+  // Slice 60: the tint. Reconnecting (connecting, or online with
+  // nobody here) is the one state a person should be able to
+  // catch from the corner of their eye now that the corner
+  // itself is empty; solo and connected wear the house accent.
+  const reconnecting =
+    essenceBehaviorFor(rt.mode ?? "local", rt.peers ?? 0) === "reconnecting";
+  const iconTint = reconnecting ? colors.danger : colors.accent;
+  const iconTintLine = reconnecting ? colors.danger : colors.accentLine;
+
   const faded = idle && !open;
   const driverLine =
     session.hostId && session.mode === "control" && session.driverId
@@ -260,7 +299,7 @@ export default function FabricInfo() {
                   height: FABRIC_ICON_SIZE - 6,
                   borderRadius: radius.pill,
                   borderWidth: 1,
-                  borderColor: colors.accentLine,
+                  borderColor: iconTintLine,
                   opacity: ringOpacity,
                   transform: [{ scale: ringScale }],
                 }}
@@ -284,7 +323,7 @@ export default function FabricInfo() {
                   height: 40,
                   borderRadius: radius.pill,
                   borderWidth: 1,
-                  borderColor: open ? colors.accent : colors.accentLine,
+                  borderColor: open ? colors.accent : iconTintLine,
                   backgroundColor: pressed ? colors.accentDim : colors.panel,
                   alignItems: "center",
                   justifyContent: "center",
@@ -294,7 +333,7 @@ export default function FabricInfo() {
                 <Icon
                   name={open ? "close" : "info"}
                   size={20}
-                  color={colors.accent}
+                  color={open ? colors.accent : iconTint}
                 />
               </Pressable>
             </Animated.View>
@@ -396,6 +435,9 @@ export default function FabricInfo() {
           </View>
 
           <ScrollView style={{ marginTop: spacing.xs }}>
+            <SectionTitle>YOUR GHOSTIE</SectionTitle>
+            <Essence />
+
             <SectionTitle>WHAT THIS FABRIC IS</SectionTitle>
             <Text
               style={{ color: colors.textDim, fontSize: typeScale.body, lineHeight: 20 }}

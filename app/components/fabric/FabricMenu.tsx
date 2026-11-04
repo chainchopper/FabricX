@@ -704,12 +704,13 @@ export default function FabricMenu() {
   useEffect(() => {
     if (!menuOpen) setCardOverlay(null);
   }, [menuOpen]);
-  // Slice 29: the corner Essence's "ID card ›" door. The Essence
-  // lives in chrome, outside this sheet, so it asks by window
-  // event (fabric:open-own-ghost-card, dispatched by
-  // Essence.openGhostCard); the menu opens and lands on the same
-  // Slice 22 overlay the Ghostie Home's door opens — the Essence
-  // wires the door, this sheet remains the card's only home.
+  // Slice 29: the Essence's "ID card ›" door. The Essence lives
+  // outside this sheet (Slice 60: inside the fabric info panel),
+  // so it asks by window event (fabric:open-own-ghost-card,
+  // dispatched by Essence.openGhostCard); the menu opens and
+  // lands on the same Slice 22 overlay the Ghostie Home's door
+  // opens — the Essence wires the door, this sheet remains the
+  // card's only home.
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     const onEssenceDoor = () => {
@@ -720,6 +721,20 @@ export default function FabricMenu() {
     return () =>
       window.removeEventListener("fabric:open-own-ghost-card", onEssenceDoor);
   }, [session.selfId]);
+  // Slice 60: the Essence block's "Ghostie Home ›" door, the same
+  // pattern — the block links the Home, this sheet remains its
+  // only home: the menu opens straight onto the Home sub-view
+  // (and opening the menu closes the info panel it was tapped in).
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const onGhostieHomeDoor = () => {
+      setMenuOpen(true);
+      setGhostHomeOpen(true);
+    };
+    window.addEventListener("fabric:open-ghostie-home", onGhostieHomeDoor);
+    return () =>
+      window.removeEventListener("fabric:open-ghostie-home", onGhostieHomeDoor);
+  }, []);
   const openCardOverlay = (
     next: NonNullable<CardOverlayState>,
     from: "list" | "home" | string

@@ -56,7 +56,7 @@ import FabricErrorBoundary from "./components/fabric/FabricErrorBoundary";
 import FirstBreath from "./components/fabric/FirstBreath";
 import LayerSettingsMirror from "./components/fabric/LayerSettingsMirror";
 import ExperienceHUD from "./components/ExperienceHUD";
-import Essence from "./components/fabric/Essence";
+import { EssenceRetryKeeper } from "./components/fabric/Essence";
 
 // LogBox/Metro symbolication sanitizer (web-only)
 import LogboxSanitizer from "./components/LogboxSanitizer";
@@ -98,8 +98,9 @@ const FabricNavTheme = {
  * TAPPABILITY, BY CONSTRUCTION (the field failure this rebuild fixes):
  * everything interactive in Fabric's chrome — the F anchor, the menu,
  * the layer-control cluster (ExperienceHUD: verbs, composer, ghost),
- * and the essence (Slice 29: the living corner identity that
- * replaced the connection badge) — mounts HERE, as direct children of the
+ * and the essence's headless retry keeper (Slice 60: the living
+ * identity itself moved into the fabric info panel; only its
+ * never-rendered presence loop still mounts here) — as direct children of the
  * root view. Their complete pointer-events ancestry is:
  *
  *   RootLayout's root <View> (no pointerEvents prop anywhere)
@@ -143,14 +144,17 @@ function ChromeLayer() {
           two asks never stack. Renders nothing otherwise. */}
       <GroundingChrome />
       <ExperienceHUD />
-      {/* Slice 29: the Essence — the device's fDNA, alive in the
-          corner the connection badge used to occupy (same mount,
-          same zIndex family, same data sources; the badge file is
-          retired, not deleted). */}
-      <Essence />
+      {/* Slice 60: the Essence's headless half — the presence
+          retry loop the retired badge left behind (Slice 29
+          carried it in the corner component). It renders
+          nothing: the living identity itself now renders inside
+          the fabric info panel (FabricInfo, below), and the
+          top-right corner it used to occupy stays empty. */}
+      <EssenceRetryKeeper />
       {/* Slice 49: the ONE standing element the loaded fabric itself
           adds — its animated info icon, edge-docked bottom-right, and
-          that fabric's own information panel. Everything else here is
+          that fabric's own information panel (which since Slice 60
+          also hosts the Your ghostie block). Everything else here is
           universal (identity, brain, voice, menu), never per-fabric. */}
       <FabricInfo />
       <FabricAnchor />
