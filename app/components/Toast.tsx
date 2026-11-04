@@ -24,6 +24,15 @@
  *   280ms out-cubic in, 240ms in-cubic out, per toast — a toast
  *   leaving and the next arriving never share a frame at full
  *   opacity.
+ * - Slice 61: a toast may carry ONE action (today exactly one
+ *   exists: the haptics-off toast's "Enable"). The action is
+ *   the pill's only touch target — the rest of the pill stays
+ *   touch-transparent, so the canvas underneath is never
+ *   blocked by a message. An item may also hold the slot
+ *   longer than the standard turn (an actionable toast must
+ *   live long enough to be read and tapped) and registers an
+ *   onSettle callback, fired exactly once when it leaves,
+ *   whether by its action or by expiry.
  *
  * Powered by Nirvana
  */
@@ -37,18 +46,28 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { View, Text, Animated, Easing, StyleSheet, Platform } from "react-native";
+import { View, Text, Animated, Easing, StyleSheet, Platform, Pressable } from "react-native";
 import {
   advanceToast,
   createToastQueue,
   enqueueToast,
   TOAST_DISPLAY_MS,
+  type ToastAction,
   type ToastItem,
   type ToastQueueState,
 } from "./toastQueue";
 import { colors, motion, radius, type as typeScale } from "../../src/theme/tokens";
 
-type ToastContextType = { show: (message: string) => void };
+/** Slice 61: the optional extras a show() may carry (see header). */
+export type ToastShowOptions = {
+  action?: ToastAction;
+  displayMs?: number;
+  onSettle?: (how: "action" | "expired") => void;
+};
+
+type ToastContextType = {
+  show: (message: string, options?: ToastShowOptions) => void;
+};
 
 const ToastContext = createContext<ToastContextType | null>(null);
 
@@ -64,6 +83,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   // True while the visible toast is playing its exit: a repeat
   // show() in that window must not arm a second advance timer.
   const leavingRef = useRef(false);
+  // Slice 61: the id whose onSettle already fired — an item
+  // settles exactly once, however its exit paths race.
+  const settledIdRef = useRef(0);
+
+  const settleItem = useCallback(
+    (item: ToastItem | null, how: "action" | "expired") => {
+      if (!item?.onSettle) return;
+      if (settledIdRef.current === item.id) return;
+      settledIdRef.current = item.id;
+      try {
+        item.onSettle(how);
+      } catch {
+        // A settle hook must never strand the slot.
+      }
+    },
+    []
+  );
 
   const animateIn = useCallback(() => {
     Animated.parallel([
@@ -117,16 +153,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       leavingRef.current = true;
       animateOut(() => {
         leavingRef.current = false;
+        settleItem(item, "expired");
         queueRef.current = advanceToast(queueRef.current);
         serveCurrent();
       });
-    }, TOAST_DISPLAY_MS);
-  }, [animateIn, animateOut]);
+    }, item.displayMs ?? TOAST_DISPLAY_MS);
+  }, [animateIn, animateOut, settleItem]);
 
   const show = useCallback(
-    (message: string) => {
+    (message: string, options?: ToastShowOptions) => {
       const before = queueRef.current;
-      const item: ToastItem = { id: ++idRef.current, message };
+      const item: ToastItem = {
+        id: ++idRef.current,
+        message,
+        action: options?.action,
+        displayMs: options?.displayMs,
+        onSettle: options?.onSettle,
+      };
       queueRef.current = enqueueToast(before, item);
       if (!currentRef.current && queueRef.current.visible) {
         // The slot was empty: serve immediately.
@@ -140,18 +183,42 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         // The visible toast repeated itself: refresh its turn
         // instead of queueing a copy (toastQueue no-ops it).
         if (timerRef.current) clearTimeout(timerRef.current);
+        const refreshed = currentRef.current;
         timerRef.current = setTimeout(() => {
           leavingRef.current = true;
           animateOut(() => {
             leavingRef.current = false;
+            settleItem(refreshed, "expired");
             queueRef.current = advanceToast(queueRef.current);
             serveCurrent();
           });
-        }, TOAST_DISPLAY_MS);
+        }, refreshed.displayMs ?? TOAST_DISPLAY_MS);
       }
     },
-    [animateOut, serveCurrent]
+    [animateOut, serveCurrent, settleItem]
   );
+
+  // Slice 61: the visible toast's action was pressed. The
+  // action runs, the item settles as "action", and the slot
+  // hands over through the same exit transition as an expiry —
+  // the press never pops the toast out of existence.
+  const pressAction = useCallback(() => {
+    const item = currentRef.current;
+    if (!item?.action || leavingRef.current) return;
+    leavingRef.current = true;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    try {
+      item.action.onPress();
+    } catch {
+      // An action must never strand the slot.
+    }
+    settleItem(item, "action");
+    animateOut(() => {
+      leavingRef.current = false;
+      queueRef.current = advanceToast(queueRef.current);
+      serveCurrent();
+    });
+  }, [animateOut, serveCurrent, settleItem]);
 
   useEffect(
     () => () => {
@@ -167,11 +234,29 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <View style={{ flex: 1 }}>{children}</View>
       {current ? (
         <Animated.View
-          pointerEvents="none"
+          pointerEvents={current.action ? "box-none" : "none"}
           style={[styles.toastWrap, { opacity, transform: [{ translateY }] }]}
         >
-          <View style={styles.toast}>
-            <Text style={styles.toastText}>{current.message}</Text>
+          <View style={styles.toast} pointerEvents="box-none">
+            <Text style={styles.toastText} pointerEvents="none">
+              {current.message}
+            </Text>
+            {current.action ? (
+              <Pressable
+                pointerEvents="auto"
+                onPress={pressAction}
+                accessibilityRole="button"
+                accessibilityLabel={current.action.label}
+                style={({ pressed }) => ({
+                  ...styles.toastAction,
+                  backgroundColor: pressed ? colors.accentDim : colors.accent,
+                })}
+              >
+                <Text style={styles.toastActionText}>
+                  {current.action.label}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         </Animated.View>
       ) : null}
@@ -208,5 +293,18 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: typeScale.body,
     fontWeight: "600",
+  },
+  // Slice 61: the pill's one touch target (see header).
+  toastAction: {
+    alignSelf: "flex-end",
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: radius.card,
+  },
+  toastActionText: {
+    color: "#06202a",
+    fontSize: typeScale.caption,
+    fontWeight: "800",
   },
 });

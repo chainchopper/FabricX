@@ -37,6 +37,7 @@ import AISettingsDrawer from "./components/neo/AISettingsDrawer";
 import AIChatDrawer from "./components/neo/AIChatDrawer";
 import VisionAIDrawer from "./components/neo/VisionAIDrawer";
 import VoiceInputButton from "./components/VoiceInputButton";
+import { HapticsToastBridge } from "./components/fabric/HapticsToastBridge";
 
 // F doctrine chrome: one anchor, one menu, per-layer settings mirror.
 import {
@@ -267,6 +268,11 @@ export default function RootLayout() {
                               now, in parallel with the canvas chunk
                               loading below — not after it. */}
                           <SignalingWarmup />
+                          {/* Slice 61: the haptics-off toast wire —
+                              the vibration gate's suppression
+                              notice becomes the toast with its
+                              Enable action. Renders nothing. */}
+                          <HapticsToastBridge />
                           {/* Hotfix 1.8: runtime web shell (callout /
                               contextmenu) + shared-audio gesture
                               unlock, installed before first paint of
