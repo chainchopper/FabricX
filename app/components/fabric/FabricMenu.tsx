@@ -42,8 +42,10 @@
  *
  *   SETTINGS & HELP — app-wide leftovers that fit nowhere above:
  *   the universal device toggles (haptics, audio cues, voice
- *   panel), diagnostics, and the legacy panel doors (OPEN's
- *   list, kept whole). Nothing per-layer may live here.
+ *   panel), diagnostics, and the door to the Preferences panel.
+ *   Nothing per-layer may live here, and no other section's
+ *   panels are listed here (Slice 57 dissolved the "Panels"
+ *   catch-all that once tailed this section).
  *
  * The two scopes — universal and per-layer — are never conflated:
  * universal things live in YOU / AI SERVICES / SETTINGS & HELP,
@@ -52,9 +54,14 @@
  *
  * The heavy legacy panels (Profile, Locker, Studio, Call, …) are
  * not rewritten here: they open as panels FROM this menu via the
- * existing NewDrawers controller, so nothing that worked becomes
- * unreachable — the rail is gone, the doors remain, there is just
- * one hallway now, with signs.
+ * existing NewDrawers controller, each from the section it
+ * belongs to — Profile, Wallet and Shop from YOU; Friends and
+ * Call from PEOPLE; the Layer library and the Locker from
+ * FABRICS; Plugins from STUDIO; AI Chat, Vision AI and the
+ * Companion from AI SERVICES (Slice 57) — so nothing that worked
+ * becomes unreachable: the rail is gone, the doors remain, there
+ * is just one hallway now, with signs, and every door hangs on
+ * the wall it belongs to.
  *
  * Powered by Nirvana
  */
@@ -233,20 +240,12 @@ type DrawerName =
   | "ai-chat"
   | "vision-ai";
 
-const PANEL_ROWS: { name: DrawerName; label: string; icon: IconName }[] = [
-  { name: "profile", label: "Profile", icon: "user" },
-  { name: "neo", label: "Locker — layers, social, swarm", icon: "grid" },
-  { name: "layer", label: "Layer library", icon: "layers" },
-  { name: "studio", label: "Studio", icon: "spark" },
-  { name: "plugins", label: "Plugins & add-ons", icon: "grid" },
-  { name: "companion", label: "Companion", icon: "message" },
-  { name: "shop", label: "Shop", icon: "bag" },
-  { name: "call", label: "Call", icon: "call" },
-  { name: "wallet", label: "Wallet", icon: "wallet" },
-  { name: "friends", label: "Friends", icon: "people" },
-  { name: "vision-ai", label: "Vision AI", icon: "eye" },
-  { name: "ai-chat", label: "AI Chat", icon: "message" },
-];
+/** Slice 57: there is deliberately NO panel-row registry here any
+ *  more. The old PANEL_ROWS list fed a "Panels" catch-all at the
+ *  menu's tail; every door now renders as a DoorRow inside the
+ *  section it belongs to (FABRICS, PEOPLE, YOU, STUDIO, AI
+ *  SERVICES, SETTINGS & HELP), next to the controls it relates
+ *  to. scripts/menu-check.mjs pins the homes. */
 
 type AiConfigSummary = {
   provider: string;
@@ -332,9 +331,10 @@ const cardStyle = {
   marginBottom: spacing.sm,
 } as const;
 
-/** A plain door row: icon, label, chevron. Used by the STUDIO
- *  door list and the Panels list in SETTINGS & HELP — one row
- *  grammar for every panel this menu opens. */
+/** A plain door row: icon, label, chevron. Used by the door
+ *  lists inside FABRICS, PEOPLE, YOU, STUDIO and AI SERVICES and
+ *  by the Preferences door in SETTINGS & HELP — one row grammar
+ *  for every panel this menu opens. */
 function DoorRow({
   icon,
   label,
@@ -368,8 +368,7 @@ function DoorRow({
 }
 
 /** A sub-header inside a section — smaller than a SectionHeader,
- *  for a named group within a section (Lint inside STUDIO, Panels
- *  inside SETTINGS & HELP). */
+ *  for a named group within a section (Lint inside STUDIO). */
 function SubHeader({ children }: { children: string }) {
   return (
     <Text
@@ -2256,6 +2255,23 @@ export default function FabricMenu() {
           </View>
         ) : null}
 
+        {/* Slice 57: the fabric-scoped panels live here, with the
+            fabrics — the Layer library and the Locker hub. They
+            used to sit in a "Panels" catch-all at the menu's
+            tail, under SETTINGS & HELP. */}
+        <View style={{ gap: spacing.xs, marginTop: spacing.md }}>
+          <DoorRow
+            icon="layers"
+            label="Layer library"
+            onPress={() => openPanel("layer")}
+          />
+          <DoorRow
+            icon="grid"
+            label="Locker — layers, social, swarm"
+            onPress={() => openPanel("neo")}
+          />
+        </View>
+
         {/* ---------------- PEOPLE ---------------- */}
         <SectionHeader>PEOPLE</SectionHeader>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
@@ -2666,6 +2682,22 @@ export default function FabricMenu() {
             </Text>
           </View>
         ) : null}
+        {/* Slice 57: the people panels live here, with the
+            people — Friends & chat, and Call. They used to sit
+            in the "Panels" catch-all at the menu's tail. */}
+        <View style={{ gap: spacing.xs, marginTop: spacing.md }}>
+          <DoorRow
+            icon="people"
+            label="Friends"
+            onPress={() => openPanel("friends")}
+          />
+          <DoorRow
+            icon="call"
+            label="Call"
+            onPress={() => openPanel("call")}
+          />
+        </View>
+
         {/* ---------------- YOU ---------------- */}
         <SectionHeader>YOU</SectionHeader>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
@@ -2931,6 +2963,27 @@ export default function FabricMenu() {
             as a person, and a visiting ghost's sensations can be
             muted from its pill on the canvas.
           </Text>
+        </View>
+
+        {/* Slice 57: your own panels live here, with the rest of
+            YOU — your Profile, your Wallet, your Shop. They used
+            to sit in the "Panels" catch-all at the menu's tail. */}
+        <View style={{ gap: spacing.xs, marginTop: spacing.md }}>
+          <DoorRow
+            icon="user"
+            label="Profile"
+            onPress={() => openPanel("profile")}
+          />
+          <DoorRow
+            icon="wallet"
+            label="Wallet"
+            onPress={() => openPanel("wallet")}
+          />
+          <DoorRow
+            icon="bag"
+            label="Shop"
+            onPress={() => openPanel("shop")}
+          />
         </View>
 
         {/* ---------------- THIS LAYER ---------------- */}
@@ -3636,6 +3689,7 @@ export default function FabricMenu() {
               { label: "Edit / preview saved compositions", panel: "studio" as DrawerName },
               { label: "Configure the composer model", panel: "ai-settings" as DrawerName },
               { label: "Composer access & permissions", panel: "ai-settings" as DrawerName },
+              { label: "Plugins & add-ons", panel: "plugins" as DrawerName },
             ]
           ).map((row) => (
             <DoorRow
@@ -3759,6 +3813,28 @@ export default function FabricMenu() {
           The ghost's own brain — its tier, its decisions, its
           Personality — lives in Your Ghostie (YOU, above).
         </Text>
+        {/* Slice 57: the AI panels live here, with the model
+            they belong to — AI Chat, Vision AI, and the
+            Companion. They used to sit in the "Panels"
+            catch-all at the menu's tail. */}
+        <View style={{ gap: spacing.xs, marginTop: spacing.md }}>
+          <DoorRow
+            icon="message"
+            label="AI Chat"
+            onPress={() => openPanel("ai-chat")}
+          />
+          <DoorRow
+            icon="eye"
+            label="Vision AI"
+            onPress={() => openPanel("vision-ai")}
+          />
+          <DoorRow
+            icon="message"
+            label="Companion"
+            onPress={() => openPanel("companion")}
+          />
+        </View>
+
         {/* ---------------- SETTINGS & HELP ---------------- */}
         <SectionHeader>SETTINGS & HELP</SectionHeader>
         <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
@@ -3798,16 +3874,12 @@ export default function FabricMenu() {
         </Text>
         {showDiag ? <FabricDiagnostics /> : null}
 
-        <SubHeader>Panels</SubHeader>
-        <View style={{ gap: spacing.xs }}>
-          {PANEL_ROWS.map((row) => (
-            <DoorRow
-              key={row.name}
-              icon={row.icon}
-              label={row.label}
-              onPress={() => openPanel(row.name)}
-            />
-          ))}
+        {/* Slice 57: the "Panels" catch-all that used to tail
+            this section is dissolved — every panel it listed
+            now opens from the section it belongs to, above.
+            What stays here is the one door that is genuinely a
+            settings surface: the Preferences panel itself. */}
+        <View style={{ gap: spacing.xs, marginTop: spacing.sm }}>
           <DoorRow
             icon="gear"
             label="Preferences panel"
