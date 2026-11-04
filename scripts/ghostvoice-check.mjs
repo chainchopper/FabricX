@@ -445,10 +445,32 @@ const wellFormed = (intent) => {
         { wave: "sine", ratio: 1, delay_ms: 0, dur_ms: 120, gain: 0.7, env: "soft" },
       ],
     };
+  // Slice 68: play-music requires its authored phrase, and the
+  // B3 scenarios below carry a DUE standing request — the
+  // intent's own law (no due request, no music), exercised
+  // here exactly as the runtime presents it.
+  if (intent === "play-music")
+    d.music_phrase = {
+      bpm: 100,
+      steps: 16,
+      notes: [{ note: "C5", step: 0, len_steps: 1, velocity: 0.6 }],
+    };
   return d;
 };
 for (const id of [...catalogIds, "some-undeclared-fabric"]) {
-  const scenario = mkScenario(sanitize(id));
+  const scenario = {
+    ...mkScenario(sanitize(id)),
+    music: {
+      due: true,
+      scale: "ionian",
+      pattern_hint: "up",
+      tempo_bpm: 100,
+      phrase_index: 0,
+      last_played_note: null,
+      last_phrase_signature: null,
+      pack_notes: null,
+    },
+  };
   const manifest = brain.fabricManifestFor(id);
   let emitted = 0;
   let leaks = 0;

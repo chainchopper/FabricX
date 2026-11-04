@@ -581,4 +581,8 @@ export const GHOST_INTENT_FAMILIES: Record<string, GhostVoiceFamily | null> = {
   // Slice 52: a compose decision's sound is the composition
   // itself (ghostSound) — there is no family cue behind it.
   compose: null,
+  // Slice 68: a play-music decision's sound is the authored
+  // phrase itself, sounded by the layer's music renderer —
+  // there is no family cue behind it either.
+  "play-music": null,
 };

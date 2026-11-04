@@ -361,9 +361,11 @@ check("F2 its icon dock is the fluid band's", finfo.iconBottomFor(PG) === 110);
   // Union pin (chain push seat, Nov 3): Slice 52 grew the registry
   // 6 → 7 (sound-craft), so the full-registry count here moves with
   // it — same discipline as ghostvoice-check's §B1 pin in Slice 53.
+  // Slice 68 grows it again 7 → 8 (play-music); the count moves
+  // with the registry, same discipline.
   check(
-    "F3 the panel offers the ghost all seven tools in its Playground",
-    here.length === 7 && here.every((t) => t.available),
+    "F3 the panel offers the ghost all eight tools in its Playground",
+    here.length === 8 && here.every((t) => t.available),
     here.map((t) => `${t.id}:${t.available}`).join(" ")
   );
 }

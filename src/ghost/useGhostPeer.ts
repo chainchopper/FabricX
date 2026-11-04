@@ -99,6 +99,7 @@ import {
   UTTERANCE_CONFIDENCE_FLOOR,
   type GhostDecision,
   type GhostFabricContext,
+  type GhostMusicPhrase,
   type GhostScenario,
   type GhostUtteranceSpeaker,
 } from "./GhostBrain";
@@ -175,6 +176,12 @@ export interface UseGhostPeerOptions {
    * syncs exactly like a tapped key.
    */
   onNote?: (note: string, velocity: number, durationMs: number) => void;
+  /**
+   * The PLAY-MUSIC tool's sink (Slice 68): a phrase the brain
+   * authored under the standing Generative-music request.
+   * LegacyFluid hands it to the music renderer untouched.
+   */
+  onMusicPhrase?: (phrase: GhostMusicPhrase) => void;
 }
 
 const GHOST_NAMES = [
@@ -294,6 +301,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   onDrawRecipeRef.current = options.onDrawRecipe;
   const onNoteRef = useRef(options.onNote);
   onNoteRef.current = options.onNote;
+  const onMusicPhraseRef = useRef(options.onMusicPhrase);
+  onMusicPhraseRef.current = options.onMusicPhrase;
 
   const persist = useCallback(
     (nextEnabled: boolean, id: GhostIdentityFull) => {
@@ -701,6 +710,9 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         onNote: (note, velocity, durationMs) => {
           onNoteRef.current?.(note, velocity, durationMs);
         },
+        onMusicPhrase: (phrase) => {
+          onMusicPhraseRef.current?.(phrase);
+        },
       });
       peer.setEnabled(en && layerEnabledRef.current);
       setGhostPublicState({ layerEnabled: layerEnabledRef.current });
@@ -927,6 +939,21 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteGenx(snapshot);
   }, []);
 
+  /** Slice 68: the Generative-music standing request (host-fed). */
+  const setMusicStanding = useCallback(
+    (
+      standing: { scale: string; patternHint: string; tempoBpm: number } | null
+    ): void => {
+      peerRef.current?.setMusicStanding(standing);
+    },
+    []
+  );
+
+  /** Slice 68: a loaded MIDI pack's seed notes for the brain. */
+  const setMusicPackNotes = useCallback((notes: number[] | null): void => {
+    peerRef.current?.setMusicPackNotes(notes);
+  }, []);
+
   /** Slice 30: ask this ghost to touch/tap/poke a seen region. */
   const answerTouchAt = useCallback(
     (
@@ -1006,6 +1033,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteHandSign,
     noteGesture,
     noteGenx,
+    setMusicStanding,
+    setMusicPackNotes,
     answerTouchAt,
     answerDrawAround,
     expressPuzzlement,

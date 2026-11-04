@@ -51,6 +51,7 @@ import {
   fabricAllowsNotes,
   GHOST_DRAW_REFUSAL_TEXT,
   GHOST_MANIFEST_REFUSAL_TEXT,
+  GHOST_MUSIC_REFUSAL_TEXT,
   GHOST_NOTE_REFUSAL_TEXT,
   type GhostIntent,
   type GhostScenario,
@@ -63,7 +64,8 @@ export type GhostToolId =
   | "heartbeat-answer"
   | "play-note"
   | "note-perform"
-  | "sound-craft";
+  | "sound-craft"
+  | "play-music";
 
 export interface GhostToolDef {
   id: GhostToolId;
@@ -137,6 +139,14 @@ export const GHOST_TOOL_REGISTRY: readonly GhostToolDef[] = [
     blurb:
       "Synthesis (Slice 52): the ghost COMPOSES a short sound from raw waveforms — sine, square, triangle, sawtooth, noise — choosing each note's pitch contour, envelope and place in the sequence, the way a chiptune toolkit builds sounds from functions. It answers 'make some sounds' with a composition, never a canned cue. Its only fabric law is the manifest: the fluid and the ghostie's playground offer it; fabrics that don't, refuse it at the manifest gate (no session-rule gate exists for it, so no refusalFor here).",
     intents: ["compose"],
+  },
+  {
+    id: "play-music",
+    blurb:
+      "Generative music (Slice 68): while the fluid's Generative-music toggle is on, the standing request rides the deliberation scenario, and on the phrase clock the brain AUTHORS a phrase — pitches, rhythm, velocities — from its temperament, the last notes it heard and played, and the room's energy, inside the human's chosen scale and tempo (the pattern control is a hint it may depart from; a loaded MIDI pack's phrase may be quoted and varied). The phrase is performed exactly as authored by the layer's renderer — the renderer chooses nothing. No standing request, no music: with the ghost off or absent in the layer the feature is silent rather than faking it with a sequencer.",
+    intents: ["play-music"],
+    refusalFor: (scenario) =>
+      scenario.music?.due === true ? null : GHOST_MUSIC_REFUSAL_TEXT,
   },
 ];
 

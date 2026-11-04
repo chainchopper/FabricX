@@ -141,6 +141,11 @@ const GHOST_TOOL_LABELS: Record<string, { label: string; caption: string }> = {
     caption:
       "Building little sounds from raw waveforms — sine, square, sawtooth, noise — when you ask it to make some sounds.",
   },
+  "play-music": {
+    label: "Playing music",
+    caption:
+      "Authoring whole phrases while Generative music is on — its temperament, what it last heard, and the room's energy shape what it plays.",
+  },
 };
 import {
   getGhostPersonality,
