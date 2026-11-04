@@ -24,6 +24,12 @@
  *   node scripts/menu-organization-check.mjs
  * (uses the esbuild package resolvable from this machine's tools;
  * override with ESBUILD_PATH=/path/to/esbuild/lib/main.js)
+ *
+ * Slice 57 note: this check's Cleanup-1 pin "Panels sub-header
+ * inside SETTINGS & HELP" encoded the catch-all Slice 57 exists
+ * to dissolve; that one pin is inverted below (absence + the
+ * Preferences-door-only tail). Everything else — keys, section
+ * order, convergence wiring, state shapes — is unchanged law.
  */
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -123,7 +129,18 @@ const aiAt = menu.indexOf("<SectionHeader>AI SERVICES</SectionHeader>");
 ok(studioAt > -1 && lintAt > studioAt && lintAt < aiAt, "Lint sub-header inside STUDIO");
 const panelsAt = menu.indexOf("<SubHeader>Panels</SubHeader>");
 const settingsAt = menu.indexOf("<SectionHeader>SETTINGS & HELP</SectionHeader>");
-ok(settingsAt > -1 && panelsAt > settingsAt, "Panels sub-header inside SETTINGS & HELP");
+// Slice 57 supersedes Cleanup 1's "Panels sub-header inside
+// SETTINGS & HELP" pin: the catch-all is dissolved, so the pin
+// inverts — no Panels sub-header anywhere, and SETTINGS & HELP
+// keeps exactly one door, the Preferences panel. The doors'
+// homes are pinned by scripts/menu-check.mjs.
+ok(settingsAt > -1 && panelsAt === -1, "Slice 57: Panels catch-all sub-header is gone");
+const settingsBlock = menu.slice(settingsAt);
+ok(
+  (settingsBlock.match(/<DoorRow/g) ?? []).length === 1 &&
+    settingsBlock.includes('openPanel("settings")'),
+  "Slice 57: SETTINGS & HELP holds only the Preferences door"
+);
 // PEOPLE carries the roster + the guest-rules card; YOU carries identity + Ghostie door.
 const peopleAt = menu.indexOf("<SectionHeader>PEOPLE</SectionHeader>");
 const youAt = menu.indexOf("<SectionHeader>YOU</SectionHeader>");
@@ -151,7 +168,7 @@ for (const [value, setter] of pillPairs) {
     `BoolPillRow wired: ${value} / ${setter}`
   );
 }
-ok((menu.match(/<DoorRow/g) ?? []).length >= 3, "DoorRow renders the door lists (studio map + panels + preferences)");
+ok((menu.match(/<DoorRow/g) ?? []).length >= 3, "DoorRow renders the door lists (per-section lists + preferences)");
 // Hotfix 2.3 invariants inside this file: the 16px input floor.
 ok(menu.includes("fontSize: 16"), "16px input floor preserved (Hotfix 2.3)");
 
