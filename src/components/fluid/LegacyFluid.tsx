@@ -64,6 +64,7 @@ import {
   setGhostPublicState,
   getGhostPublicState,
   FABRIC_PET_GHOST_EVENT,
+  FABRIC_VOICE_ATTENTION_EVENT,
   FABRIC_VOICE_UNHEARD_EVENT,
   FABRIC_WARM_WELCOME_EVENT,
 } from "../../ghost/ghostStore";
@@ -1329,6 +1330,28 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     };
     window.addEventListener(FABRIC_VOICE_UNHEARD_EVENT, onVoiceUnheard);
     return () => window.removeEventListener(FABRIC_VOICE_UNHEARD_EVENT, onVoiceUnheard);
+  }, []);
+
+  // Slice 58: natural voice's mic state is signaled by the
+  // ghostie itself, never by chrome. The name-listener reports
+  // its transitions (armed / attending); the ghost answers
+  // in-world — a soft halo while it listens for its name, a
+  // perk and a brighter glow the moment the name lands.
+  // expressAttention is presence-gated and budget-counted like
+  // any act; with no ghost out, the moment passes quietly (the
+  // listener still hears — there is just nobody to show it).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onVoiceAttention = (e: Event) => {
+      const detail = (
+        e as CustomEvent<{ listening?: boolean; attending?: boolean }>
+      ).detail;
+      if (!detail?.listening) return;
+      ghostRef.current.expressAttention(detail.attending === true);
+    };
+    window.addEventListener(FABRIC_VOICE_ATTENTION_EVENT, onVoiceAttention);
+    return () =>
+      window.removeEventListener(FABRIC_VOICE_ATTENTION_EVENT, onVoiceAttention);
   }, []);
 
   // Slice 31: call-and-response input. While the Piano layer is
