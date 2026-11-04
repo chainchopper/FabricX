@@ -28,6 +28,14 @@
 //    where no recognizer exists); PreferencesContext loads
 //    through the normalizer and defaults from the gate.
 //
+// Slice 67 amendment (Nov 4, later — disclosed in-slice, the
+// house pattern): the canvas mic row now renders ONLY in Tap
+// mode, so compatibility path 2 (the capture door inside
+// Natural) is deleted with the button — its §B pin below is
+// inverted, not dropped. Path 1's gesture restart survives,
+// re-homed from the button press to the first touch anywhere;
+// its pin is unchanged and still passes verbatim.
+//
 // Run: node scripts/voice65-check.mjs   (from the repo root)
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -201,8 +209,8 @@ async function bundle(rel, out, extra = []) {
     bar.includes('wake.state === "blocked"') && bar.includes("wake.restart()")
   );
   check(
-    "§B compatibility path 2: no recognizer at all → the capture door, named unsupported",
-    bar.includes('wake.state === "unsupported"')
+    "§B compatibility path 2 — AMENDED by Slice 67: the capture door left Natural with the button (Tap is its home now); the bar branches on 'unsupported' nowhere",
+    !bar.includes('wake.state === "unsupported"')
   );
   check(
     "§B the wake hook itself stays mode-blind (the gate decides, the hook obeys)",

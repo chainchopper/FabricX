@@ -47,6 +47,18 @@
  * listening is never faked. Compatibility serves the mode;
  * it never becomes a third mode.
  *
+ * Slice 67 addendum (Nov 4, later): the canvas mic row that
+ * carried two of those compatibility moments no longer
+ * renders in Natural at all — it is Tap's door, and it
+ * renders only there. The blocked restart now rides the
+ * first touch anywhere (ComposeBar), unchanged in kind. The
+ * recognizer-less capture fallback is no longer reachable
+ * from Natural: the capture door lives wholly in Tap, which
+ * is one-or-the-other taken literally. Name-listening on
+ * such a browser remains impossible and is never faked; a
+ * person there who wants voice by tap chooses Tap here in
+ * Settings.
+ *
  * Slice 58 shipped a third value, "both". It is gone from
  * the type, the settings row, and every label. A stored
  * "both" MIGRATES to "natural" on read (normalizeVoice

@@ -18,6 +18,10 @@ import {
   voiceInputModeNow,
   type VoiceInputMode,
 } from "../../sensory/voiceMode";
+import {
+  ensureListeningNotice,
+  noteNaturalListeningArmed,
+} from "../../sensory/listeningNotice";
 import { useComposeVoice } from "./useComposeVoice";
 import { useWakeWord } from "./useWakeWord";
 import { useAutoMicRequest } from "./useAutoMicRequest";
@@ -110,6 +114,33 @@ import { useAutoMicRequest } from "./useAutoMicRequest";
  * capture door is the honest remainder (name-listening is
  * impossible there; listening is never faked). Neither makes
  * tap part of the mode.
+ *
+ * Slice 67: the mic menu leaves the canvas. Terrell (Nov 4,
+ * ~4:31 PM ET): "There is still a mic menu as if we hadn't
+ * already basically gotten rid of that clutter and put it in
+ * settings with a toast reminder. Tap to talk off by
+ * default." He was right: the button row still stood on every
+ * canvas in EVERY mode — in Natural, where it was not even a
+ * door. Now the visible row renders ONLY in Tap mode, where
+ * the button is the input. In Natural nothing of this bar
+ * stands on the canvas: no button, no standing label, no
+ * touch target; at rest the component returns null, and only
+ * the ask loop's momentary answers (a source credit, the
+ * ghost's puzzlement, Playing + Stop) may surface while one
+ * is actually happening. The hooks never moved — this mount
+ * still carries the listener's lifecycle, the one proactive
+ * ask, and the submit path; the runtime is not chrome. Two
+ * things the button used to carry inside Natural moved to
+ * honest homes: (1) the gesture a blocked listener start was
+ * waiting for is now the first touch ANYWHERE — the same
+ * first-touch shape the auto-ask's retry already uses;
+ * compatibility, unchanged in kind. (2) The recognizer-less
+ * browser's capture door leaves Natural with the button —
+ * Tap is that door's home now, which is what one-or-the-other
+ * means. And the first time the natural listener is genuinely
+ * live, ONE toast (once per install — listeningNotice) says
+ * the ghostie is listening for its name and that voice lives
+ * in Settings: the reminder that replaces the standing label.
  *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
@@ -209,6 +240,7 @@ export default function ComposeBar() {
   const [mode, setMode] = useState<VoiceInputMode>(() => voiceInputModeNow());
   useEffect(() => {
     ensureVoiceInputModePref();
+    ensureListeningNotice();
     return subscribeVoiceInputMode(setMode);
   }, []);
 
@@ -228,27 +260,42 @@ export default function ComposeBar() {
     onAsk: submitText,
   });
 
-  // What the mic button does, per mode — one or the other.
-  // Tap: the button is the only voice door (Slice 58's tap
-  // behavior, unchanged). Natural: the button is NOT a door —
-  // the two live branches below are platform compatibility,
-  // not mode features, and nothing describes them otherwise:
-  // a blocked listener start was refused for want of a user
-  // gesture, and this press IS that gesture; and where the
-  // platform has no speech recognizer at all (Firefox), the
-  // capture door is the only way anything can be heard —
-  // name-listening is impossible there, never faked. While
-  // the listener is live, a press does nothing at all: hands
-  // off the screen means the screen is not the input.
-  const onMicPress = () => {
-    if (mode === "natural") {
-      if (wake.state === "blocked") {
+  // Slice 67: in Natural, a gesture-starved (blocked) listener
+  // start restarts on the first touch ANYWHERE — the platform
+  // compatibility Slice 65 named, in the first-touch shape the
+  // auto-ask's retry already uses. There is no button to carry
+  // it any more, and none is needed: the touch is the fabric's
+  // own play, not a control, and nothing renders for it.
+  useEffect(() => {
+    if (mode !== "natural") return;
+    if (wake.state === "blocked") {
+      const onFirstTouch = () => {
+        window.removeEventListener("pointerdown", onFirstTouch);
         wake.restart();
-      } else if (wake.state === "unsupported") {
-        voice.toggle();
-      }
-      return;
+      };
+      window.addEventListener("pointerdown", onFirstTouch);
+      return () => window.removeEventListener("pointerdown", onFirstTouch);
     }
+  }, [mode, wake.state, wake.restart]);
+
+  // Slice 67: the toast reminder. The first time the natural
+  // listener is genuinely live — a recognition session is
+  // actually hot; blocked and unsupported never reach this —
+  // raise the once-per-install notice; the bridge turns it
+  // into the momentary toast. The notice module owns the
+  // once-ever discipline; repeat calls here are no-ops.
+  useEffect(() => {
+    if (mode === "natural" && wake.micHot) {
+      noteNaturalListeningArmed();
+    }
+  }, [mode, wake.micHot]);
+
+  // What the mic button does: it renders only in Tap mode
+  // (the render gate below), where it is the only voice door
+  // — Slice 58's tap behavior, unchanged. In Natural there is
+  // no button and no press semantics at all: hands off the
+  // screen means the screen is not the input.
+  const onMicPress = () => {
     voice.toggle();
   };
 
@@ -284,8 +331,21 @@ export default function ComposeBar() {
     window.dispatchEvent(new CustomEvent(FABRIC_COMPOSE_STOP_EVENT));
   };
 
+  // Slice 67 render discipline (see header): the tap door —
+  // the mic row, the ask's primer, the capture captions —
+  // renders ONLY in Tap mode. In Natural the bar stands down:
+  // at rest it returns null (no element, no touch target over
+  // the canvas), and only the ask loop's momentary answers
+  // surface while one is live.
+  const showTapDoor = mode === "tap";
+  const hasTransient =
+    composing || source !== null || puzzled !== null || playing !== null;
+  if (!showTapDoor && !hasTransient) return null;
+
   return (
     <View pointerEvents="auto" style={{ marginTop: 8, maxWidth: 300 }}>
+      {showTapDoor ? (
+        <>
       {/* Slice 37: voice only. The mic is the whole affordance —
           no text field overlays the canvas, so nothing on this
           bar can take the scene's focus or summon a keyboard
@@ -297,17 +357,7 @@ export default function ComposeBar() {
           pointerEvents="auto"
           onPress={onMicPress}
           accessibilityRole="button"
-          accessibilityLabel={
-            voice.listening
-              ? "Stop listening"
-              : mode === "natural"
-                ? wake.state === "blocked"
-                  ? "Tap once so your ghostie can start listening"
-                  : wake.state === "unsupported"
-                    ? "Ask by voice"
-                    : "Your ghostie is listening for its name"
-                : "Ask by voice"
-          }
+          accessibilityLabel={voice.listening ? "Stop listening" : "Ask by voice"}
           style={({ pressed }) => ({
             width: 38,
             height: 38,
@@ -337,6 +387,11 @@ export default function ComposeBar() {
               : "Ask by voice \u2014 typing lives in the Companion panel"}
         </Text>
       </View>
+      {/* The ask's primer renders with the tap door. In Natural
+          it has no canvas surface: the platform prompt speaks
+          for itself, the one toast orients, and a refusal leaves
+          no standing caption behind — a denial squatting on the
+          canvas forever is the clutter Slice 67 removes. */}
       {autoMic.primer && !voice.message ? (
         <Text style={{ color: "#93c5fd", fontSize: 11, marginTop: 6 }}>
           {autoMic.primer}
@@ -357,6 +412,11 @@ export default function ComposeBar() {
                 ? "Heard you — turning it into words…"
                 : "Listening… speak your request")}
         </Text>
+      ) : null}
+        </>
+      ) : null}
+      {composing && !showTapDoor ? (
+        <Text style={{ color: "#94a3b8", fontSize: 11 }}>{"Composing\u2026"}</Text>
       ) : null}
       {source ? (
         <Text style={{ color: "#94a3b8", fontSize: 11, marginTop: 4 }}>
