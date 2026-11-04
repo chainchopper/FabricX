@@ -1,6 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { getJSON, setJSON } from "../utils/storage";
 import { mirrorHapticsPreference } from "../../src/sensory/vibration";
+import {
+  isVoiceInputMode,
+  mirrorVoiceInputMode,
+  type VoiceInputMode,
+} from "../../src/sensory/voiceMode";
 
 type IconsLockMode = "off" | "lock" | "lock_autohide";
 
@@ -12,6 +17,11 @@ type PreferencesContextValue = {
   audioEnabled: boolean;
   setAudioEnabled: (v: boolean) => void;
   toggleAudio: () => void;
+
+  // Slice 58: how a conversation with the ghostie starts —
+  // tap to talk (default, today's behavior), wake word, or both.
+  voiceInputMode: VoiceInputMode;
+  setVoiceInputMode: (m: VoiceInputMode) => void;
 
   // New: icon behavior
   iconsAutoHide: boolean;
@@ -29,6 +39,7 @@ const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const [hapticsEnabled, setHapticsEnabledState] = useState<boolean>(true);
   const [audioEnabled, setAudioEnabledState] = useState<boolean>(true);
+  const [voiceInputMode, setVoiceInputModeState] = useState<VoiceInputMode>("tap");
 
   // New icon behavior
   const [iconsAutoHide, setIconsAutoHideState] = useState<boolean>(true);
@@ -39,12 +50,14 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     getJSON<{
       hapticsEnabled?: boolean;
       audioEnabled?: boolean;
+      voiceInputMode?: unknown;
       iconsAutoHide?: boolean;
       iconsAutoHideTimeoutSec?: number;
       iconsLockMode?: IconsLockMode;
     } | null>(STORAGE_KEY, null).then((saved) => {
       if (saved && typeof saved.hapticsEnabled === "boolean") setHapticsEnabledState(saved.hapticsEnabled);
       if (saved && typeof saved.audioEnabled === "boolean") setAudioEnabledState(saved.audioEnabled);
+      if (saved && isVoiceInputMode(saved.voiceInputMode)) setVoiceInputModeState(saved.voiceInputMode);
       if (saved && typeof saved.iconsAutoHide === "boolean") setIconsAutoHideState(saved.iconsAutoHide);
       if (saved && typeof saved.iconsAutoHideTimeoutSec === "number") setIconsAutoHideTimeoutSecState(saved.iconsAutoHideTimeoutSec);
       if (saved && typeof saved.iconsLockMode === "string") setIconsLockModeState(saved.iconsLockMode);
@@ -55,11 +68,12 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     setJSON(STORAGE_KEY, {
       hapticsEnabled,
       audioEnabled,
+      voiceInputMode,
       iconsAutoHide,
       iconsAutoHideTimeoutSec,
       iconsLockMode,
     });
-  }, [hapticsEnabled, audioEnabled, iconsAutoHide, iconsAutoHideTimeoutSec, iconsLockMode]);
+  }, [hapticsEnabled, audioEnabled, voiceInputMode, iconsAutoHide, iconsAutoHideTimeoutSec, iconsLockMode]);
 
   // Slice 50: mirror the haptics switch into the ONE vibration
   // gate (src/sensory/vibration) that every felt touch passes
@@ -71,11 +85,22 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     mirrorHapticsPreference(hapticsEnabled);
   }, [hapticsEnabled]);
 
+  // Slice 58: the same mirror for the voice input mode — this
+  // context stays the preference's only writer; the gate
+  // (src/sensory/voiceMode) is how the compose bar, which
+  // reads outside this provider's tree, hears a flip the
+  // moment it happens.
+  useEffect(() => {
+    mirrorVoiceInputMode(voiceInputMode);
+  }, [voiceInputMode]);
+
   const setHapticsEnabled = (v: boolean) => setHapticsEnabledState(v);
   const toggleHaptics = () => setHapticsEnabledState((prev) => !prev);
 
   const setAudioEnabled = (v: boolean) => setAudioEnabledState(v);
   const toggleAudio = () => setAudioEnabledState((prev) => !prev);
+
+  const setVoiceInputMode = (m: VoiceInputMode) => setVoiceInputModeState(m);
 
   const setIconsAutoHide = (v: boolean) => setIconsAutoHideState(v);
   const setIconsAutoHideTimeoutSec = (n: number) => setIconsAutoHideTimeoutSecState(Math.max(1, Math.min(60, Math.round(n))));
@@ -89,6 +114,8 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       audioEnabled,
       setAudioEnabled,
       toggleAudio,
+      voiceInputMode,
+      setVoiceInputMode,
       iconsAutoHide,
       setIconsAutoHide,
       iconsAutoHideTimeoutSec,
@@ -96,7 +123,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       iconsLockMode,
       setIconsLockMode,
     }),
-    [hapticsEnabled, audioEnabled, iconsAutoHide, iconsAutoHideTimeoutSec, iconsLockMode]
+    [hapticsEnabled, audioEnabled, voiceInputMode, iconsAutoHide, iconsAutoHideTimeoutSec, iconsLockMode]
   );
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;

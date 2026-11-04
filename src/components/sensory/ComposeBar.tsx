@@ -6,7 +6,21 @@ import {
   FABRIC_COMPOSE_STOP_EVENT,
 } from "../../ai/PatternComposer";
 import { FABRIC_COMPOSE_SOURCE_EVENT } from "../../ai/RecipeComposer";
+import {
+  getGhostPublicState,
+  subscribeGhostState,
+  type GhostPublicState,
+} from "../../ghost/ghostStore";
+import {
+  ensureVoiceInputModePref,
+  naturalArmedInMode,
+  subscribeVoiceInputMode,
+  voiceInputModeNow,
+  type VoiceInputMode,
+} from "../../sensory/voiceMode";
 import { useComposeVoice } from "./useComposeVoice";
+import { useWakeWord } from "./useWakeWord";
+import { useAutoMicRequest } from "./useAutoMicRequest";
 
 /**
  * ComposeBar — Slice 4's one HUD affordance: describe a feeling, and
@@ -67,6 +81,22 @@ import { useComposeVoice } from "./useComposeVoice";
  * pulses while live, and a transcription in flight captions
  * itself ("Heard you — turning it into words…"). A browser
  * refusal is answered in-world, ghost puzzlement included.
+ *
+ * Slice 58: voice the way it was asked for. (1) The mic asks
+ * FIRST: mounting this bar (the session's first voice-capable
+ * surface) fires the one proactive, ghostie-framed request —
+ * and the Slice 50 grant memory is consulted before any ask,
+ * so a known answer means no ask at all. (2) The recognizer's
+ * own outcomes now feed that memory (useComposeVoice), so a
+ * grant actually persists across surfaces and fabrics.
+ * (3) The Voice input setting (Tap to talk / Natural / Both):
+ * in Natural and Both, a listener waits for the ghostie's
+ * NAME; from the name on, the person just talks and every
+ * spoken final enters this same submit path. There is no
+ * conversation and no window — the ghostie shows that it
+ * hears with its own body (halo, perk; GhostPeer.
+ * expressAttention), and nothing on this bar gains a
+ * listening indicator for the natural path.
  *
  * Rendered inside ExperienceHUD (whose container is
  * pointerEvents="none"), so this root re-enables pointer events.
@@ -155,6 +185,54 @@ export default function ComposeBar() {
 
   const voice = useComposeVoice(submitText);
 
+  // Slice 58: the ghostie's name is the wake phrase, and the
+  // Voice input mode gate decides which doors are open. Both
+  // are live subscriptions — a rename or a settings flip
+  // reaches the listener the moment it happens.
+  const [ghost, setGhost] = useState<GhostPublicState>(() =>
+    getGhostPublicState()
+  );
+  useEffect(() => subscribeGhostState(setGhost), []);
+  const [mode, setMode] = useState<VoiceInputMode>(() => voiceInputModeNow());
+  useEffect(() => {
+    ensureVoiceInputModePref();
+    return subscribeVoiceInputMode(setMode);
+  }, []);
+  // In Natural mode the mic button arms/disarms the listener
+  // (a session choice, not a preference — the setting is the
+  // mode; this is the off switch in reach).
+  const [naturalArmed, setNaturalArmed] = useState(true);
+
+  // The one proactive mic ask, framed as the ghostie asking
+  // to hear. Silent whenever the grant memory already knows.
+  const autoMic = useAutoMicRequest({ ghostName: ghost.ghostName });
+
+  const wake = useWakeWord({
+    enabled: naturalArmedInMode(mode) && naturalArmed,
+    phrase: ghost.ghostName,
+    suspended: voice.listening || voice.busy,
+    onAsk: submitText,
+  });
+
+  // What the mic button does, per mode. Where the platform
+  // has no recognizer at all (Firefox), every mode falls back
+  // to the tap door rather than stranding the person.
+  const onMicPress = () => {
+    if (mode === "natural" && wake.state !== "unsupported") {
+      if (wake.state === "blocked") {
+        // A real gesture is exactly what a blocked start was
+        // waiting for.
+        wake.restart();
+        setNaturalArmed(true);
+      } else {
+        setNaturalArmed((a) => !a);
+      }
+      return;
+    }
+    if (mode === "both" && wake.state === "blocked") wake.restart();
+    voice.toggle();
+  };
+
   // Hotfix 2.5: while the mic is live the button breathes — a
   // voice state you can SEE, not a caption you have to read.
   // (Universal capture means this now happens in Firefox too:
@@ -198,9 +276,17 @@ export default function ComposeBar() {
       <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
         <Pressable
           pointerEvents="auto"
-          onPress={voice.toggle}
+          onPress={onMicPress}
           accessibilityRole="button"
-          accessibilityLabel={voice.listening ? "Stop listening" : "Ask by voice"}
+          accessibilityLabel={
+            voice.listening
+              ? "Stop listening"
+              : mode === "natural" && wake.state !== "unsupported"
+                ? naturalArmed
+                  ? "Stop listening for your ghostie's name"
+                  : "Listen for your ghostie's name"
+                : "Ask by voice"
+          }
           style={({ pressed }) => ({
             width: 38,
             height: 38,
@@ -230,6 +316,11 @@ export default function ComposeBar() {
               : "Ask by voice \u2014 typing lives in the Companion panel"}
         </Text>
       </View>
+      {autoMic.primer && !voice.message ? (
+        <Text style={{ color: "#93c5fd", fontSize: 11, marginTop: 6 }}>
+          {autoMic.primer}
+        </Text>
+      ) : null}
       {voice.listening || voice.busy || voice.interim || voice.message ? (
         <Text
           style={{

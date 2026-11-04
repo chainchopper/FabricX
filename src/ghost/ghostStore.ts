@@ -191,6 +191,18 @@ export const FABRIC_WARM_WELCOME_EVENT = "fabric:warm-welcome";
  */
 export const FABRIC_VOICE_UNHEARD_EVENT = "fabric:voice-unheard";
 
+/**
+ * Window event voice surface -> canvas (Slice 58): the natural
+ * voice listener's state changed — detail { listening, attending }.
+ * A hot mic is never invisible, and the signal is the ghostie
+ * ITSELF, never chrome: the canvas answers with
+ * GhostPeer.expressAttention — a soft halo in its hue when it
+ * starts listening for its name, a perk and a brighter glow
+ * when the name lands and it attends. No panel, dot, or label
+ * anywhere carries this; the character does.
+ */
+export const FABRIC_VOICE_ATTENTION_EVENT = "fabric:voice-attention";
+
 const state: GhostPublicState = {
   enabled: true,
   layerEnabled: true,

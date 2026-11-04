@@ -718,6 +718,7 @@ export class GhostPeer {
   private lastPetHeartAt = 0;
   private lastAnticAt = 0;
   private lastStartleAt = 0;
+  private lastAttentionAt = 0;
 
   /** The ghost's body: current position + where it is drifting toward. */
   private position = { x: 0.5, y: 0.42 };
@@ -1581,6 +1582,75 @@ export class GhostPeer {
         color: this.sigColor,
       });
     });
+    return true;
+  }
+
+  /**
+   * Be seen to hear (Slice 58, natural voice). A hot mic is
+   * never invisible in Fabric, and the signal is the ghostie's
+   * own body — never chrome, never a panel or a dot. The voice
+   * surface reports the listener's transitions; the canvas
+   * calls this, and the ghostie answers in-world:
+   *
+   * - attending (its name just landed): it PERKS — rises a
+   *   little, leans toward the middle of the room where its
+   *   person is looking, and wears a brief bright halo of its
+   *   signature color, three soft splats blooming around the
+   *   body. You can see that you were heard before it acts.
+   * - listening (the loop armed, waiting for the name): one
+   *   soft halo breath at the body — ears on, quietly.
+   *
+   * Every splat rides schedule() + emit(), so presence gates
+   * and the hard budget bind exactly as for any act; a light
+   * cooldown keeps the signal a gesture, not a strobe.
+   * Returns true when the ghostie performed the signal.
+   */
+  expressAttention(attending: boolean): boolean {
+    if (this.destroyed || !this.enabled || this.dismissing) return false;
+    this.noteUserActivity();
+    if (!this.canAct()) return false;
+    const now = Date.now();
+    if (now - this.lastAttentionAt < 900) return false;
+    this.lastAttentionAt = now;
+    if (attending) {
+      this.journal("heard its name — attending", now);
+      this.markDeliberationDirty();
+      this.options.onPerformance?.("perked up at its name — listening");
+      if (this.temperament === "sleepy") this.setTemperament("curious");
+      // The perk: rise a little, lean toward the asker.
+      this.position.y = clamp01(this.position.y - 0.03);
+      this.position.x = clamp01(
+        this.position.x + (0.5 - this.position.x) * 0.08
+      );
+      this.wanderTarget.y = clamp01(this.wanderTarget.y - 0.02);
+      // The glow: a halo blooming around the body.
+      for (let k = 0; k < 3; k++) {
+        const angle = (k / 3) * Math.PI * 2 + 0.5;
+        this.schedule(k * 140, () => {
+          if (!this.canAct()) return;
+          this.emit({
+            position: {
+              x: clamp01(this.position.x + Math.cos(angle) * 0.035),
+              y: clamp01(this.position.y + Math.sin(angle) * 0.035),
+            },
+            force: { x: Math.cos(angle) * 14, y: -16 },
+            pressure: 0.28,
+            color: this.sigColor,
+          });
+        });
+      }
+    } else {
+      this.journal("listening for its name", now);
+      this.schedule(0, () => {
+        if (!this.canAct()) return;
+        this.emit({
+          position: { x: this.position.x, y: this.position.y },
+          force: { x: 0, y: -14 },
+          pressure: 0.16,
+          color: this.sigColor,
+        });
+      });
+    }
     return true;
   }
 

@@ -93,6 +93,10 @@ import {
   subscribeGhostState,
   type GhostPublicState,
 } from "../../../src/ghost/ghostStore";
+import {
+  nextVoiceInputMode,
+  voiceInputModeLabel,
+} from "../../../src/sensory/voiceMode";
 import { MAX_GHOSTS_PER_ROOM } from "../../../src/ghost/GhostPeer";
 import {
   FABRIC_SHARE_LIVE_EVENT,
@@ -307,6 +311,51 @@ function ToggleRow({
         }}
       >
         {value ? "On" : "Off"}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Slice 58: a settings row whose value is a WORD, not a switch —
+ *  same card geometry as ToggleRow; tapping cycles the value. */
+function ModeRow({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: radius.card,
+        borderWidth: 1,
+        borderColor: colors.line,
+        backgroundColor: pressed ? colors.accentDim : "transparent",
+        marginBottom: spacing.sm,
+      })}
+    >
+      <Text style={{ color: colors.text, fontSize: typeScale.body, fontWeight: "600" }}>
+        {label}
+      </Text>
+      <Text
+        style={{
+          color: colors.accent,
+          fontSize: typeScale.body,
+          fontWeight: "700",
+        }}
+      >
+        {value}
       </Text>
     </Pressable>
   );
@@ -3857,6 +3906,26 @@ export default function FabricMenu() {
           value={voiceOpen}
           onPress={() => setVoiceOpen(!voiceOpen)}
         />
+        {/* Slice 58: how talking to the ghostie starts. The
+            preference lives in fabric_prefs_v1 with the other
+            universal switches (PreferencesContext owns it);
+            the wake phrase is the ghostie's own name, and the
+            ghostie shows that it hears with its own body —
+            there is no conversation window to open. */}
+        <ModeRow
+          label="Voice input"
+          value={voiceInputModeLabel(prefs.voiceInputMode)}
+          onPress={() =>
+            prefs.setVoiceInputMode(nextVoiceInputMode(prefs.voiceInputMode))
+          }
+        />
+        <Text style={{ color: colors.textDim, fontSize: typeScale.caption, marginBottom: spacing.sm }}>
+          {prefs.voiceInputMode === "tap"
+            ? "Tap the mic to talk to your ghostie."
+            : prefs.voiceInputMode === "natural"
+              ? `Say “${ghost.ghostName ?? "your ghostie's name"}” to talk to your ghostie — it perks up when it hears its name, and answers in its own way.`
+              : `Tap the mic, or say “${ghost.ghostName ?? "your ghostie's name"}” to talk to your ghostie.`}
+        </Text>
 
         {/* Diagnostics — the panel that used to need a drawer hunt. */}
         <Pressable

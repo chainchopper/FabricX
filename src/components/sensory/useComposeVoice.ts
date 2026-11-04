@@ -67,6 +67,7 @@ import {
 } from "../../services/voiceCapture";
 import { resolveLLMConfig } from "../../ai/PatternComposer";
 import { FABRIC_VOICE_UNHEARD_EVENT } from "../../ghost/ghostStore";
+import { noteRecognitionOutcome } from "../../sensors/micStream";
 
 interface AIConfigShape {
   voice?: {
@@ -202,9 +203,26 @@ export function useComposeVoice(
 
   const startDirect = useCallback((language: string): boolean => {
     if (!speechRecognitionCtor()) return false;
+    // Slice 58: the recognizer's outcome feeds the Slice 50
+    // grant memory. This path never calls getUserMedia, so
+    // before this the memory never learned the microphone's
+    // state on the app's most common voice path — and nothing
+    // could honor a persistence the memory didn't have. A
+    // session that hears anything proves the grant; a denial
+    // proves the refusal. Once per session is enough.
+    let notedGrant = false;
+    const noteGrantedOnce = () => {
+      if (notedGrant) return;
+      notedGrant = true;
+      noteRecognitionOutcome("granted");
+    };
     const session = startSpeechRecognition(language, {
-      onInterim: (text) => setInterim(text),
+      onInterim: (text) => {
+        noteGrantedOnce();
+        setInterim(text);
+      },
       onFinal: (text, confidence) => {
+        noteGrantedOnce();
         setInterim("");
         setListening(false);
         speechRef.current = null;
@@ -220,6 +238,7 @@ export function useComposeVoice(
         speechRef.current = null;
         setListening(false);
         if (code === "denied") {
+          noteRecognitionOutcome("denied");
           setMessage(CAPTION_DENIED);
           announceUnheard();
         } else if (code === "no-speech") {
@@ -323,7 +342,15 @@ export function useComposeVoice(
       const service = getVoiceInputService(config);
       service.updateConfig(config);
       let handledFinal = false;
+      // Slice 58: same grant-memory feed for the configured
+      // provider path (its browser provider rides the same
+      // recognizer; its truth belongs in the same memory).
+      let notedGrant = false;
       const offTranscription = service.onTranscription((t) => {
+        if (!notedGrant) {
+          notedGrant = true;
+          noteRecognitionOutcome("granted");
+        }
         if (!t.isFinal) {
           setInterim(t.text);
           return;
@@ -345,6 +372,7 @@ export function useComposeVoice(
         setListening(false);
         serviceActiveRef.current = false;
         if (serviceMessage === VOICE_MIC_DENIED_MESSAGE) {
+          noteRecognitionOutcome("denied");
           setMessage(CAPTION_DENIED);
           announceUnheard();
         } else {
