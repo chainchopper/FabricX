@@ -70,6 +70,15 @@
   .world-card p{font-size:14.5px;line-height:1.55;color:rgba(237,226,208,.78)}
   .world-card b{font-family:var(--serif);font-size:17px;color:var(--bone);display:block;margin-bottom:4px}
 
+  .soon-band{background:linear-gradient(180deg,var(--ink),#1a130d 50%,var(--ink))}
+  .soon-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:34px}
+  .soon-card{background:var(--coal);border:1px dashed rgba(217,160,90,.38);border-radius:12px;padding:22px 18px 18px}
+  .soon-card svg{width:100%;height:64px;display:block;margin-bottom:12px}
+  .soon-card p{font-size:14.5px;line-height:1.55;color:rgba(237,226,208,.78)}
+  .soon-card b{font-family:var(--serif);font-size:17px;color:var(--bone);display:block;margin-bottom:4px}
+  @media (max-width:760px){ .soon-cards{grid-template-columns:1fr 1fr} }
+  @media (max-width:420px){ .soon-cards{grid-template-columns:1fr} }
+
   .stage-band{background:linear-gradient(180deg,var(--ink),#241a12 50%,var(--ink))}
   .stage-band h2{font-size:clamp(40px,5.6vw,62px)}
   .stage-grid{display:grid;grid-template-columns:1.02fr .98fr;gap:clamp(36px,5vw,76px);align-items:start}
@@ -283,6 +292,22 @@
           <circle cx="620" cy="100" r="5" fill="#EDE2D0"/>
         </g>
       </svg>
+    </div>
+  </section>
+
+  <section class="screen soon-band">
+    <div class="inner rv">
+      <div class="rule rose"></div>
+      <h2 data-sm="10">Coming Soon</h2>
+      <p class="body" style="max-width:640px">The worlds above are open now. These are still in the making — six more doors on their way to the gallery, each a fabric with a world of its own.</p>
+      <div class="soon-cards">
+        <div class="soon-card" data-sm="-14"><svg viewBox="0 0 200 64" aria-hidden="true"><path d="M100 6 L106 24 L124 30 L106 36 L100 54 L94 36 L76 30 L94 24 Z" fill="#D9A05A"/><circle cx="42" cy="18" r="3" fill="#C67D6B"/><circle cx="160" cy="14" r="3" fill="#EDE2D0"/><circle cx="168" cy="46" r="3" fill="#C67D6B"/><circle cx="34" cy="48" r="3" fill="#EDE2D0"/><path d="M10 60 H190" stroke="#7B4232" stroke-width="2" stroke-linecap="round"/></svg><b>The Fabric Engine Generator</b><p>Describe a fabric in plain words — a mood, a game, a place you dream of — and the Engine builds the canvas for you: its rules, its layers, its tools. A world of its own, standing complete, ready to step into and ready to share.</p></div>
+        <div class="soon-card" data-sm="8"><svg viewBox="0 0 200 64" aria-hidden="true"><path d="M30 10 H170 L162 26 H38 Z" fill="none" stroke="#D9A05A" stroke-width="2.5" stroke-linejoin="round"/><path d="M38 26 q7 8 14 0 q7 8 14 0 q7 8 14 0 q7 8 14 0 q7 8 14 0 q7 8 14 0 q7 8 13 0" fill="none" stroke="#C67D6B" stroke-width="2.5" stroke-linecap="round"/><path d="M52 58 V38 H92 V58 M108 58 V38 H148 V58" fill="none" stroke="#EDE2D0" stroke-width="2.5" stroke-linejoin="round"/></svg><b>The Marketplace</b><p>Makers will publish the fabrics, packs and patterns they create, and anyone can wander the shelves. Find the one that moves you, buy it, load it, make it yours — a gallery that grows with its makers.</p></div>
+        <div class="soon-card" data-sm="-8"><svg viewBox="0 0 200 64" aria-hidden="true"><g stroke-linecap="round"><circle cx="34" cy="14" r="4" fill="#D9A05A"/><path d="M52 14 H168" stroke="#EDE2D0" stroke-width="3"/><circle cx="34" cy="32" r="4" fill="#C67D6B"/><path d="M52 32 H146" stroke="rgba(237,226,208,.6)" stroke-width="3"/><circle cx="34" cy="50" r="4" fill="#EDE2D0"/><path d="M52 50 H158" stroke="rgba(237,226,208,.6)" stroke-width="3"/></g></svg><b>Community Listings</b><p>One listing for the whole community — fabrics to discover, sessions to join, makers to follow. Somewhere a door is always about to open, and you are welcome at every one of them.</p></div>
+        <div class="soon-card" data-sm="14"><svg viewBox="0 0 200 64" aria-hidden="true"><path d="M72 14 L44 32 L72 50 M128 14 L156 32 L128 50" fill="none" stroke="#D9A05A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M110 10 L90 54" stroke="#C67D6B" stroke-width="3" stroke-linecap="round"/></svg><b>The SDK</b><p>For builders: write a fabric in code — its canvas, its rules, its tools, the way it breathes — and ship it straight to the gallery, where anyone in the world can step inside what you made.</p></div>
+        <div class="soon-card" data-sm="-10"><svg viewBox="0 0 200 64" aria-hidden="true"><path d="M55 30 L100 8 L145 30 M64 26 V56 H136 V26" fill="none" stroke="#EDE2D0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M100 44 c-6-7-16-3-16 4 c0 6 8 9 16 15 c8-6 16-9 16-15 c0-7-10-11-16-4 Z" fill="#C67D6B"/><path d="M30 20 a14 14 0 0 1 8-8 M170 20 a14 14 0 0 0-8-8" fill="none" stroke="#D9A05A" stroke-width="2.5" stroke-linecap="round"/></svg><b>Smart Homes &amp; Accessories</b><p>Fabric steps off the phone and into your home. Lights answer a pattern a friend draws for you; a watch, a ring, a small bright device on the shelf carries the touch into the space around you, and the feeling arrives where you live.</p></div>
+        <div class="soon-card" data-sm="10"><svg viewBox="0 0 200 64" aria-hidden="true"><g fill="#D9A05A"><circle cx="30" cy="18" r="3.5"/><circle cx="62" cy="12" r="3.5"/><circle cx="94" cy="18" r="3.5"/><circle cx="126" cy="12" r="3.5"/><circle cx="158" cy="18" r="3.5"/><circle cx="46" cy="38" r="3.5" fill="#C67D6B"/><circle cx="78" cy="32" r="3.5" fill="#C67D6B"/><circle cx="110" cy="38" r="3.5" fill="#C67D6B"/><circle cx="142" cy="32" r="3.5" fill="#C67D6B"/></g><path d="M14 56 C 60 40, 90 62, 130 48 S 180 52, 190 46" fill="none" stroke="#EDE2D0" stroke-width="2.5" stroke-linecap="round"/></svg><b>The Swarm</b><p>The crowd becomes one instrument. Hundreds of phones, lights and speakers move together under a single hand — a wave you raise, a pulse everyone feels at the same moment. The stage above is the first taste; the Swarm is the whole orchestra, baton in your hand.</p></div>
+      </div>
     </div>
   </section>
 
