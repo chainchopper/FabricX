@@ -35,8 +35,10 @@ import FriendsDrawer from "./components/neo/FriendsDrawer";
 import SettingsDrawer from "./components/neo/SettingsDrawer";
 import AISettingsDrawer from "./components/neo/AISettingsDrawer";
 import AIChatDrawer from "./components/neo/AIChatDrawer";
+import VisionAIDrawer from "./components/neo/VisionAIDrawer";
 import VoiceInputButton from "./components/VoiceInputButton";
 import { HapticsToastBridge } from "./components/fabric/HapticsToastBridge";
+import { ListeningToastBridge } from "./components/fabric/ListeningToastBridge";
 
 // F doctrine chrome: one anchor, one menu, per-layer settings mirror.
 import {
@@ -272,6 +274,12 @@ export default function RootLayout() {
                               notice becomes the toast with its
                               Enable action. Renders nothing. */}
                           <HapticsToastBridge />
+                          {/* Slice 67: the listening reminder wire —
+                              the first time the natural listener is
+                              genuinely live, the one-per-install
+                              notice becomes a momentary toast in the
+                              same slot. Renders nothing. */}
+                          <ListeningToastBridge />
                           {/* Hotfix 1.8: runtime web shell (callout /
                               contextmenu) + shared-audio gesture
                               unlock, installed before first paint of
@@ -323,6 +331,7 @@ export default function RootLayout() {
                           <SettingsDrawer />
                           <AISettingsDrawer />
                           <AIChatDrawer />
+                          <VisionAIDrawer />
 
                           {/* F doctrine chrome: F anchor + one menu. */}
                           <ChromeLayer />
