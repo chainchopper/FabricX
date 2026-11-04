@@ -140,16 +140,17 @@ export const FABRIC_INFO: Record<string, FabricInfo> = {
     about:
       "The camera, made touchable. Name a thing the camera sees and SAM 3.1 cuts it out as a region on the fabric — touch the region and the act lands on the shared canvas.",
     modes: [
-      "Layered — the camera runs under the fluid, and the fluid draws over the picture",
+      "Camera canvas — the front camera fills the fabric; SAM's outlines and your ghostie's acts land on the picture itself",
       "Segment — name it, and its outline becomes a handle",
     ],
     rules: [
       "A region fired from here is a touch on the shared fabric — the room sees and feels it land",
-      "A resting layer is a resting eye: nothing self-plays, and the camera pauses when this layer isn't front",
+      "A resting fabric is a resting eye: nothing self-plays, and the camera pauses when this fabric isn't front",
     ],
     controls: [
-      "Name a thing — the layer's field, above the canvas",
+      "Name a thing — the fabric's field, above the canvas",
       "Touch an outline — segment, then act",
+      "Analyze a photo — the tools panel, when a vision model is configured in AI Settings",
       "This fabric's settings — F menu → This layer",
     ],
   },
@@ -198,6 +199,11 @@ export function canvasKindFor(exp: {
   type?: string;
 }): FabricCanvasKind {
   if (exp.canvas === "stage3d") return "stage3d";
+  // Slice 64: the declared canvas kind is the truth now (See
+  // declares "camera" in the registry); the type read remains
+  // only as the fallback for records written before the
+  // declaration existed.
+  if (exp.canvas === "camera") return "camera";
   if (exp.type === "sam-see") return "camera";
   return "fluid";
 }

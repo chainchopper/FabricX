@@ -16,7 +16,6 @@ type DrawerName =
   | "settings"
   | "ai-settings"
   | "ai-chat"
-  | "vision-ai";
 
 type DrawerAnim = {
   tx: Animated.Value; // drawer translateX from left: -WIDTH (closed) -> 0 (open)
@@ -56,7 +55,6 @@ const WIDTHS: Record<DrawerName, number> = {
   settings: 420,
   "ai-settings": 420,
   "ai-chat": 420,
-  "vision-ai": 420,
 };
 
 const ALL: DrawerName[] = Object.keys(WIDTHS) as DrawerName[];

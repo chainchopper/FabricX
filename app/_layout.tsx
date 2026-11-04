@@ -35,7 +35,6 @@ import FriendsDrawer from "./components/neo/FriendsDrawer";
 import SettingsDrawer from "./components/neo/SettingsDrawer";
 import AISettingsDrawer from "./components/neo/AISettingsDrawer";
 import AIChatDrawer from "./components/neo/AIChatDrawer";
-import VisionAIDrawer from "./components/neo/VisionAIDrawer";
 import VoiceInputButton from "./components/VoiceInputButton";
 import { HapticsToastBridge } from "./components/fabric/HapticsToastBridge";
 
@@ -324,7 +323,6 @@ export default function RootLayout() {
                           <SettingsDrawer />
                           <AISettingsDrawer />
                           <AIChatDrawer />
-                          <VisionAIDrawer />
 
                           {/* F doctrine chrome: F anchor + one menu. */}
                           <ChromeLayer />

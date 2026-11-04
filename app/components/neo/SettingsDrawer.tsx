@@ -6,7 +6,7 @@ import { useHaptics } from "../../hooks/useHaptics";
 import { useAudioCues } from "../../hooks/useAudioCues";
 import AISettingsDrawerButton from "./AISettingsDrawerButton";
 import AIChatDrawerButton from "./AIChatDrawerButton";
-import VisionAIDrawerButton from "./VisionAIDrawerButton";
+import SeeFabricButton from "./SeeFabricButton";
 
 export default function SettingsDrawer() {
   const { back, getAnim, open } = useNewDrawers();
@@ -74,7 +74,7 @@ export default function SettingsDrawer() {
             <View style={{ gap: 8 }}>
               <AISettingsDrawerButton />
               <AIChatDrawerButton />
-              <VisionAIDrawerButton />
+              <SeeFabricButton />
             </View>
           </View>
 

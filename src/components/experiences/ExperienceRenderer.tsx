@@ -32,15 +32,21 @@ export default function ExperienceRenderer() {
   // its base instead of swapping to the 3D branch; PianoNoteLayer
   // (below) runs the note pipeline over it.
   const isPianoLayer = activeExperience?.id === "ar-piano";
-  // Slice 14: the SAM "See" layer follows the piano precedent — a
-  // layer ON the fluid, never a replacement for it. It therefore
-  // also stays out of the 3D camera branch below: the fluid remains
-  // mounted as its base. Hotfix 2.4 (Terrell's world model): the
-  // camera is the background UNDER that fluid and the fluid draws
-  // over it — SamCameraBackground renders beneath the canvas while
-  // SamLayer's outlines/chip/tools render above it (see the slot
-  // below).
-  const isSamLayer = activeExperience?.id === "sam-see";
+  // Slice 64: See is a fabric of its own with a declared canvas
+  // kind — "camera" (the stage3d precedent: the renderer keys on
+  // the declaration, never on the experience id). The camera
+  // surface is this fabric's GROUND: the canvas IS the camera
+  // view. It therefore stays out of the 3D camera branch below.
+  // WebFluidBackground still mounts in its branch slot — single-
+  // canvas authority: it never remounts — but on this fabric it
+  // is only the transparent interaction layer (the ghost's body,
+  // the See-act funnel, region touches) riding over the picture
+  // through the engine's transparent-backdrop mode (Hotfix 2.4's
+  // compositing, now the declared architecture instead of a
+  // layer's exception). SamCameraBackground renders the ground
+  // while SamLayer's outlines/chip/tools render above it (see
+  // the slot below).
+  const isCameraCanvas = activeExperience?.canvas === "camera";
   // Realignment (Oct 28): an experience may declare a non-fluid
   // canvas kind (ExperienceLayer.canvas). "stage3d" experiences own
   // a full react-three-fiber stage as THE canvas — the fluid is not
@@ -121,7 +127,7 @@ export default function ExperienceRenderer() {
         <Suspense fallback={null}>
           <DancerStageLazy onReady={markReady} />
         </Suspense>
-      ) : wantsAROrCamera && !isPianoLayer && !isSamLayer ? (
+      ) : wantsAROrCamera && !isPianoLayer && !isCameraCanvas ? (
         <Suspense fallback={null}>
           <FabricWeb3DLazy />
         </Suspense>
@@ -143,22 +149,25 @@ export default function ExperienceRenderer() {
           Camera Effects still takes the 3D branch above, untouched. */}
       {isPianoLayer ? <PianoNoteLayer /> : null}
 
-      {/* SAM layer (Slice 14; compositing inverted by Hotfix 2.4):
-          same tree-position discipline as the piano layer — this
-          slot never moves, so entering or leaving "See" never
-          remounts the canvas. Inside the slot, the layer splits
-          around the fluid: SamCameraBackground (zIndex -1) renders
-          the cover-fit camera UNDER the WebFluidBackground canvas,
-          which runs in its transparent-backdrop mode while See is
-          active so touches, smoke, splats and the ghostie draw OVER
-          the picture; SamLayer (zIndex 30) renders the region
-          outlines, the status chip and the Segment tools above
-          everything. The fragment keeps this as ONE child slot —
-          every sibling's tree position is exactly as it was. The
-          camera component owns the stream; the overlay owns the
-          Segment action and the region objects; the fluid receives
-          region touches through the normal pattern funnel. */}
-      {isSamLayer ? (
+      {/* The See fabric's own surfaces (Slice 14's layer,
+          promoted by Slice 64): same tree-position discipline as
+          the piano layer — this slot never moves, so entering or
+          leaving See never remounts the canvas. Inside the slot,
+          the fabric splits around its transparent interaction
+          layer: SamCameraBackground (zIndex -1) renders the
+          cover-fit camera as the fabric's GROUND — the canvas
+          itself — while the WebFluidBackground canvas above it
+          runs in its transparent-backdrop mode, so touches,
+          smoke, splats and the ghostie draw over the picture
+          without ever being its ground; SamLayer (zIndex 30)
+          renders the region outlines, the status chip and the
+          Segment tools above everything. The fragment keeps this
+          as ONE child slot — every sibling's tree position is
+          exactly as it was. The camera component owns the stream;
+          the overlay owns the Segment action and the region
+          objects; the fluid receives region touches through the
+          normal pattern funnel. */}
+      {isCameraCanvas ? (
         <>
           <SamCameraBackground />
           <SamLayer />

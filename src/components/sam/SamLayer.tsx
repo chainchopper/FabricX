@@ -46,28 +46,44 @@ import {
   type GroundingSnapshot,
 } from "../../sam/deviceGrounding";
 import { getSegmentationSources } from "../../sam/segmentationAvailability";
+import ImageUploadButton from "../../../app/components/ImageUploadButton";
 
 /**
- * SamLayer — the "See" layer (Slice 14): touch what you see.
+ * SamLayer — "See", a fabric of its own (Slice 14's layer,
+ * promoted by Slice 64): touch what you see. Terrell: "that
+ * camera vision shit should be a fabric it's own" — the census
+ * (SEE-CENSUS.md) showed why it read as lost before: this
+ * perception stack was real, but the experience presented as a
+ * layer smeared across other fabrics, while a second, divergent
+ * vision surface (the legacy Vision AI drawer) sat in the
+ * settings system doing something else entirely. The drawer is
+ * retired; its one real feature — still-photo analysis — lives
+ * on this surface now (the photo tool below). One home for
+ * everything the app does with vision.
  *
- * SAM 3.1 segmentation as a Fabric layer, in Terrell's world model:
- * what SAM finds in the camera view becomes OBJECTS on the fabric:
- * outlined regions you can tap, and tapping one fires a splat burst
- * at its position through the normal interaction funnel (Slice 5
- * session gating applies — playback rides FABRIC_PLAY_PATTERN_EVENT
- * into LegacyFluid's dispatchStep, which sends via sendInteraction
- * exactly like a composed pattern).
+ * SAM 3.1 segmentation as a Fabric experience, in Terrell's world
+ * model: what SAM finds in the camera view becomes OBJECTS on the
+ * fabric: outlined regions you can tap, and tapping one fires a
+ * splat burst at its position through the normal interaction funnel
+ * (Slice 5 session gating applies — playback rides
+ * FABRIC_PLAY_PATTERN_EVENT into LegacyFluid's dispatchStep, which
+ * sends via sendInteraction exactly like a composed pattern).
  *
- * COMPOSITING (Hotfix 2.4, Terrell's field correction): the camera
- * is the BACKGROUND and the fluid is an effect drawn OVER it — the
- * layer is therefore TWO components, rendered by ExperienceRenderer
- * in the same slot so the canvas never remounts:
- * - SamCameraBackground (below): the camera surface, mounted UNDER
- *   the fluid canvas (zIndex -1 inside the renderer's stacking
- *   context). The video fills the canvas cover-fit — no letterbox
- *   bands, no distortion — and the fluid engine runs in its
- *   transparent-backdrop mode while See is active, so touches,
- *   smoke, splats and the ghostie all draw OVER the picture.
+ * COMPOSITING (Hotfix 2.4's field correction, declared as this
+ * fabric's canvas kind by Slice 64): the camera IS the canvas —
+ * the picture is the ground. The renderer keys on the registry's
+ * declared canvas kind ("camera"), never on this experience's id.
+ * The fabric is therefore TWO components, rendered by
+ * ExperienceRenderer in the same slot so the canvas never
+ * remounts:
+ * - SamCameraBackground (below): the camera surface — the
+ *   fabric's ground — mounted UNDER the fluid canvas (zIndex -1
+ *   inside the renderer's stacking context). The video fills the
+ *   canvas cover-fit — no letterbox bands, no distortion — and
+ *   the fluid engine runs in its transparent-backdrop mode while
+ *   See is active, so the fluid is only a transparent interaction
+ *   layer here: touches, smoke, splats and the ghostie all draw
+ *   OVER the picture, and the fluid is never the ground.
  * - SamLayer (this default export, above): region outlines, the
  *   status chip, and the Segment tools, above everything.
  * The halves meet in src/sam/samCameraStore (status + frame
@@ -307,6 +323,81 @@ export function SamCameraBackground() {
 export default function SamLayer() {
   const { state } = useExperience();
   const isSam = state.activeExperience?.id === "sam-see";
+
+  // Slice 64: still-photo analysis — the retired Vision AI
+  // drawer's one real feature, living on the fabric it always
+  // belonged to. It reuses the drawer's own flow (the shared
+  // ImageUploadButton + VisionAIService + the legacy vision
+  // config in AI Settings, read through the drawer's own config
+  // module — dynamically, the way the drawer itself loaded the
+  // service) and renders ONLY when that config is enabled: with
+  // no vision provider configured, the tool does not exist on
+  // this surface, exactly as the drawer was dead by default. The
+  // camera path never touches it — frames go to SAM; a still the
+  // primary picks goes here, by their choice alone.
+  const [photoGate, setPhotoGate] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoLines, setPhotoLines] = useState<string[] | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import(
+          "../../../app/components/neo/AISettingsDrawer"
+        );
+        const cfg = mod.getAIConfig();
+        if (!cancelled) {
+          setPhotoGate(
+            cfg.vision.enabled && cfg.vision.provider !== "none"
+          );
+        }
+      } catch {
+        if (!cancelled) setPhotoGate(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAnalyzePhoto = useCallback(async (imageUri: string) => {
+    setPhotoBusy(true);
+    setPhotoError(null);
+    setPhotoLines(null);
+    try {
+      const { getVisionAIService } = await import(
+        "../../services/VisionAIService"
+      );
+      const service = getVisionAIService();
+      const result = await service.analyzeImage(
+        imageUri,
+        "Describe this image in detail."
+      );
+      if (!result.success) {
+        setPhotoError(result.error ?? "Analysis failed.");
+        return;
+      }
+      const lines: string[] = [];
+      if (result.description) lines.push(result.description);
+      if (result.labels && result.labels.length > 0) {
+        lines.push(`Labels: ${result.labels.join(", ")}`);
+      }
+      if (result.objects && result.objects.length > 0) {
+        lines.push(
+          `Objects: ${result.objects
+            .map((o) => `${o.name} (${Math.round(o.confidence * 100)}%)`)
+            .join(", ")}`
+        );
+      }
+      if (result.text) lines.push(`Text: ${result.text}`);
+      setPhotoLines(lines.length > 0 ? lines : ["No analysis results."]);
+    } catch (e) {
+      setPhotoError(e instanceof Error ? e.message : "Analysis failed.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }, []);
 
   const [cam, setCam] = useState<SamCameraSnapshot>(() => getSamCameraSnapshot());
   useEffect(() => subscribeSamCamera(setCam), []);
@@ -851,6 +942,65 @@ export default function SamLayer() {
                   </Text>
                 </Pressable>
               </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Slice 64: still-photo analysis — the retired Vision
+            AI drawer's feature, on the fabric now. Rendered only
+            when the legacy vision config (AI Settings) is
+            enabled: the drawer's own gate, kept. It sits under
+            the Segment tools in the same top-edge column; the
+            camera canvas itself stays clear. */}
+        {photoGate ? (
+          <View
+            pointerEvents="auto"
+            style={{
+              backgroundColor: colors.panel,
+              borderColor: colors.line,
+              borderWidth: 1,
+              borderRadius: radius.sheet,
+              paddingVertical: spacing.sm,
+              paddingHorizontal: spacing.md,
+              maxWidth: "94%",
+              width: 430,
+              gap: 6,
+              marginTop: spacing.sm,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: "800" }}>
+              Analyze a photo
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 11 }}>
+              A still photo, described by the vision model configured
+              in AI Settings — the old Vision AI drawer's one trick,
+              living on the See fabric now.
+            </Text>
+            <ImageUploadButton
+              onImageSelected={() => {
+                setPhotoLines(null);
+                setPhotoError(null);
+              }}
+              onAnalysisRequest={(uri) => {
+                void handleAnalyzePhoto(uri);
+              }}
+            />
+            {photoBusy ? (
+              <Text style={{ color: "#93c5fd", fontSize: 11 }}>
+                Analyzing…
+              </Text>
+            ) : null}
+            {photoLines
+              ? photoLines.map((line, i) => (
+                  <Text key={i} style={{ color: colors.text, fontSize: 11 }}>
+                    {line}
+                  </Text>
+                ))
+              : null}
+            {photoError ? (
+              <Text style={{ color: "#fca5a5", fontSize: 11 }}>
+                {`⚠️ ${photoError}`}
+              </Text>
             ) : null}
           </View>
         ) : null}
