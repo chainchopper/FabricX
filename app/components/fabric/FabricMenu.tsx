@@ -927,7 +927,7 @@ export default function FabricMenu() {
       if (lobbyService.getSnapshot().listed) lobbyService.setListed(false);
       return;
     }
-    const fabricId = fabric.layerId ?? active?.id ?? "default-fluid";
+    const fabricId = fabric.layerId ?? state.activeExperience?.id ?? "default-fluid";
     lobbyService.setHostFields({
       fabricId,
       fabricName:
@@ -940,7 +940,7 @@ export default function FabricMenu() {
   }, [
     iAmHostForLobby,
     fabric.layerId,
-    active?.id,
+    state.activeExperience?.id,
     session.roomId,
     session.mode,
     ghost.ghostName,
