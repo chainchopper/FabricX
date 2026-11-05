@@ -16,6 +16,13 @@ structure work, verified shard by shard.
 - **Landing page:** https://fabric.fanalogy.com/welcome.html (source:
   `public/welcome.html` in this repo)
 
+## Watch the demo
+
+[![Fabric — 3-minute demo](https://img.youtube.com/vi/0tGyzgS9R3s/hqdefault.jpg)](https://youtu.be/0tGyzgS9R3s)
+
+Fabric — 3-minute demo · Meta AI Developer Hackathon
+Live: https://fabric.fanalogy.com · X post: https://x.com/iament/status/2118146431764554111
+
 ## Try it without installing anything
 
 Open https://fabric.fanalogy.com on two phones (or a phone and a computer).
