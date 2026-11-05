@@ -62,6 +62,11 @@ import { validateRecipe, type Recipe } from "../ai/RecipeCore";
 import { recipeBus } from "../ai/RecipePlayer";
 import { ingestGenxWire } from "../genx/genxStore";
 import type { GenxWireMessage } from "../genx/genxTypes";
+import {
+  emitHeardChoraleFrame,
+  sanitizeChoraleFrame,
+  type ChoraleFrame,
+} from "../ghost/chorale";
 import { noteKnownPerson } from "../discovery/knownPeople";
 
 type TransportMsg =
@@ -189,7 +194,21 @@ type TransportMsg =
   // (Slice 19's rules govern draw/verbs/notes; allocation is
   // room state, and the allocator-only origin law is enforced
   // receiver-side). Additive: older clients ignore every type.
-  | GenxWireMessage;
+  | GenxWireMessage
+  // Slice 70 ("The Chorale"): one ghostie beacon frame — the
+  // MicroDuck chorale's wire contract as JSON (chorale.ts).
+  // Minimal by discipline, not by budget: epoch, beat byte,
+  // the sender's register + beacon id (the seed never rides),
+  // and the conductor's roster + musical framing on singing
+  // frames. NO timestamp: the arrival of a new beat value is
+  // the downbeat, and receivers stamp arrival at receipt.
+  // Coordination, not a send-kind — like the genx family it is
+  // not fabric-gated; the ghost's own opt-in gate (Off =
+  // silent AND invisible) lives in the chorale machine, which
+  // is the only sender. Receivers key peers by the frame's
+  // beacon id, never by `from`. Additive: older clients
+  // ignore the type.
+  | { type: "chorale"; from: string; frame: ChoraleFrame };
 
 /** How long a BroadcastChannel peer counts as present after last contact. */
 const BC_PEER_TTL_MS = 6000;
@@ -1187,6 +1206,28 @@ export function useFluidMultiUser(roomId: string) {
         if (typeof msg.from !== "string" || msg.from === userId) return;
         noteBcPeer(msg.from);
         ingestGenxWire(msg as GenxWireMessage);
+      } else if (msg.type === "chorale") {
+        // Slice 70: the chorale family. The hook does no beat
+        // math — the sanitized frame goes onto the heard-frame
+        // bus, stamped at receipt (monotonic seconds; the
+        // frame itself carries no timestamp by design), and
+        // the ghost hook forwards it to its peer's sense.
+        // Receiving is ungated, like the genx family; the
+        // peer keys the sender by the frame's BEACON ID, never
+        // by `from` (the rotating-address law).
+        if (typeof msg.from !== "string" || msg.from === userId) return;
+        noteBcPeer(msg.from);
+        const clean = sanitizeChoraleFrame(
+          (msg as { frame?: unknown }).frame
+        );
+        if (clean) {
+          emitHeardChoraleFrame(
+            clean,
+            typeof performance !== "undefined"
+              ? performance.now() / 1000
+              : Date.now() / 1000
+          );
+        }
       }
     },
     [userId, noteBcPeer, notePeerJoin, acceptRemote, updateStatus]
@@ -1681,6 +1722,21 @@ export function useFluidMultiUser(roomId: string) {
     [userId]
   );
 
+  /**
+   * Slice 70: send ONE chorale beacon frame to the room. The
+   * caller is the ghost's chorale machine (via the canvas's
+   * onChoraleFrame sink), and it publishes on change only —
+   * this side adds no cadence of its own. Not fabric-gated
+   * (coordination, like genx): the opt-in law lives in the
+   * machine, which emits nothing at all while Off.
+   */
+  const sendChorale = useCallback(
+    (frame: ChoraleFrame) => {
+      postRef.current({ type: "chorale", from: userId, frame });
+    },
+    [userId]
+  );
+
   // Hotfix 1.9: per-sender sequence + the stroke batcher. The
   // batcher holds ONLY local-human, verb-less stroke points (the
   // engine's per-frame input, via the { batch: true } opt-in) for a
@@ -1899,6 +1955,8 @@ export function useFluidMultiUser(roomId: string) {
     sendRecipeAs,
     /** Slice 36: one genx message to the room (+ the local store). */
     sendGenx,
+    /** Slice 70: one chorale beacon frame to the room. */
+    sendChorale,
     injectRemoteInteraction,
     humanPeers,
     /** Human userIds heard from in this room (Slice 5, pass-control). */

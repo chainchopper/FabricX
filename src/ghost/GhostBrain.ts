@@ -1721,6 +1721,17 @@ export function genxDecisionFor(
  *     SILENT — the honest semantics of "your ghostie plays
  *     for you": no ghost, no performance. The old standalone
  *     sequencer is deleted, not kept as a fallback.
+ *
+ * Slice 70 (the chorale) adds the ensemble seat: while a
+ * performance with other ghosties stands, the context carries
+ * the ghost's derived part (ctx.ensemble) and the scale /
+ * tempo / tonic are the CONDUCTOR's — the overlay authors its
+ * own part-line inside the part's band (bass low, long and
+ * tonic-anchored; inner voices sparse and chord-bound; the
+ * soprano keeps the melodic authoring), still from the same
+ * digest, still under the same due law. No new intent, no new
+ * tool: an ensemble phrase is a play-music decision, authored
+ * under one more constraint.
  */
 
 /** The four scales the toggle offers — semitone offsets over a tonic. */
@@ -1762,6 +1773,35 @@ export interface GhostMusicContext {
   last_played_note: string | null;
   last_phrase_signature: string | null;
   pack_notes: number[] | null;
+  /**
+   * Slice 70: the chorale ensemble, when this ghostie is
+   * seated in a live performance with other ghosties (see
+   * GhostEnsembleContext). Absent/null solo — authoring is
+   * Slice 68 exactly. GhostPeer fills it from the chorale's
+   * tick; the scale / tempo_bpm fields above already carry
+   * the CONDUCTOR's framing while it stands, so an ensemble
+   * phrase is authored in the room's key at the room's tempo.
+   */
+  ensemble?: GhostEnsembleContext | null;
+}
+
+/** A voice part in a chorale ensemble (chorale.ts's ChoralePart). */
+export type GhostMusicPart = "bass" | "tenor" | "alto" | "soprano";
+
+/**
+ * The ensemble seat this ghostie sings from (Slice 70): its
+ * derived part, how many voices are actually heard, the
+ * shared position on the room's beat clock, whether THIS
+ * ghostie conducts, and the performance's tonic (the
+ * conductor's anchor — an ensemble phrase is authored around
+ * the room's tonic, not the ghost's own last note).
+ */
+export interface GhostEnsembleContext {
+  part: GhostMusicPart;
+  voices: number;
+  position_beats: number;
+  conducting: boolean;
+  tonic_midi: number | null;
 }
 
 /** The refusal the registry names when no standing request is live. */
@@ -1843,7 +1883,11 @@ function musicRng(seed: number): () => number {
 
 function musicSeedFor(scenario: GhostScenario, salt: number): number {
   const id = scenario.ghost_identity;
-  const basis = `${id?.name ?? "Ghost"}|${Math.round(id?.hue ?? 0)}|${scenario.temperament}|${salt}`;
+  // Slice 70: an ensemble phrase is also seeded by the seat it
+  // is sung from (the seat spread's micro-variation, plan §3) —
+  // solo phrases keep the Slice 68 seed exactly.
+  const part = scenario.music?.ensemble?.part;
+  const basis = `${id?.name ?? "Ghost"}|${Math.round(id?.hue ?? 0)}|${scenario.temperament}|${salt}${part ? `|${part}` : ""}`;
   let h = 2166136261;
   for (let i = 0; i < basis.length; i++) {
     h ^= basis.charCodeAt(i);
@@ -1864,6 +1908,11 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
     GHOST_MUSIC_SCALES[ctx.scale] ?? GHOST_MUSIC_SCALES.ionian;
   const bpm = Math.min(180, Math.max(40, Math.round(ctx.tempo_bpm || 100)));
   const hint = ctx.pattern_hint;
+  // Slice 70: while an ensemble performance stands, ctx.scale
+  // and ctx.tempo_bpm already carry the conductor's framing
+  // (GhostPeer adopts it into the scenario), and the ensemble
+  // seat below constrains WHERE this ghostie's line lives.
+  const ens = ctx.ensemble ?? null;
 
   // The tonic follows what the ghost last HEARD (a human's
   // played note rides recent_events) or last PLAYED; untouched
@@ -1882,6 +1931,12 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
   const tonicPc = ((anchor % 12) + 12) % 12;
   let tonic = 60 + tonicPc;
   while (tonic + 12 <= anchor) tonic += 12;
+  // Slice 70: in an ensemble the tonic is the CONDUCTOR's —
+  // the room's last note, read by the conductor — not this
+  // ghost's own anchor. Every part is authored around it.
+  if (ens && ens.tonic_midi !== null && ens.tonic_midi !== undefined) {
+    tonic = Math.min(96, Math.max(36, Math.round(ens.tonic_midi)));
+  }
   // The degree ladder: every scale note across two octaves
   // around the tonic, indexed so the walk can roam.
   const ladder: number[] = [];
@@ -1893,6 +1948,34 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
   let degree = ladder.indexOf(tonic);
   if (degree < 0) degree = Math.floor(ladder.length / 2);
 
+  // Slice 70: the part is a BAND on the ladder, derived from
+  // the part's reference register the way seat_all measures
+  // distance (bass lowest, soprano highest). Bass tops out at
+  // the tonic it anchors on; soprano lives in the top band —
+  // the two never share a note, so a duet's lines are disjoint
+  // by construction. Inner voices overlap their neighbours,
+  // as inner voices do. Solo, the band is the whole ladder:
+  // Slice 68 authoring, unchanged.
+  let bandLo = 0;
+  let bandHi = ladder.length - 1;
+  if (ens) {
+    const T = degree;
+    if (ens.part === "bass") {
+      bandLo = 0;
+      bandHi = T;
+    } else if (ens.part === "tenor") {
+      bandLo = Math.max(0, T - 2);
+      bandHi = Math.min(ladder.length - 1, T + 5);
+    } else if (ens.part === "alto") {
+      bandLo = Math.min(ladder.length - 1, T + 2);
+      bandHi = Math.min(ladder.length - 1, T + 9);
+    } else {
+      bandLo = Math.min(ladder.length - 1, T + 6);
+      bandHi = ladder.length - 1;
+    }
+    degree = Math.max(bandLo, Math.min(bandHi, degree));
+  }
+
   const t = scenario.temperament;
   let density =
     t === "playful" ? 11 : t === "curious" ? 9 : t === "affectionate" ? 8 : t === "sassy" ? 7 : 4;
@@ -1900,6 +1983,14 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
   if (scenario.room_energy_trend === "falling") density -= 2;
   if (scenario.seconds_since_human_touch > 60) density -= 1;
   density = Math.max(3, Math.min(14, density));
+  // Slice 70: the bass line is the sparsest voice; inner
+  // voices sit under the soprano's density.
+  if (ens) {
+    if (ens.part === "bass") density = Math.max(2, Math.ceil(density / 2));
+    else if (ens.part === "tenor" || ens.part === "alto") {
+      density = Math.max(3, Math.round(density * 0.7));
+    }
+  }
 
   const baseVelocity =
     t === "playful" ? 0.8 : t === "sassy" ? 0.72 : t === "curious" ? 0.65 : t === "affectionate" ? 0.6 : 0.45;
@@ -1921,13 +2012,15 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
       const quoteLen = Math.min(pack.length, 7);
       for (let i = 0; i < quoteLen && step < GHOST_MUSIC_PHRASE_STEPS; i++) {
         const target = tonic + (pack[i] - packRoot);
+        // Slice 70: the quote lands inside the singer's band —
+        // a bass quotes the contour low, a soprano high.
         let best = ladder[deg];
         let bestDist = Infinity;
-        for (const midi of ladder) {
-          const d = Math.abs(midi - target);
+        for (let li = bandLo; li <= bandHi; li++) {
+          const d = Math.abs(ladder[li] - target);
           if (d < bestDist) {
             bestDist = d;
-            best = midi;
+            best = ladder[li];
           }
         }
         deg = ladder.indexOf(best);
@@ -1965,8 +2058,20 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
       if (honorsHint && hint === "random") {
         move = Math.round(move * 1.5);
       }
-      deg = Math.max(0, Math.min(ladder.length - 1, deg + move));
-      if (honorsHint && hint === "triad" && rand() < 0.5) {
+      // Slice 70: inner voices move narrowly — the contour of
+      // a harmony line, not a melody.
+      if (ens && (ens.part === "alto" || ens.part === "tenor")) {
+        move = Math.max(-2, Math.min(2, move));
+      }
+      deg = Math.max(bandLo, Math.min(bandHi, deg + move));
+      // Slice 70: inner voices anchor on chord tones (the
+      // triad snap below, at ensemble strength); solo and the
+      // outer voices keep the hint's own snap.
+      const chordSnap =
+        ens && (ens.part === "alto" || ens.part === "tenor")
+          ? rand() < 0.6
+          : honorsHint && hint === "triad" && rand() < 0.5;
+      if (chordSnap) {
         // Snap toward the nearest chord tone: the ladder starts
         // exactly one octave under the tonic, so ladder indices
         // with (index % 7) in {0, 2, 4} are the tonic triad.
@@ -1974,14 +2079,16 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
         const snap = [0, 2, 4].reduce((a, b) =>
           Math.abs(b - local) < Math.abs(a - local) ? b : a
         );
-        deg = Math.max(0, Math.min(ladder.length - 1, deg - local + snap));
+        deg = Math.max(bandLo, Math.min(bandHi, deg - local + snap));
       }
-      const len =
+      let len =
         t === "sleepy"
           ? 2 + Math.floor(rand() * 3)
           : t === "affectionate" && rand() < 0.3
             ? 2
             : 1;
+      // Slice 70: the bass line takes longer steps.
+      if (ens && ens.part === "bass") len = Math.max(len, 2);
       const energyAdj =
         scenario.room_energy_trend === "rising"
           ? 0.08
@@ -2009,9 +2116,16 @@ function authorMusicPhrase(scenario: GhostScenario): GhostMusicPhrase | null {
     }
     // Curious phrases resolve upward — a question left hanging
     // on the fifth or the octave, never the note it started on.
-    if (t === "curious" && notes.length >= 2) {
+    // Slice 70: the resolution is the melody's job — in an
+    // ensemble only the soprano takes it (in its own band).
+    if (
+      t === "curious" &&
+      notes.length >= 2 &&
+      (!ens || ens.part === "soprano")
+    ) {
       const last = notes[notes.length - 1];
-      const fifth = ladder[Math.min(ladder.length - 1, degree + 4)];
+      const fifth =
+        ladder[Math.max(bandLo, Math.min(bandHi, degree + 4))];
       if (last.step < GHOST_MUSIC_PHRASE_STEPS - 1) {
         notes.push({
           note: ghostNoteName(fifth),

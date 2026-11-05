@@ -131,6 +131,12 @@ import {
   DEFAULT_GHOST_SHARED_SETTINGS,
   type GhostSharedSettings,
 } from "./ghostShared";
+import {
+  Chorale,
+  sanitizeChoraleFrame,
+  type ChoraleFrame,
+  type ChoraleSinging,
+} from "./chorale";
 
 /** Peer-id convention: every ghost broadcasts as "ghost:<ownerUserId>". */
 export const GHOST_PEER_PREFIX = "ghost:";
@@ -505,6 +511,16 @@ export interface GhostPeerOptions {
    * host owns the synth.
    */
   onMusicPhrase?: (phrase: GhostMusicPhrase) => void;
+  /**
+   * The CHORALE's air (Slice 70): one beacon frame the
+   * chorale state machine wants published to the session —
+   * handed out on change only (the publish-on-change
+   * discipline), never per tick. The host puts it on the
+   * session transport; the peer owns the machine, the host
+   * owns the wire. Absent, frames are simply dropped — a
+   * ghostie with no wire listens to a room that isn't there.
+   */
+  onChoraleFrame?: (frame: ChoraleFrame) => void;
 }
 
 export const MAX_GHOSTS_PER_ROOM = 4;
@@ -597,6 +613,13 @@ const SOUND_MIN_INTERVAL_MS = 20_000;
  */
 const MUSIC_BUDGET_COST = 3;
 const MUSIC_MIN_INTERVAL_MS = 2_000;
+/**
+ * The chorale's phrase grid (Slice 70): a phrase is
+ * GHOST_MUSIC_PHRASE_STEPS eighth-note steps — 8 beats — and
+ * in an ensemble performance every ghostie's phrases START
+ * on that grid, phase-locked to the shared beat.
+ */
+const MUSIC_PHRASE_BEATS = 8;
 const NOTE_DURATION_MS = 900;
 const ARPEGGIO_STEP_MS = 150;
 /**
@@ -843,6 +866,22 @@ export class GhostPeer {
   private nextMusicAt = 0;
   private musicDuePending = false;
   private lastMusicDeliberationAt = 0;
+  /**
+   * CHORALE state (Slice 70): the ported MicroDuck state
+   * machine (chorale.ts), born with the peer from its seed —
+   * its beacon id and register derive from the same identity
+   * everything else does, and the seed itself never leaves
+   * the device. `choraleSinging` is the latest tick's read of
+   * the live performance (the scenario's ensemble seat);
+   * `choralePhraseDue` is the boundary clock's one-shot due
+   * mark, the in-performance sibling of the solo phrase
+   * clock's nextMusicAt.
+   */
+  private chorale: Chorale;
+  private choraleSinging: ChoraleSinging | null = null;
+  private choralePhraseDue = false;
+  private choraleBoundaryTimer: ReturnType<typeof setTimeout> | null = null;
+  private choraleArmedBoundaryBeat = -1;
   /** The last note a HUMAN played at the piano (call-and-response memory). */
   private lastHumanNote: string | null = null;
   /** The last note this ghost itself played ("play that again"). */
@@ -896,6 +935,12 @@ export class GhostPeer {
 
   constructor(options: GhostPeerOptions) {
     this.options = options;
+    // Slice 70: the chorale machine is born with the peer,
+    // keyed by the ghost's own seed (Off until the host feeds
+    // its willingness — silent AND invisible by default).
+    this.chorale = new Chorale({
+      seed: options.identity.seed || 0xfab21c,
+    });
     this.rng = mulberry32(options.identity.seed || 0xfab21c);
     this.sigColor = hslToRgb(options.identity.hue, 0.8, 0.68);
     this.sigDriftColor = hslToRgb(options.identity.hue, 0.62, 0.76);
@@ -912,6 +957,10 @@ export class GhostPeer {
   destroy(): void {
     this.destroyed = true;
     if (this.tickTimer) clearInterval(this.tickTimer);
+    if (this.choraleBoundaryTimer) {
+      clearTimeout(this.choraleBoundaryTimer);
+      this.choraleBoundaryTimer = null;
+    }
     this.timers.forEach((t) => clearTimeout(t));
     this.timers.clear();
   }
@@ -1818,6 +1867,171 @@ export class GhostPeer {
       // First phrase comes promptly; the clock paces the rest.
       this.nextMusicAt = Date.now() + MUSIC_MIN_INTERVAL_MS;
     }
+    // Slice 70: the standing framing is also the chorale's —
+    // it is what this ghostie conducts WITH when its turn
+    // comes (the room adopts the conductor's, whatever it is).
+    this.pushChoraleFraming();
+  }
+
+  /**
+   * The tonic this ghostie would anchor a phrase on right
+   * now, derived exactly as the music overlay derives it:
+   * the last note a human played, else its own last note,
+   * else middle C — read as a tonic in the anchor's octave.
+   */
+  private musicTonicMidi(): number {
+    const anchorName = this.lastHumanNote ?? this.musicLastNote;
+    const anchor =
+      anchorName && isGhostNoteName(anchorName)
+        ? ghostNoteNumber(anchorName)
+        : 72;
+    const pc = ((anchor % 12) + 12) % 12;
+    let tonic = 60 + pc;
+    while (tonic + 12 <= anchor) tonic += 12;
+    return tonic;
+  }
+
+  /** Feed the chorale the standing framing (or clear it). */
+  private pushChoraleFraming(): void {
+    const standing = this.musicStanding;
+    this.chorale.setFraming(
+      standing
+        ? {
+            scale: standing.scale,
+            tempoBpm: standing.tempoBpm,
+            tonicMidi: this.musicTonicMidi(),
+          }
+        : null
+    );
+  }
+
+  /**
+   * The CHORALE opt-in (Slice 70). The host computes
+   * willingness from the layer's own switches — the
+   * Generative-music toggle is the deliberate act ("play for
+   * this room"), and "Sing with other ghosties" beside it is
+   * the opt-out — and feeds the result here. Willing = the
+   * machine runs (listening, findable, able to conduct and
+   * follow). Not willing = Off: silent AND invisible — no
+   * frames out, heard frames ignored, exactly the ducks' law.
+   */
+  setChoraleWilling(willing: boolean): void {
+    this.chorale.setActive(willing, this.choraleNowSec());
+    if (!willing) {
+      this.choraleSinging = null;
+      this.choralePhraseDue = false;
+      this.disarmChoraleBoundary();
+    }
+  }
+
+  /**
+   * A chorale frame was heard (Slice 70) — a SENSE, like the
+   * genx digest: nothing emitted, nothing spent. The frame is
+   * sanitized here at the sense (frames are untrusted wire
+   * data) and fed to the machine with its arrival stamp, in
+   * the machine's monotonic seconds. Peers are keyed inside
+   * the machine by beacon id — never by the socket id this
+   * frame arrived from.
+   */
+  heardChorale(frame: unknown, atSec: number): void {
+    if (this.destroyed) return;
+    const clean = sanitizeChoraleFrame(frame);
+    if (!clean) return;
+    this.chorale.heard(
+      clean,
+      Number.isFinite(atSec) ? atSec : this.choraleNowSec()
+    );
+  }
+
+  /** The chorale's clock: monotonic seconds (the plan's
+   *  performance.now()/1000), wall-clock fallback off-web. */
+  private choraleNowSec(): number {
+    return typeof performance !== "undefined" &&
+      typeof performance.now === "function"
+      ? performance.now() / 1000
+      : Date.now() / 1000;
+  }
+
+  /** Cancel a pending phrase-boundary firing, if one is armed. */
+  private disarmChoraleBoundary(): void {
+    if (this.choraleBoundaryTimer) {
+      clearTimeout(this.choraleBoundaryTimer);
+      this.choraleBoundaryTimer = null;
+    }
+    this.choraleArmedBoundaryBeat = -1;
+  }
+
+  /**
+   * Drive the chorale one tick: advance the machine, put its
+   * changed frame on the air, remember the performance for
+   * the scenario, and keep the phrase-boundary clock armed.
+   * While a performance stands, phrase starts belong to the
+   * shared beat — a timer is armed for the exact boundary
+   * instant (the 300 ms tick cadence would smear starts by up
+   * to a third of a second against a ±½-beat budget), and its
+   * firing marks the one deliberation that boundary owns due.
+   */
+  private tickChorale(): void {
+    const nowSec = this.choraleNowSec();
+    let result;
+    try {
+      result = this.chorale.tick(nowSec);
+    } catch {
+      return; // The machine must never take the peer down.
+    }
+    if (result.advertise) {
+      try {
+        this.options.onChoraleFrame?.(result.advertise);
+      } catch {
+        // A host-side wire failure must never hurt the peer.
+      }
+    }
+    const wasSinging = this.choraleSinging !== null;
+    this.choraleSinging = result.singing;
+    if (result.singing && !wasSinging) {
+      // A new performance: its grid starts near beat 0, and a
+      // stale armed-beat mark from a dissolved performance
+      // must never shadow one of its boundaries.
+      this.choraleArmedBoundaryBeat = -1;
+    }
+    if (!result.singing) {
+      if (wasSinging) {
+        // The performance dissolved — the solo phrase clock
+        // (nextMusicAt) owns the cadence again from here.
+        this.choralePhraseDue = false;
+        this.disarmChoraleBoundary();
+      }
+      return;
+    }
+    if (!this.musicStanding) return;
+    const { positionBeats, beatSec } = result.singing;
+    const nextBoundary =
+      (Math.floor(positionBeats / MUSIC_PHRASE_BEATS) + 1) *
+      MUSIC_PHRASE_BEATS;
+    if (this.choraleArmedBoundaryBeat === nextBoundary) return;
+    this.disarmChoraleBoundary();
+    this.choraleArmedBoundaryBeat = nextBoundary;
+    const delayMs = Math.max(
+      30,
+      (nextBoundary - positionBeats) * beatSec * 1000
+    );
+    const timer = setTimeout(() => {
+      this.choraleBoundaryTimer = null;
+      // The armed-beat mark STAYS at the fired boundary: a
+      // later tick whose position estimate wobbles a hair
+      // under it must not re-arm (and re-fire) the same
+      // boundary — the guard in tickChorale compares against
+      // it, and the next boundary differs by construction.
+      if (this.destroyed || !this.choraleSinging || !this.musicStanding) {
+        return;
+      }
+      // The boundary is here: this deliberation is the one
+      // the shared clock owns. Open the window on it.
+      this.choralePhraseDue = true;
+      this.nextMusicAt = Date.now();
+      this.tick();
+    }, delayMs);
+    this.choraleBoundaryTimer = timer;
   }
 
   /**
@@ -1910,6 +2124,9 @@ export class GhostPeer {
     if (this.destroyed) return;
     if (!isGhostNoteName(note)) return;
     this.lastHumanNote = note;
+    // Slice 70: the room's last note is the conductor's tonic
+    // source — refresh the chorale framing while one stands.
+    if (this.musicStanding) this.pushChoraleFraming();
     const now = Date.now();
     this.noteUserActivity();
     this.journal(`human played ${note}`, now);
@@ -2752,6 +2969,11 @@ export class GhostPeer {
 
     this.tickTemperament(now);
     if (this.mode === "session") this.tickSocial(now);
+    // Slice 70: the chorale machine advances on the same tick
+    // — listening is not acting, so it runs ahead of every
+    // gate below, and the scenario built in this tick already
+    // carries the performance it finds.
+    this.tickChorale();
 
     // A long quiet arriving is itself deliberation context (once per
     // idle episode, journaled in the dataset's vocabulary).
@@ -2780,9 +3002,15 @@ export class GhostPeer {
     // the window on the music floor, marks the one scenario
     // buildScenario is about to take as due, and that scenario
     // alone may answer with a phrase.
+    // Slice 70: while a chorale performance stands, the due
+    // mark is the shared boundary clock's (choralePhraseDue,
+    // armed by tickChorale for the exact boundary instant) —
+    // phrase starts belong to the room's beat, not to when
+    // the last local phrase happened to end.
     const musicDue =
       this.musicStanding !== null &&
-      now >= this.nextMusicAt &&
+      (this.choralePhraseDue ||
+        (this.choraleSinging === null && now >= this.nextMusicAt)) &&
       now - this.lastMusicDeliberationAt >= MUSIC_MIN_INTERVAL_MS;
     if (musicDue) this.musicDuePending = true;
     if (
@@ -2809,15 +3037,20 @@ export class GhostPeer {
         }
         if (scenario.music?.due) {
           this.lastMusicDeliberationAt = now;
+          this.choralePhraseDue = false;
           // If this window answers with anything other than a
           // phrase (an utterance outranks the music desk), the
           // clock retries on the music floor instead of waiting
           // for a phrase that never played; a real performance
           // pushes the next due time out to the phrase's end.
-          this.nextMusicAt = Math.max(
-            this.nextMusicAt,
-            now + MUSIC_MIN_INTERVAL_MS
-          );
+          // Slice 70: in a chorale performance the boundary
+          // clock owns the next due time — no retry-push.
+          if (this.choraleSinging === null) {
+            this.nextMusicAt = Math.max(
+              this.nextMusicAt,
+              now + MUSIC_MIN_INTERVAL_MS
+            );
+          }
         }
         // Slice 47: thinking is audible now — a soft murmur while
         // the brain consults (the SFX limiter keeps it rare; the
@@ -3002,16 +3235,36 @@ export class GhostPeer {
     // every snapshot while it stands; the due mark is one-shot
     // (consumed by this snapshot, like the genx event flags) —
     // only the phrase clock's own deliberation may answer it.
+    // Slice 70: while a chorale performance stands, the
+    // framing is the CONDUCTOR's (its scale and tempo are the
+    // session's) and the snapshot carries this ghostie's seat
+    // — the overlay authors its part-line under that one
+    // added constraint.
+    const singing = this.choraleSinging;
     const music: GhostMusicContext | null = this.musicStanding
       ? {
           due: this.musicDuePending,
-          scale: this.musicStanding.scale,
+          scale: singing
+            ? singing.framing.scale
+            : this.musicStanding.scale,
           pattern_hint: this.musicStanding.patternHint,
-          tempo_bpm: this.musicStanding.tempoBpm,
+          tempo_bpm: singing
+            ? singing.framing.tempoBpm
+            : this.musicStanding.tempoBpm,
           phrase_index: this.musicPhraseIndex,
           last_played_note: this.musicLastNote,
           last_phrase_signature: this.musicLastSignature,
           pack_notes: this.musicPackNotes,
+          ensemble: singing
+            ? {
+                part: singing.part,
+                voices: singing.voices,
+                position_beats:
+                  Math.round(singing.positionBeats * 100) / 100,
+                conducting: singing.conducting,
+                tonic_midi: singing.framing.tonicMidi,
+              }
+            : null,
         }
       : null;
     if (music) this.musicDuePending = false;
@@ -3437,7 +3690,19 @@ export class GhostPeer {
     const phrase = decision.music_phrase;
     if (!phrase || phrase.notes.length === 0) return;
     const now = Date.now();
-    if (!this.chargePerformanceBudget(MUSIC_BUDGET_COST)) {
+    // Slice 70: a phrase inside a chorale performance is a
+    // commitment on the shared grid — the part exists because
+    // the ensemble is counting on it starting on the beat, and
+    // a budget refusal at the boundary instant silently drops
+    // one voice out of the chord (observed in the duet sim:
+    // nearly every boundary phrase refused, parts landing
+    // seconds late on retry luck). It charges as `essential`
+    // — emit()'s hello/goodbye idiom: the act lands, the
+    // tokens are still recorded, and the ghost's other acts
+    // feel the cost. A SOLO phrase (no performance standing)
+    // keeps Slice 68's ordinary charge exactly.
+    const inPerformance = this.choraleSinging !== null;
+    if (!this.chargePerformanceBudget(MUSIC_BUDGET_COST, inPerformance)) {
       this.journal("wanted to play a phrase — budget spent", now);
       this.nextMusicAt = now + MUSIC_MIN_INTERVAL_MS * 2;
       return;
@@ -3595,16 +3860,25 @@ export class GhostPeer {
    * emitting anything. Returns false when the charge does not
    * fit, in which case nothing is charged and the performance
    * does not happen: a tool is an act, never a bypass.
+   *
+   * `essential` is emit()'s own exception, mirrored (hello /
+   * goodbye bypass the refusal there): the act lands and the
+   * tokens are STILL recorded, so everything else the ghost
+   * might do feels the cost. Only the chorale's boundary phrase
+   * passes it (performPlayMusic) — a commitment the ghost made
+   * when it joined the performance, rate-limited by the shared
+   * grid itself (one phrase per 8 beats), never by a caller.
    */
-  private chargePerformanceBudget(cost: number): boolean {
+  private chargePerformanceBudget(cost: number, essential = false): boolean {
     const now = Date.now();
     this.emitTimes = this.emitTimes.filter((t) => now - t < EMIT_WINDOW_MS);
-    if (this.emitTimes.length + cost > EMIT_BUDGET) return false;
+    if (!essential && this.emitTimes.length + cost > EMIT_BUDGET) return false;
     if (this.inCrowd()) {
       this.crowdEmitTimes = this.crowdEmitTimes.filter(
         (t) => now - t < EMIT_WINDOW_MS
       );
-      if (this.crowdEmitTimes.length + cost > CROWD_EMIT_BUDGET) return false;
+      if (!essential && this.crowdEmitTimes.length + cost > CROWD_EMIT_BUDGET)
+        return false;
       for (let k = 0; k < cost; k++) this.crowdEmitTimes.push(now);
     }
     for (let k = 0; k < cost; k++) this.emitTimes.push(now);

@@ -177,6 +177,9 @@ check(
     ambienceControls.includes("ambienceEnabled") &&
     musicControls.includes('active.id !== "default-fluid"') &&
     musicControls.includes("musicEnabled") &&
+    // Slice 70 (disclosed in-slice): the chorale opt-out is a
+    // bool toggle in the same fluid-only controls.
+    musicControls.includes("choraleEnabled") &&
     menu.includes("<AmbienceControls />") &&
     menu.includes("<MusicControls />")
 );
@@ -222,6 +225,10 @@ function expectedFor(entry) {
   if (entry.id === "default-fluid") {
     map.set("ambienceEnabled", false);
     map.set("musicEnabled", false);
+    // Slice 70 (disclosed in-slice, Slice 63/68 precedent):
+    // the fluid's MusicControls gains the chorale opt-out,
+    // resting ON.
+    map.set("choraleEnabled", true);
   }
   return map;
 }
@@ -291,6 +298,9 @@ const LABEL_SOURCE = {
   midiEnabled: ["app/components/LayerControls.tsx", "Notes → Fabric"],
   ambienceEnabled: ["app/components/controls/AmbienceControls.tsx", "Ambience"],
   musicEnabled: ["app/components/controls/MusicControls.tsx", "Generative Music"],
+  // Slice 70 (disclosed in-slice): the chorale opt-out's label
+  // is THIS LAYER's own words, in the same controls file.
+  choraleEnabled: ["app/components/controls/MusicControls.tsx", "Sing with other ghosties"],
 };
 {
   const seen = new Map();
