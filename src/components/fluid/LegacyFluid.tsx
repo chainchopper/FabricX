@@ -247,6 +247,7 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
     sendRecipe,
     sendRecipeAs,
     sendGenx,
+    sendChorale,
     injectRemoteInteraction,
     humanPeers,
   } = useFluidMultiUser(roomId);
@@ -564,6 +565,11 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       // it to the renderer untouched (see ghostMusicStore).
       publishGhostMusicPhrase(phrase);
     },
+    onChoraleFrame: (frame) => {
+      // Slice 70: a chorale beacon frame, published on change
+      // by the ghost's machine — put it on the session wire.
+      sendChorale(frame);
+    },
     onSfx: (kind, sfxCtx) => {
       // Own ghost: sounds are pitched from its signature hue.
       // Slice 47: the peer's articulation context (the causing
@@ -616,6 +622,19 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         : null
     );
   }, [musicEnabled, musicScale, musicPattern, musicTempo, ghostLayerEnabled]);
+
+  // Slice 70: the chorale opt-in. Willingness follows the
+  // music toggle — turning Generative music on for this room
+  // is already the deliberate act — and "Sing with other
+  // ghosties" (specific.choraleEnabled, resting ON) is the
+  // opt-out. Not willing, the ghostie is silent AND invisible
+  // to other ghosties: no frames out, heard frames ignored.
+  const choraleOptOut = musicSpecific?.choraleEnabled === false;
+  useEffect(() => {
+    ghostRef.current.setChoraleWilling(
+      musicEnabled && ghostLayerEnabled && !choraleOptOut
+    );
+  }, [musicEnabled, ghostLayerEnabled, choraleOptOut]);
 
   // Slice 68: the MIDI pack seam — the first bundled pack's
   // seed phrase loads once (packs are static assets) and waits

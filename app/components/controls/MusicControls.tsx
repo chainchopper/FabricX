@@ -20,11 +20,21 @@ export default function MusicControls() {
   const musicTempo = Number.isFinite(s?.musicTempo) ? Number(s?.musicTempo) : 100;
   const musicScale = (s?.musicScale as string) || "ionian";
   const musicPattern = (s?.musicPattern as string) || "up";
+  // Slice 70: the chorale opt-out. Resting ON — a ghostie
+  // whose music is on for this room sings WITH the other
+  // ghosties in it, unless its person turns this off (off =
+  // silent and invisible to the ensemble, solo music kept).
+  const choraleEnabled = (s?.choraleEnabled as boolean) !== false;
 
   const setMusicEnabled = (v: boolean) => {
     updateConfig({ specific: { ...cfg.specific, musicEnabled: v } });
     haptics.impactLight();
     toast.show(`Generative music ${v ? "enabled" : "disabled"}`);
+  };
+  const setChoraleEnabled = (v: boolean) => {
+    updateConfig({ specific: { ...cfg.specific, choraleEnabled: v } });
+    haptics.impactLight();
+    toast.show(`Sing with other ghosties ${v ? "on" : "off"}`);
   };
   const setMusicTempo = (bpm: number) => {
     const clamped = Math.max(40, Math.min(180, Math.round(bpm)));
@@ -116,6 +126,22 @@ export default function MusicControls() {
             </Pressable>
           );
         })}
+      </View>
+
+      <Text style={{ color: "#e5e7eb", fontWeight: "700", marginTop: 6 }}>Sing with other ghosties</Text>
+      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        <Pressable
+          onPress={() => setChoraleEnabled(!choraleEnabled)}
+          style={{
+            paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1,
+            borderColor: choraleEnabled ? "rgba(34,197,94,0.7)" : "rgba(148,163,184,0.35)",
+            backgroundColor: choraleEnabled ? "rgba(16,185,129,0.18)" : "transparent",
+          }}
+        >
+          <Text style={{ color: choraleEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
+            {choraleEnabled ? "On" : "Off"}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );

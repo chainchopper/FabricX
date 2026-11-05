@@ -88,6 +88,10 @@ import {
   type GhostVerbAskId,
 } from "./GhostPeer";
 import {
+  subscribeHeardChoraleFrames,
+  type ChoraleFrame,
+} from "./chorale";
+import {
   applyPersonalityBias,
   applyStaminaBias,
   consultDeviceBrain,
@@ -182,6 +186,12 @@ export interface UseGhostPeerOptions {
    * LegacyFluid hands it to the music renderer untouched.
    */
   onMusicPhrase?: (phrase: GhostMusicPhrase) => void;
+  /**
+   * The CHORALE's air (Slice 70): a beacon frame the ghost's
+   * chorale machine wants published to the session (on change
+   * only). LegacyFluid puts it on the session transport.
+   */
+  onChoraleFrame?: (frame: ChoraleFrame) => void;
 }
 
 const GHOST_NAMES = [
@@ -303,6 +313,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   onNoteRef.current = options.onNote;
   const onMusicPhraseRef = useRef(options.onMusicPhrase);
   onMusicPhraseRef.current = options.onMusicPhrase;
+  const onChoraleFrameRef = useRef(options.onChoraleFrame);
+  onChoraleFrameRef.current = options.onChoraleFrame;
 
   const persist = useCallback(
     (nextEnabled: boolean, id: GhostIdentityFull) => {
@@ -713,6 +725,9 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         onMusicPhrase: (phrase) => {
           onMusicPhraseRef.current?.(phrase);
         },
+        onChoraleFrame: (frame) => {
+          onChoraleFrameRef.current?.(frame);
+        },
       });
       peer.setEnabled(en && layerEnabledRef.current);
       setGhostPublicState({ layerEnabled: layerEnabledRef.current });
@@ -760,6 +775,19 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     () =>
       subscribeGhostSharedSettings((s) => {
         peerRef.current?.setSharedSettings(s);
+      }),
+    []
+  );
+
+  // Slice 70: the chorale's inbound side — the session hook
+  // deposits sanitized frames on the heard-frame bus (stamped
+  // at receipt); forward them to the peer's sense. The peer
+  // keys peers by beacon id inside the machine, never by the
+  // transport path the frame travelled.
+  useEffect(
+    () =>
+      subscribeHeardChoraleFrames((frame, atSec) => {
+        peerRef.current?.heardChorale(frame, atSec);
       }),
     []
   );
@@ -954,6 +982,11 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.setMusicPackNotes(notes);
   }, []);
 
+  /** Slice 70: the chorale opt-in (host-computed willingness). */
+  const setChoraleWilling = useCallback((willing: boolean): void => {
+    peerRef.current?.setChoraleWilling(willing);
+  }, []);
+
   /** Slice 30: ask this ghost to touch/tap/poke a seen region. */
   const answerTouchAt = useCallback(
     (
@@ -1035,6 +1068,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteGenx,
     setMusicStanding,
     setMusicPackNotes,
+    setChoraleWilling,
     answerTouchAt,
     answerDrawAround,
     expressPuzzlement,

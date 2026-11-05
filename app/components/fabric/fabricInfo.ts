@@ -430,6 +430,11 @@ const FEATURE_MUSIC: LayerFeature = {
   label: "Generative music",
   defaultOn: false,
 };
+const FEATURE_CHORALE: LayerFeature = {
+  key: "choraleEnabled",
+  label: "Sing with other ghosties",
+  defaultOn: true,
+};
 
 /**
  * The three features THIS LAYER renders for EVERY layer,
@@ -461,7 +466,10 @@ export const UNIVERSAL_LAYER_FEATURES: readonly LayerFeature[] = [
  *   renders LayerControls; its own control stack stands there.
  * - The fluid's stack (its AmbienceControls / MusicControls,
  *   which render only on the fluid): Ambience and Generative
- *   music, both resting off.
+ *   music, both resting off, and — beside the music in the
+ *   same controls — Sing with other ghosties (Slice 70's
+ *   chorale opt-out), resting ON so it reads as the music
+ *   toggle's companion, not a second ask.
  *
  * Cross-checks the derivation holds: the FABRICS editor's
  * curated LAYER_EDIT_FIELDS bool entries are a subset of this
@@ -482,6 +490,7 @@ const LAYER_FEATURES: Record<string, readonly LayerFeature[]> = {
   "default-fluid": [
     FEATURE_AMBIENCE_SOUND,
     FEATURE_MUSIC,
+    FEATURE_CHORALE,
     ...UNIVERSAL_LAYER_FEATURES,
     FEATURE_HANDS,
   ],
