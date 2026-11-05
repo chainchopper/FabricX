@@ -220,9 +220,7 @@ passes.
   fixtures.
 - `firmware/` — ESP32-S3 firmware for the optional physical device.
 - `docs/` — `AI.md` (model defaults and resolution order), `DANCER.md`,
-  `LINT.md`. `GETTING_STARTED.md` at the root is a short orientation.
-  The root also carries development-era planning and status documents;
-  they are the project's working papers, not product documentation.
+  `LINT.md`.
 
 ## Status
 
