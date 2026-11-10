@@ -256,8 +256,8 @@ check(
 );
 const renderer = read("src/components/experiences/ExperienceRenderer.tsx");
 check(
-  "curtain keys on the canvas family (AR/camera OR stage)",
-  renderer.includes("wantsAROrCamera || isStageCanvas")
+  "curtain keys on the canvas family (AR/camera OR stage; Slice A: the Forge's own canvas joins the family)",
+  renderer.includes("wantsAROrCamera || isStageCanvas || isForgeCanvas")
 );
 {
   const m = renderer.match(/duration: 120[\s\S]{0,400}duration: 140, delay: 40/);

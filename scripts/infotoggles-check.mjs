@@ -121,10 +121,10 @@ const REGISTRY = regHeads.map((m, i) => {
   return { id: m[1], midi };
 });
 check(
-  "A1 the registry parses: 7 builtin fabrics, capabilities read per entry",
-  REGISTRY.length === 7 &&
+  "A1 the registry parses: 8 builtin fabrics, capabilities read per entry (Slice A adds the Forge — no midi, like See and the Fold)",
+  REGISTRY.length === 8 &&
     REGISTRY.map((e) => e.id).join(",") ===
-      "default-fluid,ar-piano,sam-see,dancer-stage,camera-effects,genx-fold,ghostie-playground" &&
+      "default-fluid,ar-piano,sam-see,dancer-stage,camera-effects,genx-fold,ghostie-playground,forge" &&
     REGISTRY.filter((e) => e.midi).map((e) => e.id).join(",") ===
       "default-fluid,ar-piano,dancer-stage,ghostie-playground",
   REGISTRY.map((e) => `${e.id}:${e.midi ? "midi" : "-"}`).join(" ")

@@ -13,6 +13,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "67js": "npm:@codepawlhq/67js@0.17.0",
     "@expo/metro-runtime": "^6.1.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^7.1.17",

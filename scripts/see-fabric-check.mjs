@@ -100,8 +100,9 @@ ok(
       "camera-effects",
       "genx-fold",
       "ghostie-playground",
+      "forge",
     ]),
-  `the built-in registry is unchanged: seven fabrics, See among them (got: ${builtinIds.join(", ")})`
+  `the built-in registry holds eight fabrics, See among them (Slice A adds the Forge — nothing here moved) (got: ${builtinIds.join(", ")})`
 );
 ok(
   info.includes('exp.canvas === "camera"'),
