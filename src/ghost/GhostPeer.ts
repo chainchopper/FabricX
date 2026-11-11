@@ -100,6 +100,7 @@ import type { GhostSfxContext, GhostSfxKind } from "./useGhostSfx";
 import type {
   GhostDecision,
   GhostFabricContext,
+  GhostForgeSceneContext,
   GhostGenxContext,
   GhostGestureReading,
   GhostMusicContext,
@@ -121,6 +122,8 @@ import {
   isGhostNoteName,
   parseUtteranceReading,
   sanitizeFabricContext,
+  sanitizeForgeSceneContext,
+  forgeSceneSignature,
   sanitizeGenxContext,
   sanitizeGestureReadings,
   sanitizeUtteranceContext,
@@ -945,6 +948,20 @@ export class GhostPeer {
   private genxDigest: { ctx: GhostGenxContext; at: number } | null = null;
   private genxFoldJustCompleted = false;
   private genxShardJustStalled = false;
+  /**
+   * Slice C (Forge presence): the latest Forge scene summary the
+   * host fed (ForgeLayer, while the Forge is front), sanitized,
+   * with its change signature — the dirty gate's key. The scene
+   * is the room the ghost is standing in on this fabric, so a
+   * changed summary is a changed room: noteForgeScene marks
+   * deliberation dirty on a signature change (the first feed
+   * included); an unchanged summary never does.
+   */
+  private forgeSceneDigest: {
+    ctx: GhostForgeSceneContext;
+    signature: string;
+    at: number;
+  } | null = null;
   /** Human interaction timestamps (energy trend), pruned at 90s. */
   private humanEventTimes: number[] = [];
   /** Strongest nearby splat + when (decays over ~20s in snapshots). */
@@ -2131,6 +2148,36 @@ export class GhostPeer {
   }
 
   /**
+   * The Forge scene, summarized (Slice C — Forge presence).
+   * ForgeLayer feeds the live scene's summary (nodes + revision,
+   * built by forgeSceneSummary from the scene's own recipe)
+   * while the Forge is front. This is a SENSE, like noteGenx:
+   * nothing is emitted and nothing is spent. The summary is
+   * sanitized on entry (garbled scene data never reaches the
+   * brain as fact) and stored with its change signature.
+   *
+   * Dirty discipline: a CHANGED signature marks deliberation
+   * dirty — the scene is the room the ghost is standing in, and
+   * a changed room is a meaningful change, the fluid host's
+   * gate. The first feed counts as a change (the peer is born
+   * dirty besides, so this costs no extra deliberation). An
+   * unchanged signature never marks: the host may feed on its
+   * interval without ever spamming deliberation. Unlike genx
+   * there are no transition journals — the scene's changes are
+   * mostly the ghost's own acts, and narrating them back would
+   * be chatter, not company.
+   */
+  noteForgeScene(raw: unknown): void {
+    if (this.destroyed) return;
+    const clean = sanitizeForgeSceneContext(raw);
+    if (!clean) return;
+    const signature = forgeSceneSignature(clean);
+    const changed = this.forgeSceneDigest?.signature !== signature;
+    this.forgeSceneDigest = { ctx: clean, signature, at: Date.now() };
+    if (changed) this.markDeliberationDirty();
+  }
+
+  /**
    * A human played a note at the piano (Slice 31). LegacyFluid
    * forwards bus note-ons here while the Piano layer is front —
    * local keys and remote peers' notes alike (both ride the
@@ -3256,6 +3303,16 @@ export class GhostPeer {
       this.genxFoldJustCompleted = false;
       this.genxShardJustStalled = false;
     }
+    // Slice C: the Forge scene digest, while fresh (the same
+    // 45s window as the other room senses). A state, not an
+    // event: it rides every snapshot while the Forge is front
+    // and the host keeps feeding, and is omitted entirely once
+    // the feed goes stale — the ghost never deliberates about a
+    // scene it can no longer see.
+    const forgeScene: GhostForgeSceneContext | null =
+      this.forgeSceneDigest && now - this.forgeSceneDigest.at < 45_000
+        ? this.forgeSceneDigest.ctx
+        : null;
     // Slice 68: the standing Generative-music request rides
     // every snapshot while it stands; the due mark is one-shot
     // (consumed by this snapshot, like the genx event flags) —
@@ -3327,6 +3384,10 @@ export class GhostPeer {
       // Slice 68: the standing music request (see above); the
       // key is omitted entirely while the toggle is off.
       ...(music ? { music } : {}),
+      // Slice C: the Forge scene the ghost is standing in (see
+      // above); the key is omitted entirely when the sense is
+      // quiet or stale.
+      ...(forgeScene ? { forge_scene: forgeScene } : {}),
     };
   }
 

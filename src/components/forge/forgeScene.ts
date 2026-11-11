@@ -41,6 +41,31 @@ export function hexToLinear(hex: string): [number, number, number] {
   return [toLinear((n >> 16) & 255), toLinear((n >> 8) & 255), toLinear(n & 255)];
 }
 
+/**
+ * Linear [r, g, b] (each component 0..1) -> sRGB hex "#rrggbb":
+ * hexToLinear's inverse, through the same curve. The scene
+ * sense (Slice C) reports node colors in the hex the brain's
+ * contract speaks, so a color the ghost authored round-trips:
+ * linearToHex(hexToLinear(h)) === h for any 8-bit hex.
+ * Components clamp to [0, 1]; a non-array or non-finite input
+ * reads as null (unreadable), never a fabricated color.
+ */
+export function linearToHex(rgb: unknown): string | null {
+  if (!Array.isArray(rgb) || rgb.length < 3) return null;
+  const toSrgb = (v: unknown): number | null => {
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    const c = Math.min(1, Math.max(0, v));
+    const s = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+    return Math.round(s * 255);
+  };
+  const parts = [toSrgb(rgb[0]), toSrgb(rgb[1]), toSrgb(rgb[2])];
+  if (parts.some((p) => p === null)) return null;
+  return (
+    "#" +
+    parts.map((p) => (p as number).toString(16).padStart(2, "0")).join("")
+  );
+}
+
 /** The starter scene's authored palette (sRGB hex, as a human picks them). */
 export const FORGE_PALETTE = {
   floor: "#59606e",
