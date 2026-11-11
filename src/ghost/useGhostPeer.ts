@@ -979,6 +979,16 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteGenx(snapshot);
   }, []);
 
+  /**
+   * Slice C (Forge presence): the Forge scene's summary moved
+   * (ForgeLayer feeds it while the Forge is front — a sense).
+   * The summary is unknown-shaped at this seam on purpose: the
+   * peer sanitizes it into a GhostForgeSceneContext.
+   */
+  const noteForgeScene = useCallback((summary: unknown): void => {
+    peerRef.current?.noteForgeScene(summary);
+  }, []);
+
   /** Slice 68: the Generative-music standing request (host-fed). */
   const setMusicStanding = useCallback(
     (
@@ -1078,6 +1088,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteHandSign,
     noteGesture,
     noteGenx,
+    noteForgeScene,
     setMusicStanding,
     setMusicPackNotes,
     setChoraleWilling,

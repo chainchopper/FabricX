@@ -45,12 +45,58 @@
  * LABELED fallback panel in product language instead of a
  * silent blank canvas — the Trauma rule's shape (a failure
  * says so) applied to a renderer.
+ *
+ * Slice C (Forge presence): the ghostie is HOSTED here. While
+ * the Forge is front, this layer runs the app's one ghost host
+ * (useGhostPeer — the same hook, peer lifecycle, deliberation
+ * cadence and brain-tier routing the fluid host uses; the
+ * renderer's branches are exclusive, so exactly one host is
+ * ever mounted) with a fabric context that names the Forge
+ * (canvas "forge67"), and wires the sinks that are REAL on
+ * this fabric: forge decisions go to the performer through
+ * the seam (the same performForgeDecision Slice B wired on
+ * the fluid host), and the ghost's generated sounds play
+ * through the shared ghost voice (useGhostSfx). The sinks
+ * with no Forge surface stay unwired — there is no splat
+ * canvas here, so inject/broadcast are documented drops, and
+ * draw/note/music/chorale have no consumer on this fabric;
+ * the manifest already keeps the brain from choosing them.
+ * The scene is also a SENSE: the layer feeds the peer a
+ * bounded summary of the live scene (forgeSceneSummary) on
+ * the seam's changes and a slow interval, so deliberation on
+ * the Forge is about the actual scene — and canvas touches
+ * feed the peer as user activity, the fluid host's wake
+ * discipline. The peer lives and dies with this layer's
+ * mount, exactly like the fluid host's peer lives with
+ * LegacyFluid. On native (and on WebGL2 failure) the layer
+ * is the labeled panel and the peer stays resting — no
+ * presence is claimed for a canvas that isn't open.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import type { Renderer67 } from "67js";
 import { buildForgeStarterScene } from "./forgeScene";
-import { registerForgeScene } from "./forgeSceneStore";
+import {
+  getForgeSceneHandle,
+  registerForgeScene,
+  subscribeForgeScene,
+} from "./forgeSceneStore";
+import { performForgeDecision } from "./forgePerformer";
+import { buildForgeSceneSummary } from "./forgeSceneSummary";
+import { useExperience } from "../../contexts/ExperienceContext";
+import { useGhostPeer } from "../../ghost/useGhostPeer";
+import { useGhostSfx } from "../../ghost/useGhostSfx";
+import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
+import { useGhostSharedSettings } from "../../ghost/ghostSharedPref";
+import {
+  getSessionFabricState,
+  getHostArrivedFabric,
+} from "../../session/fabricStore";
+import {
+  getSessionPublicState,
+  subscribeSessionState,
+  type SessionPublicState,
+} from "../../session/sessionStore";
 
 /** Idle life: the camera's slow orbit, radians per second. */
 const ORBIT_SPEED = 0.05;
@@ -107,6 +153,134 @@ export default function ForgeLayer({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [failed, setFailed] = useState(false);
   const readyRef = useRef(false);
+
+  // ---- Ghost host (Slice C — Forge presence) ------------------
+  // The same host the fluid runs (useGhostPeer), mounted with
+  // this layer: the peer is created when the Forge becomes the
+  // loaded fabric and destroyed when it stops being front —
+  // the fluid host's instantiation discipline, one host ever
+  // live (the renderer's canvas branches are exclusive).
+  const { state } = useExperience();
+  const sessionRef = useRef<SessionPublicState>(getSessionPublicState());
+  useEffect(() => {
+    return subscribeSessionState((s) => {
+      sessionRef.current = s;
+    });
+  }, []);
+  // This client's id for the ghost's session bookkeeping,
+  // minted per mount in useFluidMultiUser's shape — the Forge
+  // mounts no transport, so nothing here is a wire identity.
+  const ownerIdRef = useRef<string | null>(null);
+  if (ownerIdRef.current === null) {
+    ownerIdRef.current = `user-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  const ghostShared = useGhostSharedSettings();
+  const ghostLayerEnabled =
+    Platform.OS === "web" &&
+    !failed &&
+    resolveGhostLayerEnabled({
+      storedEnabled:
+        ((state.experienceConfig?.specific as
+          | Record<string, unknown>
+          | undefined)?.ghostEnabled as boolean | undefined) !== false,
+      followHostFabric: ghostShared.followHostFabric,
+      arrivedViaHost:
+        state.activeExperience?.id != null &&
+        getHostArrivedFabric() === state.activeExperience.id,
+    });
+  const ghostSfx = useGhostSfx();
+  const sfxRef = useRef(ghostSfx);
+  sfxRef.current = ghostSfx;
+  const ghostSelfHueRef = useRef(210);
+  const getForgeFabricContext = useCallback(() => {
+    const s = sessionRef.current;
+    const rules =
+      s.role === "guest"
+        ? getSessionFabricState().rules
+        : { draw: true, verbs: true, notes: true };
+    return {
+      layer_id: state.activeExperience?.id ?? "forge",
+      canvas: "forge67" as const,
+      role: s.role,
+      in_session: s.role !== "open",
+      rules,
+    };
+  }, [state.activeExperience?.id]);
+  const ghost = useGhostPeer({
+    ownerId: ownerIdRef.current,
+    // The Forge has no splat surface: the ghost's body on this
+    // fabric is the scene itself, shaped through the forge
+    // tools. inject drops honestly (nothing renders a splat
+    // here) and broadcast is a no-op (no session transport is
+    // mounted while the Forge is front — scene ops do not ride
+    // the relay in this slice; see the PR body's out-of-scope).
+    inject: () => {},
+    broadcast: () => {},
+    // No peer transport is mounted on the Forge: the honest
+    // count of remote humans this client can see here is zero.
+    humanPeers: 0,
+    layerEnabled: ghostLayerEnabled,
+    getFabricContext: getForgeFabricContext,
+    onForgeDecision: (decision) => {
+      // Slice B's sink, hosted where it can finally fire: a
+      // validated forge decision, performed against the live
+      // scene through the seam (the performer reads the
+      // handle this layer published, at the moment of use).
+      performForgeDecision(decision);
+    },
+    onSfx: (kind, sfxCtx) => {
+      // The ghost's generated sounds are real on every fabric
+      // (the shared ghost voice, pitched from its hue) — the
+      // fluid host's exact wiring.
+      sfxRef.current.play(kind, ghostSelfHueRef.current, {
+        articulation: sfxCtx,
+      });
+    },
+    // Unwired, deliberately: onDrawRecipe / onNote /
+    // onMusicPhrase / onChoraleFrame have no surface or
+    // consumer on this fabric, and the manifest keeps the
+    // brain from choosing those tools here.
+  });
+  useEffect(() => {
+    if (ghost.identity) ghostSelfHueRef.current = ghost.identity.hue;
+  }, [ghost.identity]);
+  const ghostRef = useRef(ghost);
+  ghostRef.current = ghost;
+
+  // The scene as a sense: feed the peer the live scene's
+  // summary — once on mount, whenever the seam's handle
+  // changes, and on a slow interval while front (the scene
+  // changes under the ghost's own acts; the peer's signature
+  // gate, not this cadence, decides what re-arms deliberation,
+  // so an unchanged scene never spams it).
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const feed = () => {
+      const handle = getForgeSceneHandle();
+      if (!handle) return;
+      const summary = buildForgeSceneSummary(handle.scene);
+      if (summary) ghostRef.current.noteForgeScene(summary);
+    };
+    feed();
+    const unsub = subscribeForgeScene(feed);
+    const id = setInterval(feed, 3000);
+    return () => {
+      unsub();
+      clearInterval(id);
+    };
+  }, []);
+
+  // Canvas touches are the human's presence on this fabric:
+  // they wake the peer and hold its activity clock, the fluid
+  // host's discipline (throttled — a drag is one presence,
+  // not a hundred).
+  const lastActivityRef = useRef(0);
+  const noteCanvasActivity = useCallback(() => {
+    const now = Date.now();
+    if (now - lastActivityRef.current < 1000) return;
+    lastActivityRef.current = now;
+    ghostRef.current.noteUserActivity();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -255,6 +429,9 @@ export default function ForgeLayer({
         zIndex: 0,
         background: "#0b1020",
       }}
+      onPointerDown={noteCanvasActivity}
+      onPointerMove={noteCanvasActivity}
+      onWheel={noteCanvasActivity}
     >
       <canvas
         ref={canvasRef}

@@ -930,6 +930,15 @@ export interface GhostScenario {
    * overlay never fires anywhere else.
    */
   music?: GhostMusicContext;
+  /**
+   * Slice C (Forge presence): the Forge scene as a sense (see
+   * GhostForgeSceneContext) — the nodes the ghost is standing
+   * among, with the scene's revision. Absent whenever the Forge
+   * is not the loaded fabric or no scene summary has been fed,
+   * so every legacy scenario and the whole v1 dataset stay
+   * byte-identical.
+   */
+  forge_scene?: GhostForgeSceneContext;
 }
 
 /** Who said the utterance, as far as this client honestly knows. */
@@ -1066,6 +1075,95 @@ export function sanitizeGenxContext(
     fold_just_completed: rec.fold_just_completed === true,
     shard_just_stalled: rec.shard_just_stalled === true,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Forge scene sense (Slice C — Forge presence)                        */
+/* ------------------------------------------------------------------ */
+/*
+ * The scene the ghostie is standing in, as a sense — the genx
+ * precedent (GhostGenxContext) applied to the Forge: the host
+ * (ForgeLayer) summarizes the live agent-scene — its nodes with
+ * geometry kind and hex color, plus the scene's revision — and
+ * the peer's scenario carries the summary while it is fresh, so
+ * deliberation on the Forge is about the ACTUAL scene: a brain
+ * that wants to move or recolor a node can see which nodes
+ * exist. Bounded hard: at most FORGE_SCENE_SUMMARY_MAX_NODES
+ * nodes, ids through the forge node-id law, colors as #rrggbb
+ * or null (unreadable), geometry kinds clamped to the forge
+ * vocabulary with anything unrecognized reported as "other".
+ * Like every sense field it is ABSENT whenever the Forge is not
+ * the loaded fabric — absence changes nothing, anywhere.
+ */
+
+/** One node of the Forge scene, as the sense reports it. */
+export interface GhostForgeSceneNode {
+  /** The scene node id (the forge node-id law). */
+  id: string;
+  /** Geometry kind: a forge geometry, or "other" when unrecognized. */
+  geometry: GhostForgeGeometry | "other";
+  /** The node's material color as #rrggbb, or null when unreadable. */
+  color: string | null;
+}
+
+/** The Forge scene summary a scenario may carry. */
+export interface GhostForgeSceneContext {
+  /** The agent-scene revision the summary was taken at. */
+  revision: number;
+  /** The scene's nodes, capped at FORGE_SCENE_SUMMARY_MAX_NODES. */
+  nodes: GhostForgeSceneNode[];
+}
+
+/** Hard cap on the nodes a scene summary may carry. */
+export const FORGE_SCENE_SUMMARY_MAX_NODES = 24;
+
+/**
+ * Clamp an unknown value to a GhostForgeSceneContext, or null
+ * when it is not one — the sanitizeGenxContext discipline:
+ * garbled scene data must never reach the brain as fact. The
+ * revision clamps to a non-negative integer; node ids pass the
+ * forge node-id law (sanitizeForgeNodeId) or the node is
+ * dropped; geometry clamps to the forge vocabulary, else
+ * "other"; color passes the forge color law, else null.
+ */
+export function sanitizeForgeSceneContext(
+  raw: unknown
+): GhostForgeSceneContext | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const revision =
+    typeof rec.revision === "number" && Number.isFinite(rec.revision)
+      ? Math.max(0, Math.floor(rec.revision))
+      : 0;
+  const rawNodes = Array.isArray(rec.nodes) ? rec.nodes : [];
+  const nodes: GhostForgeSceneNode[] = [];
+  for (const entry of rawNodes) {
+    if (nodes.length >= FORGE_SCENE_SUMMARY_MAX_NODES) break;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const n = entry as Record<string, unknown>;
+    const id = sanitizeForgeNodeId(n.id);
+    if (!id) continue;
+    const geometry = (GHOST_FORGE_GEOMETRIES as readonly string[]).includes(
+      n.geometry as string
+    )
+      ? (n.geometry as GhostForgeGeometry)
+      : "other";
+    nodes.push({ id, geometry, color: sanitizeForgeColor(n.color) });
+  }
+  return { revision, nodes };
+}
+
+/**
+ * The summary's change signature — the peer's dirty gate keys
+ * on it: two summaries with the same signature are the same
+ * room, and feeding one must not re-arm deliberation. Pure and
+ * total over sanitized contexts.
+ */
+export function forgeSceneSignature(ctx: GhostForgeSceneContext): string {
+  return (
+    `${ctx.revision}|` +
+    ctx.nodes.map((n) => `${n.id}:${n.geometry}:${n.color ?? "-"}`).join(",")
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -3213,6 +3311,34 @@ export function describeUtteranceForSpark(
   );
 }
 
+/**
+ * The Forge scene note for the model tiers (Slice C): the scene
+ * the ghost is standing in — its nodes as they stand right now,
+ * with the revision — and the existence law for acting on it.
+ * Rides buildSparkMessages only when the scenario carries a
+ * forge scene, so deliberations anywhere else are byte-unchanged.
+ */
+export function describeForgeSceneForSpark(
+  scenario: GhostScenario
+): string | null {
+  const s = scenario.forge_scene;
+  if (!s) return null;
+  const list =
+    s.nodes.length > 0
+      ? s.nodes
+          .map(
+            (n) =>
+              `${n.id} (${n.geometry}${n.color ? `, ${n.color}` : ""})`
+          )
+          .join(", ")
+      : "no nodes yet";
+  return (
+    `The Forge scene as it stands (revision ${s.revision}): ${list}. ` +
+    "Act only on node ids this list names — an id it does not name does not exist. " +
+    "Summoned pieces are welcome; the scene is the ghost's to shape, gently and in character."
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Personality (Slice 20)                                              */
 /* ------------------------------------------------------------------ */
@@ -3577,7 +3703,7 @@ const SPARK_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost that lives on a shared touch canvas. The ghost never speaks; it expresses itself only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Given a scenario snapshot, reply with ONLY one JSON decision object — no prose, no code fences:",
   '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note" | "compose" | "forge-summon" | "forge-banish" | "forge-move" | "forge-recolor" | "forge-reshape" | "forge-relight" | "forge-camera", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "sound_spec": null | {"notes": [{"wave": "sine" | "square" | "triangle" | "sawtooth" | "noise", "ratio": 0.25-3.5, "ratio_end": 0.25-3.5, "delay_ms": 0-4000, "dur_ms": 30-1200, "gain": 0.05-1, "env": "soft" | "pluck" | "swell"}]}, "forge_spec": null | {"geometry": "box" | "sphere" | "cylinder" | "torus", "color": "#rrggbb", "node": "a node id", "position": [0, 0, 0], "preset": "studio" | "warm" | "dusk" | "cool" | "bright", "direction": "orbit-left" | "orbit-right" | "rise" | "sink" | "closer" | "wider"}, "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. sound_spec is only for intent \"compose\": the ghost COMPOSES a short sound from raw waveforms — 1 to 8 notes, each a waveform (sine, square, triangle, sawtooth, noise) at a pitch ratio over its own base voice, with an optional ratio_end sweep (the pitch contour), an onset delay, a duration, a gain, and an envelope. Compose when someone asks for sound (\"make some sounds\") or the moment honestly calls for a sound of its own — and ONLY when the fabric note lists the sound-craft tool; a compose under a fabric that does not offer it is rejected outright. forge_spec is only for the FORGE intents, and only on the Forge fabric, where the ghost shapes a living 3D scene: forge-summon brings in a geometry (box, sphere, cylinder, torus) of a hex color at an optional position; forge-banish removes a node by its id; forge-move places a node at a position; forge-recolor paints a node a hex color; forge-reshape turns a node into another geometry kind; forge-relight moves the scene to a lighting preset (studio, warm, dusk, cool, bright); forge-camera drifts the view (orbit-left, orbit-right, rise, sink, closer, wider). Each forge intent fills ONLY its own fields of forge_spec, and ONLY when the fabric note lists that forge tool — a forge intent on any other fabric is rejected outright. Vary the waveforms inside a composition — one waveform repeated is a loop, not a composition. The fabric note also lists the TOOLS the loaded fabric offers the ghost: splat-play (the splat intents: mirror, sniff, startle, drift, play, nap, idle, heart), draw, play-note, sound-craft — only choose an intent whose tool the fabric note lists; an intent reaching for a tool this fabric does not offer is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
+  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. sound_spec is only for intent \"compose\": the ghost COMPOSES a short sound from raw waveforms — 1 to 8 notes, each a waveform (sine, square, triangle, sawtooth, noise) at a pitch ratio over its own base voice, with an optional ratio_end sweep (the pitch contour), an onset delay, a duration, a gain, and an envelope. Compose when someone asks for sound (\"make some sounds\") or the moment honestly calls for a sound of its own — and ONLY when the fabric note lists the sound-craft tool; a compose under a fabric that does not offer it is rejected outright. forge_spec is only for the FORGE intents, and only on the Forge fabric, where the ghost shapes a living 3D scene: forge-summon brings in a geometry (box, sphere, cylinder, torus) of a hex color at an optional position; forge-banish removes a node by its id; forge-move places a node at a position; forge-recolor paints a node a hex color; forge-reshape turns a node into another geometry kind; forge-relight moves the scene to a lighting preset (studio, warm, dusk, cool, bright); forge-camera drifts the view (orbit-left, orbit-right, rise, sink, closer, wider). Each forge intent fills ONLY its own fields of forge_spec, and ONLY when the fabric note lists that forge tool — a forge intent on any other fabric is rejected outright. When the scenario carries forge_scene, it lists the Forge scene's nodes as they stand right now (id, geometry kind, hex color) with the scene's revision — act only on node ids it names; a node id it does not name does not exist. Vary the waveforms inside a composition — one waveform repeated is a loop, not a composition. The fabric note also lists the TOOLS the loaded fabric offers the ghost: splat-play (the splat intents: mirror, sniff, startle, drift, play, nap, idle, heart), draw, play-note, sound-craft — only choose an intent whose tool the fabric note lists; an intent reaching for a tool this fabric does not offer is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
 ].join("\n");
 
 /**
@@ -3676,6 +3802,14 @@ export function buildSparkMessages(
   if (utteranceNote) {
     messages.push({ role: "system", content: utteranceNote });
   }
+  // Forge scene (Slice C): the scene the ghost is standing in,
+  // as a plain-words system note — the same facts the scenario
+  // carries structurally. Only when the scenario carries a
+  // forge scene; deliberations anywhere else are byte-unchanged.
+  const forgeSceneNote = describeForgeSceneForSpark(scenario);
+  if (forgeSceneNote) {
+    messages.push({ role: "system", content: forgeSceneNote });
+  }
   for (const ex of GHOST_BRAIN_FEW_SHOT) {
     messages.push({
       role: "user",
@@ -3761,7 +3895,7 @@ const DEVICE_GHOST_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost on a shared touch canvas. The ghost never speaks; it acts only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Reply with ONLY one JSON object — no prose, no code fences:",
   '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note" | "compose" | "forge-summon" | "forge-banish" | "forge-move" | "forge-recolor" | "forge-reshape" | "forge-relight" | "forge-camera", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "sound_spec": null | {"notes": [{"wave": "sine|square|triangle|sawtooth|noise", "ratio": 0.25-3.5, "delay_ms": 0-4000, "dur_ms": 30-1200, "gain": 0.05-1, "env": "soft|pluck|swell"}]}, "forge_spec": null | {"geometry": "box|sphere|cylinder|torus", "color": "#rrggbb", "node": "a node id", "position": [0, 0, 0], "preset": "studio|warm|dusk|cool|bright", "direction": "orbit-left|orbit-right|rise|sink|closer|wider"}, "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. sound_spec only for intent "compose": the ghost composes a short sound from raw waveforms (1-8 notes; vary the waveforms — one repeated is a loop, not a composition), when someone asks for sound or the moment calls for one, ONLY when the fabric note lists the sound-craft tool — a compose under a fabric without it is rejected. forge_spec is only for the forge intents, only on the Forge fabric: forge-summon (geometry + hex color, optional position), forge-banish (node id), forge-move (node id + position), forge-recolor (node id + hex color), forge-reshape (node id + geometry), forge-relight (preset: studio|warm|dusk|cool|bright), forge-camera (direction: orbit-left|orbit-right|rise|sink|closer|wider) — each fills ONLY its own fields, and ONLY when the fabric note lists that forge tool; a forge intent anywhere else is rejected. The fabric note lists the tools this fabric offers (splat-play covers mirror, sniff, startle, drift, play, nap, idle, heart): only choose an intent whose tool is listed — any other intent is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
+  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. sound_spec only for intent "compose": the ghost composes a short sound from raw waveforms (1-8 notes; vary the waveforms — one repeated is a loop, not a composition), when someone asks for sound or the moment calls for one, ONLY when the fabric note lists the sound-craft tool — a compose under a fabric without it is rejected. forge_spec is only for the forge intents, only on the Forge fabric: forge-summon (geometry + hex color, optional position), forge-banish (node id), forge-move (node id + position), forge-recolor (node id + hex color), forge-reshape (node id + geometry), forge-relight (preset: studio|warm|dusk|cool|bright), forge-camera (direction: orbit-left|orbit-right|rise|sink|closer|wider) — each fills ONLY its own fields, and ONLY when the fabric note lists that forge tool; a forge intent anywhere else is rejected. When the scenario carries forge_scene, it lists the nodes of the scene as they stand (id, geometry, color) with the revision — act only on node ids it names. The fabric note lists the tools this fabric offers (splat-play covers mirror, sniff, startle, drift, play, nap, idle, heart): only choose an intent whose tool is listed — any other intent is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
 ].join("\n");
 
 /**
