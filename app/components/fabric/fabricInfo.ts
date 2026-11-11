@@ -209,13 +209,21 @@ export function fabricInfoFor(id: string | null | undefined): FabricInfo | null 
 }
 
 /** Canvas kinds, derived exactly as the ghost's fabric context derives them. */
-export type FabricCanvasKind = "fluid" | "stage3d" | "camera";
+export type FabricCanvasKind = "fluid" | "stage3d" | "camera" | "forge67";
 
 export function canvasKindFor(exp: {
   canvas?: string;
   type?: string;
 }): FabricCanvasKind {
   if (exp.canvas === "stage3d") return "stage3d";
+  // Slice B: the Forge declares its own canvas kind ("forge67")
+  // and the panel's tool gating reads it as itself now — the
+  // ghost's fabric context does the same (GhostBrain's
+  // GhostCanvasKind), so the panel and the brain agree on where
+  // the ghost is. Slice A disclosed the borrowed "fluid" read;
+  // this is its fix, for tool purposes — the Forge's other
+  // panel behavior is untouched.
+  if (exp.canvas === "forge67") return "forge67";
   // Slice 64: the declared canvas kind is the truth now (See
   // declares "camera" in the registry); the type read remains
   // only as the fallback for records written before the
@@ -299,6 +307,36 @@ const TOOL_LABEL: Record<GhostToolId, { label: string; line: string }> = {
     label: "Asked notes",
     line: "Ask it to play — “play middle C”, “play that again”, an arpeggio.",
   },
+  // Slice B: the Forge scene tools — the ghost shapes the 3D
+  // scene itself, on the Forge and nowhere else.
+  "forge-summon": {
+    label: "Summon a shape",
+    line: "The ghost brings a new shape into the Forge scene — box, sphere, cylinder, torus — in a color it chooses.",
+  },
+  "forge-banish": {
+    label: "Banish a shape",
+    line: "The ghost removes a shape from the Forge scene, by name.",
+  },
+  "forge-move": {
+    label: "Move a shape",
+    line: "The ghost places a Forge shape somewhere new.",
+  },
+  "forge-recolor": {
+    label: "Repaint a shape",
+    line: "The ghost changes a Forge shape's color.",
+  },
+  "forge-reshape": {
+    label: "Reshape a shape",
+    line: "The ghost turns a Forge shape into another kind — a cube becomes a sphere.",
+  },
+  "forge-relight": {
+    label: "Relight the scene",
+    line: "The ghost moves the Forge scene's light — studio, warm, dusk, cool, bright.",
+  },
+  "forge-camera": {
+    label: "Drift the camera",
+    line: "The ghost moves the Forge view — orbiting, rising, stepping closer or wider.",
+  },
 };
 
 const RULES_OFF = "Off under this room's rules";
@@ -356,6 +394,27 @@ export function ghostToolsHere(
               note: "Ask on the fluid — the answer is a pulse of light",
             }
           : { ...base, available: true, note: null };
+      // Slice B: the forge tools live on the Forge alone — the
+      // same law the brain's manifest enforces, read for the
+      // panel. On the Forge they are simply available (no host
+      // rule in this slice speaks to scene-shaping); everywhere
+      // else they show as the Forge's own, unavailable here —
+      // the play-note precedent (B8): a row, honestly dimmed,
+      // never hidden.
+      case "forge-summon":
+      case "forge-banish":
+      case "forge-move":
+      case "forge-recolor":
+      case "forge-reshape":
+      case "forge-relight":
+      case "forge-camera":
+        return layerId === "forge"
+          ? { ...base, available: true, note: null }
+          : {
+              ...base,
+              available: false,
+              note: "The ghost shapes scenes in the Forge",
+            };
       case "splat-play":
       default:
         return canvas === "stage3d"

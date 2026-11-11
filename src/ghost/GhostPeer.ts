@@ -111,6 +111,8 @@ import type {
 } from "./GhostBrain";
 import {
   fabricContextAllowsIntent,
+  ghostForgeActLabel,
+  isGhostForgeIntent,
   isGhostNoteLayer,
   ghostMusicPhraseSeconds,
   ghostMusicPhraseSignature,
@@ -521,6 +523,17 @@ export interface GhostPeerOptions {
    * ghostie with no wire listens to a room that isn't there.
    */
   onChoraleFrame?: (frame: ChoraleFrame) => void;
+  /**
+   * The FORGE tools' sink (Slice B): one validated forge
+   * decision — a scene act with its forge_spec — for the host
+   * to perform against the live Forge scene (the forge
+   * performer, reached through the scene seam; the layer that
+   * hosts the peer wires it). The peer owns the gates, the
+   * pacing and the budget charge; the sink owns the scene.
+   * Absent, a forge decision is journaled and dropped — the
+   * peer never reaches for a scene it wasn't handed.
+   */
+  onForgeDecision?: (decision: GhostDecision) => void;
 }
 
 export const MAX_GHOSTS_PER_ROOM = 4;
@@ -613,6 +626,16 @@ const SOUND_MIN_INTERVAL_MS = 20_000;
  */
 const MUSIC_BUDGET_COST = 3;
 const MUSIC_MIN_INTERVAL_MS = 2_000;
+/**
+ * The FORGE tools' price and pace (Slice B). A scene act is one
+ * authored performance — a deliberate edit to a shared 3D scene,
+ * not a splat — priced a slot above the phrase and the
+ * composition (4 emit slots), and its cooldown sits below the
+ * composition's: scene-building is conversational (summon, then
+ * move it, then repaint it) but never a metronome of edits.
+ */
+const FORGE_BUDGET_COST = 4;
+const FORGE_MIN_INTERVAL_MS = 12_000;
 /**
  * The chorale's phrase grid (Slice 70): a phrase is
  * GHOST_MUSIC_PHRASE_STEPS eighth-note steps — 8 beats — and
@@ -844,6 +867,8 @@ export class GhostPeer {
   private lastNoteAt = 0;
   /** SOUND-CRAFT tool state (Slice 52): last composed performance. */
   private lastSoundAt = 0;
+  /** FORGE tools state (Slice B): last scene act's time. */
+  private lastForgeAt = 0;
   /**
    * PLAY-MUSIC tool state (Slice 68): the standing Generative-
    * music request the host feeds while the toggle is on (null =
@@ -3385,6 +3410,17 @@ export class GhostPeer {
       case "play-music":
         this.performPlayMusic(decision);
         break;
+      // Slice B: the forge intents all perform through the one
+      // forge performance (one gate, one price, one sink).
+      case "forge-summon":
+      case "forge-banish":
+      case "forge-move":
+      case "forge-recolor":
+      case "forge-reshape":
+      case "forge-relight":
+      case "forge-camera":
+        this.performForge(decision);
+        break;
       case "mirror":
         // Amplify the reflex mirror/response path for the linger.
         this.setMoodBias("mirror", decision.linger_s * 1000);
@@ -3717,6 +3753,58 @@ export class GhostPeer {
       `played a phrase — ${phrase.notes.length} notes`
     );
     this.options.onMusicPhrase?.(phrase);
+  }
+
+  /**
+   * The forge gate, peer-side (Slice B) — drawGateRefusal's
+   * sibling for the SCENE tools: the manifest is the only law
+   * (the Forge offers the forge tools; no other declared fabric
+   * does), read off the CURRENT fabric context the peer holds.
+   * No fabric context means no gate (solo semantics, the draw
+   * gate's own rule — deliberated forge decisions only ever
+   * arrive through a Forge context's forwarder besides).
+   */
+  private forgeGateRefusal(now: number, decision: GhostDecision): boolean {
+    const fabric = this.currentFabricContext();
+    if (fabric && !fabricContextAllowsIntent(fabric, decision.intent)) {
+      this.journal(
+        `wanted to ${ghostForgeActLabel(decision)} — this fabric doesn't offer the forge tools`,
+        now
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Perform a deliberated FORGE decision (Slice B) — the scene
+   * tools' performance. The brain authored one scene act (the
+   * decision's forge_spec); the peer prices and paces it like
+   * every other authored performance — the manifest gate
+   * refuses off-Forge (journaled), the cooldown keeps edits
+   * conversational rather than metronomic, and the shared emit
+   * budget charges FORGE_BUDGET_COST before the sink is
+   * touched — then hands the decision itself to the host's
+   * forge sink, which performs it against the live scene
+   * through the seam (forgePerformer). Without a sink the act
+   * is journaled and dropped: the peer never invents a scene.
+   */
+  private performForge(decision: GhostDecision): void {
+    if (!this.canAct()) return;
+    if (!isGhostForgeIntent(decision.intent) || !decision.forge_spec) return;
+    const now = Date.now();
+    if (this.forgeGateRefusal(now, decision)) return;
+    if (now - this.lastForgeAt < FORGE_MIN_INTERVAL_MS) return;
+    if (!this.chargePerformanceBudget(FORGE_BUDGET_COST)) {
+      this.journal("wanted to shape the scene — budget spent", now);
+      return;
+    }
+    this.lastForgeAt = now;
+    const label = ghostForgeActLabel(decision);
+    this.journal(label, now);
+    this.markDeliberationDirty();
+    this.options.onPerformance?.(label);
+    this.options.onForgeDecision?.(decision);
   }
 
   private performPlayPattern(

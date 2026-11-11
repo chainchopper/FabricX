@@ -63,6 +63,18 @@ declare module "67js" {
       parts: Part67[],
       options?: { shadows?: boolean; checks?: boolean }
     ): void;
+    /**
+     * Slice B: replace the renderer's part set — the sync for
+     * topology changes (parts added, removed, or re-identified,
+     * e.g. a geometry rebind), where updateParts refuses with
+     * "Unknown part identity" / "Geometry changes require a new
+     * renderer". The engine's own rule (docs/agent-look.md):
+     * use replaceParts when scene.topologyRevision changes.
+     */
+    replaceParts(
+      parts: Part67[],
+      options?: { regroupOnly?: boolean }
+    ): void;
     resize(): void;
     dispose(): void;
   }
@@ -86,6 +98,8 @@ declare module "67js/addons/agent-scene" {
     effects: { exposure: number; [key: string]: unknown };
     shadow: Record<string, unknown>;
     revision: number;
+    /** Increments only when ordered part identities or membership change. */
+    topologyRevision: number;
     capabilities: Record<string, unknown>;
     apply(
       operations: unknown[],
@@ -94,6 +108,22 @@ declare module "67js/addons/agent-scene" {
     checkpoint(): unknown;
     restore(checkpoint: unknown, options: { expectedRevision: number }): void;
     releaseCheckpoint(checkpoint: unknown): void;
+    /**
+     * Slice B: the scene's own recipe snapshot — the performer's
+     * read path for node records (which geometry/material a node
+     * carries). Verified against the real module by
+     * forge-tools-check (the recipe round-trips the starter
+     * scene's nodes verbatim).
+     */
+    exportRecipe(): {
+      nodes: Array<{
+        id: string;
+        geometry?: string;
+        material?: string;
+        [key: string]: unknown;
+      }>;
+      [key: string]: unknown;
+    };
   }
 
   export function createAgentScene(recipe: unknown): AgentScene;

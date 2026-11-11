@@ -192,6 +192,13 @@ export interface UseGhostPeerOptions {
    * only). LegacyFluid puts it on the session transport.
    */
   onChoraleFrame?: (frame: ChoraleFrame) => void;
+  /**
+   * The FORGE tools' sink (Slice B): a validated forge decision
+   * to perform against the live Forge scene. LegacyFluid wires
+   * it to the forge performer (the scene seam's consumer); the
+   * performer no-ops honestly when no Forge canvas is mounted.
+   */
+  onForgeDecision?: (decision: GhostDecision) => void;
 }
 
 const GHOST_NAMES = [
@@ -315,6 +322,8 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   onMusicPhraseRef.current = options.onMusicPhrase;
   const onChoraleFrameRef = useRef(options.onChoraleFrame);
   onChoraleFrameRef.current = options.onChoraleFrame;
+  const onForgeDecisionRef = useRef(options.onForgeDecision);
+  onForgeDecisionRef.current = options.onForgeDecision;
 
   const persist = useCallback(
     (nextEnabled: boolean, id: GhostIdentityFull) => {
@@ -332,7 +341,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
   // the ghost store so AI Services + diag show what actually decided.
   // ---------------------------------------------------------------
   const describeDecision = (d: GhostDecision): string =>
-    `decided: ${d.intent}${d.pattern_id ? ` · ${d.pattern_id}` : ""}${d.draw_shape ? ` · ${d.draw_shape}` : ""}${d.note_name ? ` · ${d.note_name}` : ""} · linger ${d.linger_s}s`;
+    `decided: ${d.intent}${d.pattern_id ? ` · ${d.pattern_id}` : ""}${d.draw_shape ? ` · ${d.draw_shape}` : ""}${d.note_name ? ` · ${d.note_name}` : ""}${d.forge_spec ? ` · ${d.forge_spec.node ?? d.forge_spec.geometry ?? d.forge_spec.preset ?? d.forge_spec.direction ?? "the scene"}` : ""} · linger ${d.linger_s}s`;
 
   const publishBrain = (status: GhostBrainStatus): void => {
     setGhostPublicState({ brain: status });
@@ -727,6 +736,9 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
         },
         onChoraleFrame: (frame) => {
           onChoraleFrameRef.current?.(frame);
+        },
+        onForgeDecision: (decision) => {
+          onForgeDecisionRef.current?.(decision);
         },
       });
       peer.setEnabled(en && layerEnabledRef.current);

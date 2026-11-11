@@ -18,10 +18,19 @@
  * and a render loop that runs only while this fabric is front
  * (the component exists only then — the renderer's branch
  * mounts it — and it pauses while the tab is hidden, the
- * discipline the camera layers set). The ghost's scene tools
- * arrive in Slice B, driving the same recipe through the
- * agent-scene revision contract; nothing in this file is a
- * mock of them — there is simply no tool surface yet.
+ * discipline the camera layers set).
+ *
+ * Slice B: the ghost's scene tools drive this scene from
+ * outside — through the seam, never into the component. On
+ * mount the layer publishes a small handle (the live scene,
+ * the renderer, and a camera re-sync hook) to forgeSceneStore
+ * and clears it on unmount; the forge performer applies its
+ * ops through that handle. The layer still owns the engine
+ * outright — construction, the frame loop, disposal — and the
+ * one courtesy it owes the tools is refreshCamera: a
+ * forge-camera act moves the scene's AUTHORED camera, so the
+ * breathe orbit re-derives its frame from scene.camera and
+ * continues from where the ghost put the view.
  *
  * The engine loads through a WEB-ONLY dynamic import inside
  * the effect, never a static import: module evaluation of
@@ -41,6 +50,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import type { Renderer67 } from "67js";
 import { buildForgeStarterScene } from "./forgeScene";
+import { registerForgeScene } from "./forgeSceneStore";
 
 /** Idle life: the camera's slow orbit, radians per second. */
 const ORBIT_SPEED = 0.05;
@@ -150,28 +160,56 @@ export default function ForgeLayer({
 
         // The breathe orbit: the authored eye's spherical position
         // around the target, advanced slowly. Radius and height
-        // are the scene author's; only the angle moves.
+        // are the scene author's; only the angle moves. The frame
+        // lives in a mutable object (Slice B) because a
+        // forge-camera act can move the authored camera mid-life:
+        // refreshCamera re-derives the frame from scene.camera,
+        // phase-matched so the orbit continues from the new eye
+        // without a jump.
         const eye0 = scene.camera.eye;
-        const target = scene.camera.target;
-        const dx = eye0[0] - target[0];
-        const dz = eye0[2] - target[2];
-        const radius = Math.hypot(dx, dz);
-        const baseAngle = Math.atan2(dz, dx);
-        const eyeY = eye0[1];
-        const started = performance.now();
+        const orbit = {
+          target: [...scene.camera.target],
+          radius: Math.hypot(
+            eye0[0] - scene.camera.target[0],
+            eye0[2] - scene.camera.target[2]
+          ),
+          baseAngle: Math.atan2(
+            eye0[2] - scene.camera.target[2],
+            eye0[0] - scene.camera.target[0]
+          ),
+          eyeY: eye0[1],
+          started: performance.now(),
+        };
+        const refreshCamera = () => {
+          const eye = scene.camera.eye;
+          const target = scene.camera.target;
+          const dx = eye[0] - target[0];
+          const dz = eye[2] - target[2];
+          const tNow = (performance.now() - orbit.started) / 1000;
+          orbit.target = [...target];
+          orbit.radius = Math.hypot(dx, dz);
+          orbit.eyeY = eye[1];
+          orbit.baseAngle = Math.atan2(dz, dx) - tNow * ORBIT_SPEED;
+        };
+
+        // The scene seam (Slice B): publish the live handle for
+        // the ghost's scene tools; the cleanup clears it before
+        // the renderer is disposed, so no act can ever land on a
+        // tearing-down scene.
+        registerForgeScene({ scene, renderer, refreshCamera });
 
         const frame = () => {
           if (disposed || !renderer) return;
           raf = requestAnimationFrame(frame);
           if (document.hidden) return;
-          const t = (performance.now() - started) / 1000;
-          const a = baseAngle + t * ORBIT_SPEED;
+          const t = (performance.now() - orbit.started) / 1000;
+          const a = orbit.baseAngle + t * ORBIT_SPEED;
           renderer.render({
             ...scene.camera,
             eye: [
-              target[0] + radius * Math.cos(a),
-              eyeY,
-              target[2] + radius * Math.sin(a),
+              orbit.target[0] + orbit.radius * Math.cos(a),
+              orbit.eyeY,
+              orbit.target[2] + orbit.radius * Math.sin(a),
             ],
             environment: scene.environment,
             effects: scene.effects,
@@ -197,6 +235,9 @@ export default function ForgeLayer({
 
     return () => {
       disposed = true;
+      // The seam clears FIRST: from here the scene is being torn
+      // down, and the ghost's tools must find no handle.
+      registerForgeScene(null);
       cancelAnimationFrame(raf);
       if (fit) window.removeEventListener("resize", fit);
       renderer?.dispose();

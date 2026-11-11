@@ -344,7 +344,11 @@ const catalogIds = [...catalogSrc.matchAll(/^\s+id: "([a-z-]+)",/gm)].map((m) =>
 // Playground — so the count pin moves 6 -> 7 (the assertion's
 // purpose is unchanged: EVERY catalog fabric must declare a
 // manifest, proven by the loop below).
-ok(catalogIds.length === 7, `B1 the experience catalog declares 7 fabrics (${catalogIds.join(", ")})`);
+// Slice B: the catalog grew an eighth fabric — the Forge — so
+// the count pin moves 7 -> 8, same purpose, same loop below
+// (which now also proves the Forge declares its manifest; the
+// forge entry Slice A registered is what was failing here).
+ok(catalogIds.length === 8, `B1 the experience catalog declares 8 fabrics (${catalogIds.join(", ")})`);
 for (const id of catalogIds) {
   ok(
     Array.isArray(brain.GHOST_FABRIC_TOOL_MANIFEST[id]),
@@ -455,6 +459,21 @@ const wellFormed = (intent) => {
       steps: 16,
       notes: [{ note: "C5", step: 0, len_steps: 1, velocity: 0.6 }],
     };
+  // Slice B: the forge intents require their forge_spec, like
+  // draw its shape — one well-formed spec per intent, so the
+  // matrix exercises the manifest law (offered ONLY on the
+  // Forge), not the payload law.
+  if (intent === "forge-summon")
+    d.forge_spec = { geometry: "sphere", color: "#e2492f" };
+  if (intent === "forge-banish") d.forge_spec = { node: "ball-node" };
+  if (intent === "forge-move")
+    d.forge_spec = { node: "ball-node", position: [0, 1, 0] };
+  if (intent === "forge-recolor")
+    d.forge_spec = { node: "ball-node", color: "#0e7c86" };
+  if (intent === "forge-reshape")
+    d.forge_spec = { node: "ball-node", geometry: "torus" };
+  if (intent === "forge-relight") d.forge_spec = { preset: "warm" };
+  if (intent === "forge-camera") d.forge_spec = { direction: "orbit-left" };
   return d;
 };
 for (const id of [...catalogIds, "some-undeclared-fabric"]) {

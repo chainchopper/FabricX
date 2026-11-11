@@ -65,7 +65,15 @@ export type GhostToolId =
   | "play-note"
   | "note-perform"
   | "sound-craft"
-  | "play-music";
+  | "play-music"
+  // Slice B: the Forge scene tools.
+  | "forge-summon"
+  | "forge-banish"
+  | "forge-move"
+  | "forge-recolor"
+  | "forge-reshape"
+  | "forge-relight"
+  | "forge-camera";
 
 export interface GhostToolDef {
   id: GhostToolId;
@@ -147,6 +155,59 @@ export const GHOST_TOOL_REGISTRY: readonly GhostToolDef[] = [
     intents: ["play-music"],
     refusalFor: (scenario) =>
       scenario.music?.due === true ? null : GHOST_MUSIC_REFUSAL_TEXT,
+  },
+  // ---------------------------------------------------------------
+  // The Forge scene tools (Slice B). Seven deliberation tools,
+  // one intent each, that shape the 67.js scene on the Forge
+  // fabric: the decision carries a forge_spec, the performer
+  // (src/components/forge/forgePerformer.ts) translates it to
+  // agent-scene ops and applies them to the live scene through
+  // the scene seam. Their ONLY fabric law is the manifest — the
+  // Forge offers them and no other declared fabric does — so,
+  // like sound-craft, they carry no refusalFor: the manifest
+  // gate in ghostToolRefusal refuses them everywhere else.
+  // ---------------------------------------------------------------
+  {
+    id: "forge-summon",
+    blurb:
+      "Forge (Slice B): the ghost summons a shape into the scene — a box, sphere, cylinder or torus of a chosen color, at a chosen place — as a new node in the living 3D scene. Forge fabric only; the manifest is its law.",
+    intents: ["forge-summon"],
+  },
+  {
+    id: "forge-banish",
+    blurb:
+      "Forge (Slice B): the ghost removes a node from the scene by its id — what it summoned, or a piece of the starter scene, gone from the render. Forge fabric only; the manifest is its law.",
+    intents: ["forge-banish"],
+  },
+  {
+    id: "forge-move",
+    blurb:
+      "Forge (Slice B): the ghost moves a scene node to a new position — the shape stays itself; its place in the scene changes. Forge fabric only; the manifest is its law.",
+    intents: ["forge-move"],
+  },
+  {
+    id: "forge-recolor",
+    blurb:
+      "Forge (Slice B): the ghost repaints a scene node — a hex color, converted to the scene's linear color space by the same conversion the starter scene was built with. Forge fabric only; the manifest is its law.",
+    intents: ["forge-recolor"],
+  },
+  {
+    id: "forge-reshape",
+    blurb:
+      "Forge (Slice B): the ghost reshapes a scene node — the node keeps its place and paint and becomes another geometry kind (box, sphere, cylinder, torus). Forge fabric only; the manifest is its law.",
+    intents: ["forge-reshape"],
+  },
+  {
+    id: "forge-relight",
+    blurb:
+      "Forge (Slice B): the ghost relights the scene — a named lighting preset (studio, warm, dusk, cool, bright) retunes the scene's light and air in one act. Forge fabric only; the manifest is its law.",
+    intents: ["forge-relight"],
+  },
+  {
+    id: "forge-camera",
+    blurb:
+      "Forge (Slice B): the ghost drifts the scene's camera — an orbit step, a rise or sink, a step closer or wider — the view itself as an act of attention. Forge fabric only; the manifest is its law.",
+    intents: ["forge-camera"],
   },
 ];
 

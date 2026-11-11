@@ -146,6 +146,36 @@ const GHOST_TOOL_LABELS: Record<string, { label: string; caption: string }> = {
     caption:
       "Authoring whole phrases while Generative music is on — its temperament, what it last heard, and the room's energy shape what it plays.",
   },
+  // Slice B: the Forge scene tools — what each reads as on the
+  // Home's surface when the Forge is the loaded fabric.
+  "forge-summon": {
+    label: "Summoning shapes",
+    caption: "Bringing a new shape — box, sphere, cylinder, torus — into the Forge scene, in a color it chooses.",
+  },
+  "forge-banish": {
+    label: "Banishing shapes",
+    caption: "Removing a shape from the Forge scene, by name.",
+  },
+  "forge-move": {
+    label: "Moving shapes",
+    caption: "Placing a shape somewhere new in the Forge scene.",
+  },
+  "forge-recolor": {
+    label: "Repainting shapes",
+    caption: "Changing a Forge shape's color.",
+  },
+  "forge-reshape": {
+    label: "Reshaping shapes",
+    caption: "Turning a Forge shape into another kind — a cube becomes a sphere.",
+  },
+  "forge-relight": {
+    label: "Relighting",
+    caption: "Moving the Forge scene's light — studio, warm, dusk, cool, bright.",
+  },
+  "forge-camera": {
+    label: "Drifting the camera",
+    caption: "Moving the Forge view itself — orbiting, rising, stepping closer or wider.",
+  },
 };
 import {
   getGhostPersonality,
