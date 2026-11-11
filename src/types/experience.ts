@@ -8,6 +8,7 @@ export type ExperienceType =
   | "dancer-stage"
   | "genx-fold"
   | "ghostie-playground"
+  | "forge"
   | "multi-sensory"
   | "gesture-control"
   | "custom";
@@ -36,11 +37,18 @@ export type ExperienceType =
  *   and the picture is what the fabric is. See is the first
  *   camera fabric; its ghost fabric context has reported this
  *   canvas kind since Slice 23.
+ * - "forge67": the canvas is a 67js WebGL2 scene (Slice A — the
+ *   Forge, a fabric of its own). The ground is a scene made of
+ *   plain data — an agent-scene recipe of geometries, materials
+ *   and nodes — drawn by the 67js renderer, not the fluid and
+ *   not a react-three-fiber stage: a scene an agent can author
+ *   and edit as data is the point of the fabric. The fluid does
+ *   not mount beneath it. The Forge is the first forge67 fabric.
  *
  * ExperienceRenderer branches on this field, so a future fabric
  * with its own canvas kind never has to impersonate a fluid layer.
  */
-export type ExperienceCanvasKind = "fluid" | "stage3d" | "camera";
+export type ExperienceCanvasKind = "fluid" | "stage3d" | "camera" | "forge67";
 
 export interface ExperienceCapabilities {
   ar: boolean;

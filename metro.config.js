@@ -1,5 +1,6 @@
 const { getDefaultConfig } = require("@expo/metro-config");
 const { parse } = require("url");
+const path = require("path");
 
 module.exports = (function () {
   const config = getDefaultConfig(__dirname);
@@ -67,6 +68,33 @@ module.exports = (function () {
       }
       return middleware(req, res, next);
     };
+  };
+
+  // Slice A (the Forge fabric): 67js loads its OPTIONAL peer
+  // manifold-3d only through a dynamic import inside its
+  // mesh-booleans path, and the engine treats a missing peer
+  // as a supported state (it raises its own descriptive error
+  // if a scene actually asks for booleans). Metro resolves
+  // dynamic-import specifiers while bundling and hard-fails
+  // the whole bundle on this one. Map the specifier to the
+  // stub ONLY when the real package fails to resolve —
+  // installing manifold-3d later makes the mapping dead with
+  // no further change. (The other optional peer,
+  // @dimforge/rapier3d-compat, IS installed and resolves
+  // normally; nothing else in the tree names manifold-3d.)
+  config.resolver = config.resolver || {};
+  config.resolver.resolveRequest = (context, moduleName, platform) => {
+    if (moduleName === "manifold-3d") {
+      try {
+        return context.resolveRequest(context, moduleName, platform);
+      } catch {
+        return {
+          type: "sourceFile",
+          filePath: path.join(__dirname, "src/components/forge/manifold3dStub.js"),
+        };
+      }
+    }
+    return context.resolveRequest(context, moduleName, platform);
   };
 
   return config;

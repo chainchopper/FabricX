@@ -12,6 +12,7 @@ import HandsLayer, { HandsCameraBackground } from "../hands/HandsLayer";
 
 const FabricWeb3DLazy = lazy(() => import("../FabricWeb3D"));
 const DancerStageLazy = lazy(() => import("../../dancer/DancerStage"));
+const ForgeLayerLazy = lazy(() => import("../forge/ForgeLayer"));
 
 declare global {
   interface Window {
@@ -47,6 +48,14 @@ export default function ExperienceRenderer() {
   // while SamLayer's outlines/chip/tools render above it (see
   // the slot below).
   const isCameraCanvas = activeExperience?.canvas === "camera";
+  // Slice A: the Forge is a fabric of its own with a declared
+  // canvas kind — "forge67" (the stage3d/camera precedent: the
+  // renderer keys on the declaration, never on the experience
+  // id). Its ground is a 67js WebGL2 scene — plain data drawn
+  // by the 67js renderer — so, like the stage, it replaces the
+  // fluid branch outright: WebFluidBackground does not mount
+  // beneath it, and none of the fluid-family layers apply.
+  const isForgeCanvas = activeExperience?.canvas === "forge67";
   // Realignment (Oct 28): an experience may declare a non-fluid
   // canvas kind (ExperienceLayer.canvas). "stage3d" experiences own
   // a full react-three-fiber stage as THE canvas — the fluid is not
@@ -58,12 +67,14 @@ export default function ExperienceRenderer() {
   // the Dancer Stage — a whole different CANVAS — hard-cut with
   // no transition at all ("no transition between elements and
   // the fabric canvas"). The trigger key is now the canvas
-  // family: AR/camera OR the stage. Switches inside the fluid
+  // family: AR/camera OR a declared own-canvas fabric (the
+  // stage; Slice A adds the Forge — its canvas swap is the same
+  // kind of cut). Switches inside the fluid
   // family (fluid ↔ Fold ↔ piano layers) still share one
   // branch and crossfade through their own layer chrome; only
   // a real canvas swap takes the curtain. Total 120+40+140 =
   // 300ms, inside the tokens' 240–320 motion range.
-  const curtainKey = wantsAROrCamera || isStageCanvas;
+  const curtainKey = wantsAROrCamera || isStageCanvas || isForgeCanvas;
   const lastMode = useRef<boolean>(curtainKey);
 
   useEffect(() => {
@@ -123,7 +134,11 @@ export default function ExperienceRenderer() {
       {/* Generative composer (web-only) */}
       {musicEnabled ? <AutoComposer /> : null}
 
-      {isStageCanvas ? (
+      {isForgeCanvas ? (
+        <Suspense fallback={null}>
+          <ForgeLayerLazy onReady={markReady} />
+        </Suspense>
+      ) : isStageCanvas ? (
         <Suspense fallback={null}>
           <DancerStageLazy onReady={markReady} />
         </Suspense>

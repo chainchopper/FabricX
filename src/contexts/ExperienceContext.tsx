@@ -276,6 +276,52 @@ const builtin: ExperienceLayer[] = [
       },
     },
   },
+  {
+    // The Forge (Slice A): a fabric of its own whose ground is
+    // a 3D scene made of plain data — a 67js agent-scene recipe
+    // drawn by the 67js WebGL2 renderer. It declares its own
+    // canvas kind ("forge67", the stage3d/camera precedent:
+    // the renderer keys on the declaration, never on this id),
+    // because a scene an agent can author and edit as data is
+    // the point of the fabric: the ghost's scene tools (Slice B)
+    // will drive the recipe through the agent-scene revision
+    // contract. Its own room ("forge"). Slice A ships the
+    // canvas and a starter scene; the capabilities stay at the
+    // honest minimum until the ghost's tools land — no notes,
+    // no audio, no haptics surface of its own yet. Idle
+    // contract: "breathe" — the camera drifts in a slow orbit;
+    // the scene is present in the quiet, never a frozen frame.
+    id: "forge",
+    name: "Forge",
+    blurb: "A canvas where your ghostie builds in 3D — scenes made live, out of pure data.",
+    description:
+      "A 3D scene authored as data — geometry, materials and light in one living scene on a WebGL2 canvas of its own, built to be shaped live by your ghostie.",
+    type: "forge" as ExperienceType,
+    version: "1.0.0",
+    author: "Fanalogy",
+    capabilities: {
+      ...defaultCapabilities,
+      ar: false,
+      camera: false,
+      midi: false,
+      audio: false,
+      haptics: false,
+    },
+    canvas: "forge67",
+    idleBehavior: "breathe",
+    configDefaults: {
+      common: {
+        backgroundColor: "#0b1020",
+        particleDensity: 0.6,
+        audioVolume: 0.7,
+        hapticIntensity: 0.8,
+        renderMode: "default",
+      } as any,
+      specific: {
+        roomId: "forge",
+      },
+    },
+  },
 ];
 
 function reducer(state: ExperienceState, action: ExperienceAction): ExperienceState {

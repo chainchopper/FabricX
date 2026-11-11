@@ -183,6 +183,23 @@ export const FABRIC_INFO: Record<string, FabricInfo> = {
       "Pet it — stroke it on the canvas, like everywhere",
     ],
   },
+  forge: {
+    about:
+      "A 3D scene made of pure data — geometry, materials and light in one recipe, drawn live on a WebGL2 canvas of its own. Where the fluid is a surface, the Forge is a place: a scene that can be authored and re-authored, built for your ghostie to shape.",
+    modes: [
+      "The starter scene — a floor and five shapes in studio light, standing as the fabric opens",
+      "Breathing — the camera drifts in a slow orbit while the room is quiet; the scene is present, never a frozen frame",
+    ],
+    rules: [
+      "Its own canvas, its own room — nothing of the fluid's surface applies here, and the fluid does not run underneath",
+      "The scene is data: every shape, material and light in it is named in the recipe that draws it",
+      "The Forge needs WebGL2 — where a browser doesn't have it, the fabric says so on a labeled screen instead of opening blank",
+    ],
+    controls: [
+      "Open it — its card in the FABRICS gallery",
+      "This fabric's settings — F menu → This layer",
+    ],
+  },
 };
 
 /** The info record for a fabric id, or null when it has none. */
