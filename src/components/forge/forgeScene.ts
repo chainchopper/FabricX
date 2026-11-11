@@ -114,9 +114,27 @@ export function forgeStarterRecipe() {
   } as const;
 }
 
-/** Build the starter scene (retained parts + camera + look). */
+/**
+ * Build the starter scene (retained parts + camera + look).
+ *
+ * Slice E: the factory may carry the session's HOST CONTEXT —
+ * the agent-scene session's third argument, of which the one
+ * field the Forge uses is sequenceFrames, the live map of
+ * host-decoded catalog images (forgePhoto's registry). The
+ * starter recipe names no catalog image; the map rides along
+ * empty so a photo registered LATER is found by the apply
+ * that names it. Hosts that pass nothing (the checks, older
+ * callers) get the plain one-argument creation, unchanged.
+ */
 export function buildForgeStarterScene(
-  createScene: (recipe: AgentSceneRecipe) => AgentScene
+  createScene: (
+    recipe: AgentSceneRecipe,
+    limits?: unknown,
+    host?: { sequenceFrames?: Map<string, unknown> }
+  ) => AgentScene,
+  host?: { sequenceFrames?: Map<string, unknown> }
 ): AgentScene {
-  return createScene(forgeStarterRecipe());
+  return host
+    ? createScene(forgeStarterRecipe(), undefined, host)
+    : createScene(forgeStarterRecipe());
 }
