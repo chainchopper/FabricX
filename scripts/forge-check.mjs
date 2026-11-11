@@ -150,7 +150,10 @@ check(
 check(
   "D2 ForgeLayer constructs Renderer67 over the starter scene's parts",
   layer.includes("new Renderer67(canvas, scene.parts, {") &&
-    layer.includes("buildForgeStarterScene(agentScene.createAgentScene)")
+    layer.includes("buildForgeStarterScene(agentScene.createAgentScene") &&
+    // Slice E amendment: the creation now carries the photo
+    // registry as the session's host sequenceFrames map.
+    layer.includes("sequenceFrames: getForgePhotoSequenceFrames()")
 );
 check(
   "D3 ForgeLayer disposes the renderer on unmount and cancels its frame loop",
@@ -179,7 +182,10 @@ check(
 check(
   "D8 the scene module is runtime-import-free (types only) — the factory is injected",
   !/^import \{[^}]*\} from "67js/m.test(sceneSrc) &&
-    sceneSrc.includes("createScene: (recipe: AgentSceneRecipe) => AgentScene")
+    // Slice E amendment: the injected factory's signature
+    // widened by the optional host context (limits + host).
+    sceneSrc.includes("recipe: AgentSceneRecipe,") &&
+    sceneSrc.includes("host?: { sequenceFrames?: Map<string, unknown> }")
 );
 
 /* ---- E. the Metro integration pieces ---------------------------- */

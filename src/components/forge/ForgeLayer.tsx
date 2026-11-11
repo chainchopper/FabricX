@@ -85,6 +85,24 @@
  * live, the breathe orbit settles onto the authored view
  * (a board being played on does not drift) and resumes,
  * rebased, when the game ends.
+ *
+ * Slice E (Photo into the scene): the dock also offers the
+ * user's own photo, two ways — as a PRINT (the photo as a
+ * material map on a standing slab, through the engine's
+ * sequence-map route with this layer as the decoding host:
+ * the scene is created with forgePhoto's registry as its
+ * host sequenceFrames map, and a picked photo is decoded
+ * in-page, registered under the SHA-256 of its pixels, and
+ * summoned by ops through the performer) and as a MOSAIC
+ * (the photo downsampled in-page and rebuilt from colored
+ * blocks in one ops batch). Both are ordinary scene content
+ * with photo-* ids: the ghost's tools can move them, the
+ * scene sense sees them (as shapes — the ghost knows a print
+ * stands there, not what the photo shows), and Clear photos
+ * removes exactly them. The photo controls hide while a
+ * checkers game owns the scene. Web-only, like the Forge
+ * itself: the picker is the platform file input, and on the
+ * labeled fallback panel no photo is claimed.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
@@ -95,8 +113,22 @@ import {
   registerForgeScene,
   subscribeForgeScene,
 } from "./forgeSceneStore";
-import { performForgeDecision } from "./forgePerformer";
+import {
+  performForgeDecision,
+  performForgeOps,
+} from "./forgePerformer";
 import { buildForgeSceneSummary } from "./forgeSceneSummary";
+import {
+  buildForgeClearPhotoOps,
+  buildForgeMosaicOps,
+  buildForgePrintOps,
+  forgePhotoCreations,
+  getForgePhotoSequenceFrames,
+  registerForgePhotoImage,
+  FORGE_PHOTO_SHEET_GEOMETRY_ID,
+  FORGE_PHOTO_TEXTURE_MAX_EDGE,
+  type ForgePhotoImage,
+} from "./forgePhoto";
 import {
   CheckersGame,
   type CheckersGameSnapshot,
@@ -196,6 +228,207 @@ export default function ForgeLayer({
   const pickerLoadingRef = useRef(false);
   /** The eye the frame loop last rendered from (picking's truth). */
   const lastEyeRef = useRef<number[] | null>(null);
+
+  // ---- Photo into the scene (Slice E) ---------------------------
+  // The dock's photo controls: counts of the photo creations
+  // standing in the scene (read from the scene itself, on the
+  // sense heartbeat below — the scene is the truth, so a print
+  // the ghost banished stops counting), a busy flag while a
+  // picked file decodes, and the last flow's outcome in
+  // product language.
+  const [photoSnap, setPhotoSnap] = useState<{
+    prints: number;
+    mosaics: number;
+    note: string | null;
+  }>({ prints: 0, mosaics: 0, note: null });
+  const photoBusyRef = useRef(false);
+
+  const refreshPhotoCounts = useCallback(() => {
+    const handle = getForgeSceneHandle();
+    if (!handle) return;
+    try {
+      const creations = forgePhotoCreations(handle.scene.exportRecipe());
+      setPhotoSnap((prev) =>
+        prev.prints === creations.prints.length &&
+        prev.mosaics === creations.mosaics.length
+          ? prev
+          : {
+              ...prev,
+              prints: creations.prints.length,
+              mosaics: creations.mosaics.length,
+            }
+      );
+    } catch {
+      // An unreadable scene keeps the last honest counts.
+    }
+  }, []);
+
+  /**
+   * Decode a picked photo file in-page: bitmap decode, draw
+   * at the texture cap, read the pixels back as the
+   * ImageData-shaped record the engine's texture upload
+   * consumes. Nothing leaves the device.
+   */
+  const decodePickedPhoto = useCallback(
+    async (file: File): Promise<ForgePhotoImage> => {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const scale = Math.min(
+          1,
+          FORGE_PHOTO_TEXTURE_MAX_EDGE /
+            Math.max(bitmap.width, bitmap.height)
+        );
+        const w = Math.max(1, Math.round(bitmap.width * scale));
+        const h = Math.max(1, Math.round(bitmap.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("this browser gave no 2d canvas");
+        ctx.drawImage(bitmap, 0, 0, w, h);
+        const img = ctx.getImageData(0, 0, w, h);
+        return { width: img.width, height: img.height, data: img.data };
+      } finally {
+        bitmap.close();
+      }
+    },
+    []
+  );
+
+  /** The catalog id of a decoded photo: the SHA-256 of its pixels. */
+  const photoAssetId = useCallback(
+    async (image: ForgePhotoImage): Promise<string> => {
+      const bytes = new Uint8Array(image.data);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      return [...new Uint8Array(digest)]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    },
+    []
+  );
+
+  /**
+   * One photo flow, from picked file to standing scene
+   * content. Print: register the decode under its content id,
+   * load the engine's assets module for THIS act (the Slice A
+   * discipline — on-demand code loads lazily, for the act
+   * that needs it), then perform the print ops. Mosaic: pure
+   * core ops, no module. Either way the ops travel the
+   * performer's revision-checked path, and the outcome is
+   * reported in the dock, never silently swallowed.
+   */
+  const runPhotoFlow = useCallback(
+    async (kind: "print" | "mosaic", file: File) => {
+      const handle = getForgeSceneHandle();
+      if (!handle || photoBusyRef.current) return;
+      photoBusyRef.current = true;
+      try {
+        const image = await decodePickedPhoto(file);
+        let outcome;
+        if (kind === "print") {
+          const assetId = await photoAssetId(image);
+          registerForgePhotoImage(assetId, image);
+          const build = buildForgePrintOps(handle.scene, {
+            assetId,
+            width: image.width,
+            height: image.height,
+          });
+          const agentScene = await import("67js/addons/agent-scene");
+          const mapped = build.ops.find(
+            (op) =>
+              typeof op === "object" &&
+              op !== null &&
+              (op as { type?: string }).type === "add-material" &&
+              (op as { material?: { map?: unknown } }).material?.map
+          ) as { material: unknown } | undefined;
+          const sheet = build.ops.find(
+            (op) =>
+              typeof op === "object" &&
+              op !== null &&
+              (op as { type?: string }).type === "add-geometry" &&
+              (op as { geometry?: { id?: string } }).geometry?.id ===
+                FORGE_PHOTO_SHEET_GEOMETRY_ID
+          ) as { geometry: unknown } | undefined;
+          if (mapped) {
+            await agentScene.loadAgentSceneModules({
+              materials: [mapped.material],
+              ...(sheet ? { geometries: [sheet.geometry] } : {}),
+            });
+          }
+          // The renderer's part sync refuses textured parts
+          // until its replace-textured-parts addon is in: the
+          // engine's own error names the import. Loading it
+          // here — for the act that first stands a textured
+          // part in the scene — extends every later sync too
+          // (a ghost move or banish re-hands the print through
+          // the same rule).
+          await import("67js/addons/replace-textured-parts");
+          outcome = performForgeOps(build.ops, handle, "photo print");
+        } else {
+          const build = buildForgeMosaicOps(handle.scene, { image });
+          outcome = performForgeOps(build.ops, handle, "photo mosaic");
+        }
+        setPhotoSnap((prev) => ({
+          ...prev,
+          note:
+            outcome.kind === "performed"
+              ? kind === "print"
+                ? "Your photo is standing in the scene."
+                : "Your photo, rebuilt in blocks."
+              : `That photo didn't land — ${
+                  "reason" in outcome ? outcome.reason : outcome.kind
+                }`,
+        }));
+      } catch (err) {
+        setPhotoSnap((prev) => ({
+          ...prev,
+          note: `That photo didn't land — ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        }));
+      } finally {
+        photoBusyRef.current = false;
+        refreshPhotoCounts();
+      }
+    },
+    [decodePickedPhoto, photoAssetId, refreshPhotoCounts]
+  );
+
+  /** The platform file picker, opened from the dock. */
+  const pickPhoto = useCallback(
+    (kind: "print" | "mosaic") => {
+      if (photoBusyRef.current) return;
+      if (!getForgeSceneHandle()) return;
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (file) void runPhotoFlow(kind, file);
+      };
+      input.click();
+    },
+    [runPhotoFlow]
+  );
+
+  /** Clear photos: remove exactly the photo creations, one batch. */
+  const clearPhotos = useCallback(() => {
+    const handle = getForgeSceneHandle();
+    if (!handle || photoBusyRef.current) return;
+    const ops = buildForgeClearPhotoOps(handle.scene);
+    if (!ops) return;
+    const outcome = performForgeOps(ops, handle, "clear photos");
+    setPhotoSnap((prev) => ({
+      ...prev,
+      note:
+        outcome.kind === "performed"
+          ? "Photos cleared."
+          : `Clearing didn't land — ${
+              "reason" in outcome ? outcome.reason : outcome.kind
+            }`,
+    }));
+    refreshPhotoCounts();
+  }, [refreshPhotoCounts]);
 
   // ---- Ghost host (Slice C — Forge presence) ------------------
   // The same host the fluid runs (useGhostPeer), mounted with
@@ -316,6 +549,9 @@ export default function ForgeLayer({
       // gate still decides what re-arms deliberation, so an
       // unchanged position never spams it.
       gameRef.current?.feedNow();
+      // Slice E: the photo counts ride the same heartbeat —
+      // the scene is their only truth.
+      refreshPhotoCounts();
     };
     feed();
     const unsub = subscribeForgeScene(feed);
@@ -489,7 +725,13 @@ export default function ForgeLayer({
         ]);
         if (disposed) return;
 
-        const scene = buildForgeStarterScene(agentScene.createAgentScene);
+        // Slice E: the scene is created with the photo
+        // registry as its host context (sequenceFrames) — the
+        // starter names no catalog image, so the map rides
+        // along empty until a print registers one.
+        const scene = buildForgeStarterScene(agentScene.createAgentScene, {
+          sequenceFrames: getForgePhotoSequenceFrames(),
+        });
         renderer = new Renderer67(canvas, scene.parts, {
           ground: false,
           hdr: true,
@@ -743,6 +985,72 @@ export default function ForgeLayer({
             >
               Checkers — two players, one screen
             </button>
+            {/* Slice E: the photo controls — same dock, this
+                fabric's own chrome. They live only in the
+                no-game branch: while a game is seated it owns
+                the scene, and no photo lands on its board. */}
+            <button
+              type="button"
+              onClick={() => pickPhoto("print")}
+              style={{
+                color: "#e8ecf4",
+                background: "rgba(11, 16, 32, 0.82)",
+                border: "1px solid rgba(232, 236, 244, 0.18)",
+                borderRadius: 10,
+                padding: "8px 12px",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              Add a photo — as a print
+            </button>
+            <button
+              type="button"
+              onClick={() => pickPhoto("mosaic")}
+              style={{
+                color: "#e8ecf4",
+                background: "rgba(11, 16, 32, 0.82)",
+                border: "1px solid rgba(232, 236, 244, 0.18)",
+                borderRadius: 10,
+                padding: "8px 12px",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              Add a photo — as blocks
+            </button>
+            {photoSnap.prints + photoSnap.mosaics > 0 ? (
+              <button
+                type="button"
+                onClick={clearPhotos}
+                style={{
+                  color: "#e8ecf4",
+                  background: "rgba(11, 16, 32, 0.82)",
+                  border: "1px solid rgba(232, 236, 244, 0.18)",
+                  borderRadius: 10,
+                  padding: "8px 12px",
+                  fontSize: 14,
+                  cursor: "pointer",
+                }}
+              >
+                Clear photos ({photoSnap.prints + photoSnap.mosaics})
+              </button>
+            ) : null}
+            {photoSnap.note ? (
+              <div
+                style={{
+                  color: "#9aa5b8",
+                  background: "rgba(11, 16, 32, 0.82)",
+                  border: "1px solid rgba(232, 236, 244, 0.12)",
+                  borderRadius: 10,
+                  padding: "6px 10px",
+                  fontSize: 12.5,
+                  maxWidth: 300,
+                }}
+              >
+                {photoSnap.note}
+              </div>
+            ) : null}
           </>
         )}
       </div>
