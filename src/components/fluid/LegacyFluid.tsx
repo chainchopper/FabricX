@@ -54,6 +54,7 @@ import type { GhostFabricContext } from "../../ghost/GhostBrain";
 import { isGhostNoteLayer } from "../../ghost/GhostBrain";
 import { useGhostSfx, hueFromColor } from "../../ghost/useGhostSfx";
 import { publishGhostMusicPhrase } from "../../ghost/ghostMusicStore";
+import { performForgeDecision } from "../forge/forgePerformer";
 import { fetchFirstMusicPackSeed } from "../../ghost/midiPhrase";
 import { vibrate } from "../../sensory/vibration";
 import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
@@ -569,6 +570,17 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
       // Slice 70: a chorale beacon frame, published on change
       // by the ghost's machine — put it on the session wire.
       sendChorale(frame);
+    },
+    onForgeDecision: (decision) => {
+      // Slice B: a validated forge decision — perform it
+      // against the live Forge scene through the seam. The
+      // ghost hosted HERE (on the fluid) can never be gated
+      // INTO a forge act — the manifest refuses forge intents
+      // on every non-Forge fabric at the validator and the
+      // router — so this sink fires only for a peer whose
+      // fabric context is the Forge; the performer itself
+      // no-ops honestly when no Forge scene is mounted.
+      performForgeDecision(decision);
     },
     onSfx: (kind, sfxCtx) => {
       // Own ghost: sounds are pitched from its signature hue.

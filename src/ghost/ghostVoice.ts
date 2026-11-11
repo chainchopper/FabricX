@@ -585,4 +585,14 @@ export const GHOST_INTENT_FAMILIES: Record<string, GhostVoiceFamily | null> = {
   // phrase itself, sounded by the layer's music renderer —
   // there is no family cue behind it either.
   "play-music": null,
+  // Slice B: a forge decision's act is the scene change itself
+  // — a shape appearing, a light moving — performed on the
+  // Forge canvas, not voiced; there is no family cue behind it.
+  "forge-summon": null,
+  "forge-banish": null,
+  "forge-move": null,
+  "forge-recolor": null,
+  "forge-reshape": null,
+  "forge-relight": null,
+  "forge-camera": null,
 };
