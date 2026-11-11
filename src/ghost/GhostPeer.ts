@@ -100,6 +100,7 @@ import type { GhostSfxContext, GhostSfxKind } from "./useGhostSfx";
 import type {
   GhostDecision,
   GhostFabricContext,
+  GhostForgeGameContext,
   GhostForgeSceneContext,
   GhostGenxContext,
   GhostGestureReading,
@@ -124,6 +125,8 @@ import {
   sanitizeFabricContext,
   sanitizeForgeSceneContext,
   forgeSceneSignature,
+  sanitizeForgeGameContext,
+  forgeGameSignature,
   sanitizeGenxContext,
   sanitizeGestureReadings,
   sanitizeUtteranceContext,
@@ -959,6 +962,22 @@ export class GhostPeer {
    */
   private forgeSceneDigest: {
     ctx: GhostForgeSceneContext;
+    signature: string;
+    at: number;
+  } | null = null;
+  /**
+   * Slice D (Checkers on the Forge): the latest checkers game
+   * digest the game referee fed, sanitized, with its change
+   * signature — the dirty gate's key, the forgeSceneDigest
+   * discipline: a changed position (or a changed turn) is a
+   * changed room and re-arms deliberation; an identical feed
+   * never does. The game has a definite end, so an explicit
+   * null feed CLEARS the digest (unlike the scene sense, which
+   * only ever goes stale): a finished game must never be
+   * deliberated about.
+   */
+  private forgeGameDigest: {
+    ctx: GhostForgeGameContext;
     signature: string;
     at: number;
   } | null = null;
@@ -2178,6 +2197,50 @@ export class GhostPeer {
   }
 
   /**
+   * A checkers game is live on the Forge board (Slice D). The
+   * game referee (checkersGame) feeds the position after every
+   * move — the side to move, the pieces, and on THIS ghost's
+   * turn the enumerated legal moves it may pick from. This is
+   * a SENSE, like noteForgeScene: nothing is emitted, nothing
+   * is spent. The feed is sanitized on entry (the referee is
+   * this app's own code, but sense data is sense data — it is
+   * clamped like any other) and stored with its signature.
+   *
+   * Dirty discipline: a CHANGED signature marks deliberation
+   * dirty — a new position, above all the turn arriving, is a
+   * meaningful change in the room. An unchanged feed never
+   * marks. Completed-move headlines journal in the dataset's
+   * event style (the noteGenx transition discipline): a
+   * capture, a crowning, a decided game — steady states
+   * journal nothing. An explicit null feed ends the game and
+   * clears the digest: the sense must not outlive the board.
+   */
+  noteForgeGame(raw: unknown): void {
+    if (this.destroyed) return;
+    if (raw === null) {
+      this.forgeGameDigest = null;
+      return;
+    }
+    const clean = sanitizeForgeGameContext(raw);
+    if (!clean) return;
+    const now = Date.now();
+    const prev = this.forgeGameDigest?.ctx ?? null;
+    const signature = forgeGameSignature(clean);
+    const changed = this.forgeGameDigest?.signature !== signature;
+    this.forgeGameDigest = { ctx: clean, signature, at: now };
+    if (prev && clean.move_number > prev.move_number) {
+      if (clean.last_event === "capture") {
+        this.journal("a capture landed on the checkers board", now);
+      } else if (clean.last_event === "kinging") {
+        this.journal("a piece was crowned on the checkers board", now);
+      } else if (clean.last_event === "win") {
+        this.journal("the checkers game on the Forge is decided", now);
+      }
+    }
+    if (changed) this.markDeliberationDirty();
+  }
+
+  /**
    * A human played a note at the piano (Slice 31). LegacyFluid
    * forwards bus note-ons here while the Piano layer is front —
    * local keys and remote peers' notes alike (both ride the
@@ -3313,6 +3376,14 @@ export class GhostPeer {
       this.forgeSceneDigest && now - this.forgeSceneDigest.at < 45_000
         ? this.forgeSceneDigest.ctx
         : null;
+    // Slice D: the checkers game digest, while fresh (the same
+    // 45s window). The referee feeds after every move, so a
+    // live game is always fresh; a game whose feed stopped is
+    // omitted rather than deliberated about from memory.
+    const forgeGame: GhostForgeGameContext | null =
+      this.forgeGameDigest && now - this.forgeGameDigest.at < 45_000
+        ? this.forgeGameDigest.ctx
+        : null;
     // Slice 68: the standing Generative-music request rides
     // every snapshot while it stands; the due mark is one-shot
     // (consumed by this snapshot, like the genx event flags) —
@@ -3388,6 +3459,9 @@ export class GhostPeer {
       // above); the key is omitted entirely when the sense is
       // quiet or stale.
       ...(forgeScene ? { forge_scene: forgeScene } : {}),
+      // Slice D: the live checkers game (see above); the key
+      // is omitted entirely when no game is being fed.
+      ...(forgeGame ? { forge_game: forgeGame } : {}),
     };
   }
 

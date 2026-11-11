@@ -138,3 +138,57 @@ declare module "67js/addons/agent-scene" {
     [key: string]: unknown;
   };
 }
+
+declare module "67js/addons/scene-query" {
+  import type { Part67 } from "67js";
+
+  /**
+   * Slice D: the engine's own scene raycast (docs/scene-query.md).
+   * createSceneQuery(parts) builds a BVH-backed query over the
+   * parts' geometry + world matrices; raycast returns the
+   * NEAREST hit or null, `id` being the part's id (for an
+   * agent-scene, the node id). Parts the query cannot index are
+   * listed in `skipped` and never hit. Verified against the
+   * real module by checkers-check (agent-scene parts index
+   * cleanly; a ray through a piece returns the piece's node id).
+   */
+  export interface ForgeSceneQueryHit {
+    point: number[];
+    distance: number;
+    normal: number[];
+    id: string;
+    partIndex: number;
+    material: unknown;
+    triangle: number;
+  }
+
+  export interface ForgeSceneQuery {
+    raycast(ray: {
+      origin: number[];
+      direction: number[];
+      maxDistance?: number;
+    }): ForgeSceneQueryHit | null;
+    skipped: unknown[];
+    dispose(): void;
+  }
+
+  export interface ForgeSceneQueryModule {
+    createSceneQuery(
+      parts: Part67[],
+      options?: {
+        maxTriangles?: number;
+        maxVertices?: number;
+        memoryBudgetMiB?: number;
+      }
+    ): ForgeSceneQuery;
+  }
+
+  export function createSceneQuery(
+    parts: Part67[],
+    options?: {
+      maxTriangles?: number;
+      maxVertices?: number;
+      memoryBudgetMiB?: number;
+    }
+  ): ForgeSceneQuery;
+}
