@@ -989,6 +989,18 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     peerRef.current?.noteForgeScene(summary);
   }, []);
 
+  /**
+   * Slice D (Checkers on the Forge): the checkers referee's
+   * game digest moved (the game feeds it after every move
+   * while a game is live on the Forge — a sense). Unknown-
+   * shaped at this seam on purpose: the peer sanitizes it into
+   * a GhostForgeGameContext. A null feed ends the game and
+   * clears the sense.
+   */
+  const noteForgeGame = useCallback((game: unknown): void => {
+    peerRef.current?.noteForgeGame(game);
+  }, []);
+
   /** Slice 68: the Generative-music standing request (host-fed). */
   const setMusicStanding = useCallback(
     (
@@ -1089,6 +1101,7 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
     noteGesture,
     noteGenx,
     noteForgeScene,
+    noteForgeGame,
     setMusicStanding,
     setMusicPackNotes,
     setChoraleWilling,

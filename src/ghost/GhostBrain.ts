@@ -939,6 +939,15 @@ export interface GhostScenario {
    * byte-identical.
    */
   forge_scene?: GhostForgeSceneContext;
+  /**
+   * Slice D (Checkers on the Forge): the live checkers game
+   * (see GhostForgeGameContext) — the position, the side to
+   * move, and, on the ghost's turn, the ENUMERATED legal moves
+   * it may choose among. Absent whenever no game is live on
+   * the Forge, so every legacy scenario and the whole v1
+   * dataset stay byte-identical.
+   */
+  forge_game?: GhostForgeGameContext;
 }
 
 /** Who said the utterance, as far as this client honestly knows. */
@@ -1164,6 +1173,325 @@ export function forgeSceneSignature(ctx: GhostForgeSceneContext): string {
     `${ctx.revision}|` +
     ctx.nodes.map((n) => `${n.id}:${n.geometry}:${n.color ?? "-"}`).join(",")
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* The checkers game sense (Slice D, "Checkers on the Forge")          */
+/* ------------------------------------------------------------------ */
+/*
+ * A game of checkers is live on the Forge board, and the
+ * ghostie is one of its players. The sense is the game's truth
+ * as the referee (checkersGame, over the pure checkersEngine)
+ * states it: the position, the side to move, and — only on the
+ * ghost's turn — the legal moves ENUMERATED by the rules
+ * engine, each carrying its destination as a scene position
+ * (the forge-move payload) and the facts an honest chooser
+ * needs (how much it captures, whether it crowns, whether the
+ * moved piece hangs). The ghost PICKS a move; it never invents
+ * one — the referee refuses anything not enumerated, exactly
+ * as the manifest refuses tools a fabric doesn't offer.
+ *
+ * The on-device floor answers a game turn through the
+ * heuristic evaluator below (checkersDecisionFor): capture
+ * value, crowning, advancement, and the hanging flag, weighted
+ * by temperament — a decision-table tier in this file's own
+ * tradition (draw/note/genx/music overlays), deterministic in
+ * the position + the ghost's identity, so the same ghost in
+ * the same position makes the same choice. The model tiers
+ * get the same facts as prose (describeForgeGameForSpark).
+ * The trained ghost-v5 model has never seen a game either —
+ * until a dataset revision teaches it, the game is carried by
+ * the in-browser brain + this floor, and nothing claims more.
+ */
+
+/** The two checkers sides (the Forge palette's piece colors). */
+export type GhostForgeGameSide = "coral" | "teal";
+
+/** One piece on the board, as the game sense reports it. */
+export interface GhostForgeGamePiece {
+  /** The scene node id of the piece (checkers-pc-<piece id>). */
+  node: string;
+  side: GhostForgeGameSide;
+  king: boolean;
+}
+
+/** One enumerated legal move on the ghost's turn. */
+export interface GhostForgeGameMoveOption {
+  /** The scene node id of the piece to move. */
+  node: string;
+  /** The destination as a scene position (the forge-move payload). */
+  position: [number, number, number];
+  /** Pieces this move captures, chain total (0 for a quiet move). */
+  captures: number;
+  /** True when any captured piece is a king. */
+  captures_king: boolean;
+  /** True when this move crowns the piece. */
+  kinging: boolean;
+  /** True when the moved piece can be captured right back. */
+  exposes: boolean;
+  /** Rows advanced toward the crowning rank (men); 0 for kings. */
+  advance: number;
+}
+
+/** The live checkers game a scenario may carry. */
+export interface GhostForgeGameContext {
+  /** The side the GHOST plays in this game. */
+  ghost_side: GhostForgeGameSide;
+  /** The side to move. */
+  to_move: GhostForgeGameSide;
+  /** True when the side to move is the ghost's. */
+  ghost_to_move: boolean;
+  /** Half-moves played so far. */
+  move_number: number;
+  /** The position, capped at FORGE_GAME_MAX_PIECES. */
+  pieces: GhostForgeGamePiece[];
+  /** The ghost's enumerated legal moves (its turn only). */
+  legal_moves: GhostForgeGameMoveOption[];
+  /** The last completed move's headline event, if any. */
+  last_event: "capture" | "kinging" | "win" | null;
+  /** A one-shot referee note (e.g. a refused illegal move). */
+  referee_note: string | null;
+}
+
+export const FORGE_GAME_MAX_PIECES = 24;
+export const FORGE_GAME_MAX_MOVES = 48;
+
+function sanitizeForgeGameSide(raw: unknown): GhostForgeGameSide | null {
+  return raw === "coral" || raw === "teal" ? raw : null;
+}
+
+function sanitizeForgeGamePosition(
+  raw: unknown
+): [number, number, number] | null {
+  if (!Array.isArray(raw) || raw.length !== 3) return null;
+  const out: number[] = [];
+  for (const v of raw) {
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    out.push(Math.max(-12, Math.min(12, v)));
+  }
+  return [out[0], out[1], out[2]];
+}
+
+/**
+ * Clamp an unknown value to a GhostForgeGameContext, or null
+ * when it is not one — the sense discipline of its siblings:
+ * garbled game data must never reach the brain as fact. Sides
+ * clamp to the two real sides; node ids pass the forge
+ * node-id law or the entry drops; positions clamp to the
+ * forge position limit; lists cap at the sense's bounds.
+ * A context whose ghost_side/to_move don't parse is not a
+ * game at all and reads as null.
+ */
+export function sanitizeForgeGameContext(
+  raw: unknown
+): GhostForgeGameContext | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const ghostSide = sanitizeForgeGameSide(rec.ghost_side);
+  const toMove = sanitizeForgeGameSide(rec.to_move);
+  if (!ghostSide || !toMove) return null;
+  const pieces: GhostForgeGamePiece[] = [];
+  for (const entry of Array.isArray(rec.pieces) ? rec.pieces : []) {
+    if (pieces.length >= FORGE_GAME_MAX_PIECES) break;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const p = entry as Record<string, unknown>;
+    const node = sanitizeForgeNodeId(p.node);
+    const side = sanitizeForgeGameSide(p.side);
+    if (!node || !side) continue;
+    pieces.push({ node, side, king: p.king === true });
+  }
+  const legalMoves: GhostForgeGameMoveOption[] = [];
+  for (const entry of Array.isArray(rec.legal_moves) ? rec.legal_moves : []) {
+    if (legalMoves.length >= FORGE_GAME_MAX_MOVES) break;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const m = entry as Record<string, unknown>;
+    const node = sanitizeForgeNodeId(m.node);
+    const position = sanitizeForgeGamePosition(m.position);
+    if (!node || !position) continue;
+    legalMoves.push({
+      node,
+      position,
+      captures:
+        typeof m.captures === "number" && Number.isFinite(m.captures)
+          ? Math.max(0, Math.floor(m.captures))
+          : 0,
+      captures_king: m.captures_king === true,
+      kinging: m.kinging === true,
+      exposes: m.exposes === true,
+      advance:
+        typeof m.advance === "number" && Number.isFinite(m.advance)
+          ? Math.max(0, Math.min(7, Math.floor(m.advance)))
+          : 0,
+    });
+  }
+  const lastEvent =
+    rec.last_event === "capture" ||
+    rec.last_event === "kinging" ||
+    rec.last_event === "win"
+      ? rec.last_event
+      : null;
+  return {
+    ghost_side: ghostSide,
+    to_move: toMove,
+    ghost_to_move: rec.ghost_to_move === true && toMove === ghostSide,
+    move_number:
+      typeof rec.move_number === "number" && Number.isFinite(rec.move_number)
+        ? Math.max(0, Math.floor(rec.move_number))
+        : 0,
+    pieces,
+    legal_moves: legalMoves,
+    last_event: lastEvent,
+    referee_note:
+      typeof rec.referee_note === "string" && rec.referee_note.length > 0
+        ? rec.referee_note.slice(0, 200)
+        : null,
+  };
+}
+
+/**
+ * The game sense's change signature — the peer's dirty gate
+ * keys on it: a changed position (or a changed turn) is a
+ * changed room; an identical re-feed never re-arms.
+ */
+export function forgeGameSignature(ctx: GhostForgeGameContext): string {
+  return (
+    `${ctx.move_number}|${ctx.to_move}|${ctx.ghost_to_move ? 1 : 0}|` +
+    ctx.pieces.map((p) => `${p.node}:${p.king ? "K" : "m"}`).join(",") +
+    "|" +
+    ctx.legal_moves
+      .map((m) => `${m.node}>${m.position.map((v) => v.toFixed(2)).join("/")}`)
+      .join(",") +
+    `|${ctx.last_event ?? "-"}|${ctx.referee_note ?? "-"}`
+  );
+}
+
+/**
+ * The on-device floor's answer to a game turn (Slice D): a
+ * heuristic evaluator over the ENUMERATED legal moves — the
+ * distilled decision-table tier playing checkers, in the
+ * overlay tradition of this file. Scores capture value (a
+ * king is worth more), crowning, advancement toward the crown
+ * rank, and the hanging flag; temperament tilts the weights
+ * (playful/sassy hunt, curious crowns, affectionate guards its
+ * pieces, sleepy takes the quiet road); ties break by a
+ * rotation seeded from the ghost's own hue, so the choice is
+ * deterministic in the position + the ghost — the same ghost
+ * in the same position plays the same move, and a different
+ * ghost may differ. Returns a validated forge-move decision,
+ * or null when it is not the ghost's turn (the sense is then
+ * just a room it is watching).
+ */
+export function checkersDecisionFor(
+  scenario: GhostScenario
+): { decision: GhostDecision; ruleId: string } | null {
+  const game = scenario.forge_game;
+  if (!game || !game.ghost_to_move) return null;
+  if (game.legal_moves.length === 0) return null;
+  const weights = {
+    capture: 100,
+    captureKing: 50,
+    kinging: 80,
+    advance: 6,
+    exposes: -55,
+  };
+  switch (scenario.temperament) {
+    case "playful":
+    case "sassy":
+      weights.capture *= 1.5;
+      weights.advance *= 1.25;
+      break;
+    case "curious":
+      weights.kinging *= 1.5;
+      weights.advance *= 1.2;
+      break;
+    case "affectionate":
+      weights.exposes *= 1.6;
+      break;
+    case "sleepy":
+      weights.capture *= 0.7;
+      weights.exposes *= 1.4;
+      weights.kinging *= 0.8;
+      break;
+    default:
+      break;
+  }
+  const scored = game.legal_moves.map((m) => ({
+    move: m,
+    score:
+      m.captures * weights.capture +
+      (m.captures_king ? weights.captureKing : 0) +
+      (m.kinging ? weights.kinging : 0) +
+      m.advance * weights.advance +
+      (m.exposes ? weights.exposes : 0),
+  }));
+  const best = Math.max(...scored.map((s) => s.score));
+  const tied = scored.filter((s) => s.score >= best - 3);
+  const hue = Math.round(scenario.ghost_identity?.hue ?? 0);
+  const pick = tied[Math.abs(hue) % tied.length].move;
+  const decision = validateGhostDecision(
+    {
+      mood_shift: null,
+      intent: "forge-move",
+      pattern_id: null,
+      draw_shape: null,
+      note_name: null,
+      sound_spec: null,
+      music_phrase: null,
+      forge_spec: { node: pick.node, position: [...pick.position] },
+      intensity: 0.55,
+      linger_s: 3,
+    },
+    scenario
+  );
+  if (!decision) return null;
+  return { decision, ruleId: "checkers-move" };
+}
+
+/**
+ * The game note for the model tiers (Slice D): the position
+ * and — on the ghost's turn — the enumerated legal moves, with
+ * the referee law stated plainly. Rides buildSparkMessages
+ * only when the scenario carries a game, so deliberations
+ * anywhere else are byte-unchanged.
+ */
+export function describeForgeGameForSpark(
+  scenario: GhostScenario
+): string | null {
+  const g = scenario.forge_game;
+  if (!g) return null;
+  const mine = g.pieces.filter((p) => p.side === g.ghost_side).length;
+  const theirs = g.pieces.length - mine;
+  let text =
+    `A checkers game is live on the Forge board. You play the ${g.ghost_side} pieces ` +
+    `(${mine} of yours on the board, ${theirs} opposing), move ${g.move_number} played, ` +
+    `${g.to_move} to move.`;
+  if (g.last_event === "capture") {
+    text += " The last move captured a piece.";
+  } else if (g.last_event === "kinging") {
+    text += " The last move crowned a king.";
+  } else if (g.last_event === "win") {
+    text += " The game has been decided.";
+  }
+  if (g.referee_note) {
+    text += ` Referee: ${g.referee_note}`;
+  }
+  if (g.ghost_to_move) {
+    const list = g.legal_moves
+      .map(
+        (m) =>
+          `${m.node} -> [${m.position.join(", ")}]` +
+          (m.captures > 0 ? ` (captures ${m.captures}${m.captures_king ? ", including a king" : ""})` : "") +
+          (m.kinging ? " (crowns a king)" : "") +
+          (m.exposes ? " (the piece can be captured back)" : "")
+      )
+      .join("; ");
+    text +=
+      ` It is YOUR turn. Your legal moves are exactly these — answer ` +
+      `forge-move with one listed node id and its position, nothing else is legal: ${list}.`;
+  } else {
+    text += " It is not your turn — watch the board; do not move.";
+  }
+  return text;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2640,6 +2968,16 @@ export function decideOnDevice(scenario: GhostScenario): {
     // The overlay must never take the table down with it.
   }
   try {
+    // Slice D: a checkers turn on the Forge — the most
+    // time-bound stimulus after speech: the game waits on this
+    // move, and the overlay answers only from the enumerated
+    // legal moves the referee offered.
+    const checkers = checkersDecisionFor(scenario);
+    if (checkers) return checkers;
+  } catch {
+    // The overlay must never take the table down with it.
+  }
+  try {
     const note = noteDecisionFor(scenario);
     if (note) return note;
   } catch {
@@ -3703,7 +4041,7 @@ const SPARK_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost that lives on a shared touch canvas. The ghost never speaks; it expresses itself only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Given a scenario snapshot, reply with ONLY one JSON decision object — no prose, no code fences:",
   '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note" | "compose" | "forge-summon" | "forge-banish" | "forge-move" | "forge-recolor" | "forge-reshape" | "forge-relight" | "forge-camera", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "sound_spec": null | {"notes": [{"wave": "sine" | "square" | "triangle" | "sawtooth" | "noise", "ratio": 0.25-3.5, "ratio_end": 0.25-3.5, "delay_ms": 0-4000, "dur_ms": 30-1200, "gain": 0.05-1, "env": "soft" | "pluck" | "swell"}]}, "forge_spec": null | {"geometry": "box" | "sphere" | "cylinder" | "torus", "color": "#rrggbb", "node": "a node id", "position": [0, 0, 0], "preset": "studio" | "warm" | "dusk" | "cool" | "bright", "direction": "orbit-left" | "orbit-right" | "rise" | "sink" | "closer" | "wider"}, "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. sound_spec is only for intent \"compose\": the ghost COMPOSES a short sound from raw waveforms — 1 to 8 notes, each a waveform (sine, square, triangle, sawtooth, noise) at a pitch ratio over its own base voice, with an optional ratio_end sweep (the pitch contour), an onset delay, a duration, a gain, and an envelope. Compose when someone asks for sound (\"make some sounds\") or the moment honestly calls for a sound of its own — and ONLY when the fabric note lists the sound-craft tool; a compose under a fabric that does not offer it is rejected outright. forge_spec is only for the FORGE intents, and only on the Forge fabric, where the ghost shapes a living 3D scene: forge-summon brings in a geometry (box, sphere, cylinder, torus) of a hex color at an optional position; forge-banish removes a node by its id; forge-move places a node at a position; forge-recolor paints a node a hex color; forge-reshape turns a node into another geometry kind; forge-relight moves the scene to a lighting preset (studio, warm, dusk, cool, bright); forge-camera drifts the view (orbit-left, orbit-right, rise, sink, closer, wider). Each forge intent fills ONLY its own fields of forge_spec, and ONLY when the fabric note lists that forge tool — a forge intent on any other fabric is rejected outright. When the scenario carries forge_scene, it lists the Forge scene's nodes as they stand right now (id, geometry kind, hex color) with the scene's revision — act only on node ids it names; a node id it does not name does not exist. Vary the waveforms inside a composition — one waveform repeated is a loop, not a composition. The fabric note also lists the TOOLS the loaded fabric offers the ghost: splat-play (the splat intents: mirror, sniff, startle, drift, play, nap, idle, heart), draw, play-note, sound-craft — only choose an intent whose tool the fabric note lists; an intent reaching for a tool this fabric does not offer is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
+  "pattern_id is only for intent \"play\". draw_shape is only for intent \"draw\": the ghost draws that shape at its body, a deliberate act of self-expression — choose it rarely, in quiet moments, and ONLY when the fabric note (when one is given) says drawing is allowed for the ghost on this fabric; a draw decision under a fabric that refuses it is rejected outright. note_name is only for intent \"play-note\": when a recent event says a human played a note at the piano, the ghost may answer with one note of its own — an echo, an octave up, a fifth up, in character — and ONLY when the fabric note says notes are allowed; a play-note under a fabric that refuses notes is rejected outright. sound_spec is only for intent \"compose\": the ghost COMPOSES a short sound from raw waveforms — 1 to 8 notes, each a waveform (sine, square, triangle, sawtooth, noise) at a pitch ratio over its own base voice, with an optional ratio_end sweep (the pitch contour), an onset delay, a duration, a gain, and an envelope. Compose when someone asks for sound (\"make some sounds\") or the moment honestly calls for a sound of its own — and ONLY when the fabric note lists the sound-craft tool; a compose under a fabric that does not offer it is rejected outright. forge_spec is only for the FORGE intents, and only on the Forge fabric, where the ghost shapes a living 3D scene: forge-summon brings in a geometry (box, sphere, cylinder, torus) of a hex color at an optional position; forge-banish removes a node by its id; forge-move places a node at a position; forge-recolor paints a node a hex color; forge-reshape turns a node into another geometry kind; forge-relight moves the scene to a lighting preset (studio, warm, dusk, cool, bright); forge-camera drifts the view (orbit-left, orbit-right, rise, sink, closer, wider). Each forge intent fills ONLY its own fields of forge_spec, and ONLY when the fabric note lists that forge tool — a forge intent on any other fabric is rejected outright. When the scenario carries forge_scene, it lists the Forge scene's nodes as they stand right now (id, geometry kind, hex color) with the scene's revision — act only on node ids it names; a node id it does not name does not exist. When the scenario carries forge_game, a checkers game is live on the Forge board and the ghost is a player: the sense names the ghost's side, the side to move, and — only on the ghost's turn — the legal moves the rules allow, each as a piece node id with its destination position. To play, answer forge-move with exactly one listed node id and its listed position; the game's referee refuses any move that is not listed, and on the other side's turn the ghost does not move pieces at all. Vary the waveforms inside a composition — one waveform repeated is a loop, not a composition. The fabric note also lists the TOOLS the loaded fabric offers the ghost: splat-play (the splat intents: mirror, sniff, startle, drift, play, nap, idle, heart), draw, play-note, sound-craft — only choose an intent whose tool the fabric note lists; an intent reaching for a tool this fabric does not offer is rejected outright. mood_shift is usually null — the ghost's mood mostly follows its own rhythm. Keep decisions gentle and in character for the temperament.",
 ].join("\n");
 
 /**
@@ -3810,6 +4148,15 @@ export function buildSparkMessages(
   if (forgeSceneNote) {
     messages.push({ role: "system", content: forgeSceneNote });
   }
+  // Checkers (Slice D): the live game on the Forge board —
+  // the position, whose turn it is, and on the ghost's turn
+  // the enumerated legal moves with the referee law. Only
+  // when the scenario carries a game; deliberations anywhere
+  // else are byte-unchanged.
+  const forgeGameNote = describeForgeGameForSpark(scenario);
+  if (forgeGameNote) {
+    messages.push({ role: "system", content: forgeGameNote });
+  }
   for (const ex of GHOST_BRAIN_FEW_SHOT) {
     messages.push({
       role: "user",
@@ -3895,7 +4242,7 @@ const DEVICE_GHOST_SYSTEM_PROMPT = [
   "You are the deliberation brain of a small ambient ghost on a shared touch canvas. The ghost never speaks; it acts only through gentle light splats, drifting, play patterns, and (rarely) a heart verb.",
   "Reply with ONLY one JSON object — no prose, no code fences:",
   '{"mood_shift": null | "curious" | "playful" | "sleepy" | "sassy" | "affectionate", "intent": "mirror" | "sniff" | "startle" | "drift" | "play" | "nap" | "idle" | "heart" | "draw" | "play-note" | "compose" | "forge-summon" | "forge-banish" | "forge-move" | "forge-recolor" | "forge-reshape" | "forge-relight" | "forge-camera", "pattern_id": null | "zigzag_chase" | "loop_chase" | "chase_loop" | "solo_zigzag" | "zoomie_loop", "draw_shape": null | "ring" | "spiral" | "line" | "arc" | "burst" | "heart", "note_name": null | "C4", "sound_spec": null | {"notes": [{"wave": "sine|square|triangle|sawtooth|noise", "ratio": 0.25-3.5, "delay_ms": 0-4000, "dur_ms": 30-1200, "gain": 0.05-1, "env": "soft|pluck|swell"}]}, "forge_spec": null | {"geometry": "box|sphere|cylinder|torus", "color": "#rrggbb", "node": "a node id", "position": [0, 0, 0], "preset": "studio|warm|dusk|cool|bright", "direction": "orbit-left|orbit-right|rise|sink|closer|wider"}, "intensity": 0.05-0.9, "linger_s": 0.5-30}',
-  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. sound_spec only for intent "compose": the ghost composes a short sound from raw waveforms (1-8 notes; vary the waveforms — one repeated is a loop, not a composition), when someone asks for sound or the moment calls for one, ONLY when the fabric note lists the sound-craft tool — a compose under a fabric without it is rejected. forge_spec is only for the forge intents, only on the Forge fabric: forge-summon (geometry + hex color, optional position), forge-banish (node id), forge-move (node id + position), forge-recolor (node id + hex color), forge-reshape (node id + geometry), forge-relight (preset: studio|warm|dusk|cool|bright), forge-camera (direction: orbit-left|orbit-right|rise|sink|closer|wider) — each fills ONLY its own fields, and ONLY when the fabric note lists that forge tool; a forge intent anywhere else is rejected. When the scenario carries forge_scene, it lists the nodes of the scene as they stand (id, geometry, color) with the revision — act only on node ids it names. The fabric note lists the tools this fabric offers (splat-play covers mirror, sniff, startle, drift, play, nap, idle, heart): only choose an intent whose tool is listed — any other intent is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
+  'pattern_id only for intent "play". draw_shape only for intent "draw", rarely, in quiet moments, and ONLY when the fabric note says drawing is allowed for the ghost — a draw under a refusing fabric is rejected. note_name only for intent "play-note": when a recent event says a human played a note, the ghost may answer with one note (echo, octave, or fifth, in character), ONLY when the fabric note says notes are allowed — a play-note under a refusing fabric is rejected. sound_spec only for intent "compose": the ghost composes a short sound from raw waveforms (1-8 notes; vary the waveforms — one repeated is a loop, not a composition), when someone asks for sound or the moment calls for one, ONLY when the fabric note lists the sound-craft tool — a compose under a fabric without it is rejected. forge_spec is only for the forge intents, only on the Forge fabric: forge-summon (geometry + hex color, optional position), forge-banish (node id), forge-move (node id + position), forge-recolor (node id + hex color), forge-reshape (node id + geometry), forge-relight (preset: studio|warm|dusk|cool|bright), forge-camera (direction: orbit-left|orbit-right|rise|sink|closer|wider) — each fills ONLY its own fields, and ONLY when the fabric note lists that forge tool; a forge intent anywhere else is rejected. When the scenario carries forge_scene, it lists the nodes of the scene as they stand (id, geometry, color) with the revision — act only on node ids it names. When the scenario carries forge_game, a checkers game is live on the board and the ghost is a player: on its turn the sense lists the legal moves (piece node id + destination position) — answer forge-move with exactly one listed move; the referee refuses anything not listed, and the ghost never moves pieces on the other side turn. The fabric note lists the tools this fabric offers (splat-play covers mirror, sniff, startle, drift, play, nap, idle, heart): only choose an intent whose tool is listed — any other intent is rejected. mood_shift is usually null. Stay gentle and in character for the temperament.',
 ].join("\n");
 
 /**

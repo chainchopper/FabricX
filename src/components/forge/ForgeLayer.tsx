@@ -71,6 +71,20 @@
  * LegacyFluid. On native (and on WebGL2 failure) the layer
  * is the labeled panel and the peer stays resting — no
  * presence is claimed for a canvas that isn't open.
+ *
+ * Slice D (Checkers on the Forge): a playable checkers game
+ * is seated on this canvas from the layer's own edge-docked
+ * chrome. The referee (checkersGame) owns the game: the board
+ * is scene content, human moves arrive as taps picked through
+ * the engine's own scene-query (forgePicking — the ray is
+ * unprojected through the eye the frame loop actually
+ * rendered), and the hosted peer plays the far side through
+ * its real decision path — the layer's forge sink forwards
+ * every performed decision to the referee, which completes
+ * legal moves and refuses illegal ones. While a game is
+ * live, the breathe orbit settles onto the authored view
+ * (a board being played on does not drift) and resumes,
+ * rebased, when the game ends.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
@@ -83,6 +97,16 @@ import {
 } from "./forgeSceneStore";
 import { performForgeDecision } from "./forgePerformer";
 import { buildForgeSceneSummary } from "./forgeSceneSummary";
+import {
+  CheckersGame,
+  type CheckersGameSnapshot,
+} from "./checkersGame";
+import { CHECKERS_COLORS, ghostHueToHex } from "./checkersScene";
+import {
+  createForgePicker,
+  rayFromCamera,
+  type ForgePicker,
+} from "./forgePicking";
 import { useExperience } from "../../contexts/ExperienceContext";
 import { useGhostPeer } from "../../ghost/useGhostPeer";
 import { useGhostSfx } from "../../ghost/useGhostSfx";
@@ -153,6 +177,25 @@ export default function ForgeLayer({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [failed, setFailed] = useState(false);
   const readyRef = useRef(false);
+
+  // ---- Checkers (Slice D) --------------------------------------
+  // A game of checkers can be seated on this canvas: the board
+  // is scene content, moves are scene ops, and in vs-ghost mode
+  // the hosted peer is the opponent. The referee (CheckersGame)
+  // is created on first use and lives in a ref; its snapshots
+  // drive the edge-docked game chrome below, and a ref mirror
+  // of "a game is live" lets the frame loop settle the breathe
+  // orbit onto the authored view — a board being played on
+  // does not drift.
+  const [gameSnap, setGameSnap] = useState<CheckersGameSnapshot | null>(
+    null
+  );
+  const gameRef = useRef<CheckersGame | null>(null);
+  const gameActiveRef = useRef(false);
+  const pickerRef = useRef<ForgePicker | null>(null);
+  const pickerLoadingRef = useRef(false);
+  /** The eye the frame loop last rendered from (picking's truth). */
+  const lastEyeRef = useRef<number[] | null>(null);
 
   // ---- Ghost host (Slice C — Forge presence) ------------------
   // The same host the fluid runs (useGhostPeer), mounted with
@@ -226,7 +269,12 @@ export default function ForgeLayer({
       // validated forge decision, performed against the live
       // scene through the seam (the performer reads the
       // handle this layer published, at the moment of use).
-      performForgeDecision(decision);
+      // Slice D: while a checkers game is live, the referee
+      // also hears every performed decision — a forge-move on
+      // its turn is its move to complete, and anything else
+      // that changed the board is the census's business.
+      const outcome = performForgeDecision(decision);
+      gameRef.current?.noteGhostDecision(decision, outcome);
     },
     onSfx: (kind, sfxCtx) => {
       // The ghost's generated sounds are real on every fabric
@@ -260,6 +308,14 @@ export default function ForgeLayer({
       if (!handle) return;
       const summary = buildForgeSceneSummary(handle.scene);
       if (summary) ghostRef.current.noteForgeScene(summary);
+      // Slice D: while a checkers game runs, the same heartbeat
+      // re-feeds the game sense. The sense carries a freshness
+      // window (the peer deliberates at its own pace, and a slow
+      // device must not let the ghost's turn go stale before its
+      // first deliberation reaches it) — the game's signature
+      // gate still decides what re-arms deliberation, so an
+      // unchanged position never spams it.
+      gameRef.current?.feedNow();
     };
     feed();
     const unsub = subscribeForgeScene(feed);
@@ -280,6 +336,134 @@ export default function ForgeLayer({
     if (now - lastActivityRef.current < 1000) return;
     lastActivityRef.current = now;
     ghostRef.current.noteUserActivity();
+  }, []);
+
+  // The checkers referee, created on first use. Its deps read
+  // through refs (the seam's live handle, the ghost hook's
+  // sense feed, the shared voice), so the one instance serves
+  // the layer's whole life.
+  const ensureGame = useCallback((): CheckersGame => {
+    if (!gameRef.current) {
+      gameRef.current = new CheckersGame({
+        getHandle: () => getForgeSceneHandle(),
+        onSnapshot: (snap) => {
+          gameActiveRef.current = snap.active;
+          setGameSnap(snap);
+        },
+        onEvent: (event) => {
+          // The game's record, on the console the layer already
+          // uses for its own failures — moves, captures, and
+          // (loudly) any divergence the referee reports.
+          // eslint-disable-next-line no-console
+          console.info("[Forge checkers]", event.type, event);
+        },
+        playSfx: (kind, hue) => {
+          // The markers' feelings sound through the shared
+          // ghost voice, pitched from the reacting seat's hue.
+          sfxRef.current.play(kind, hue, {
+            articulation: { intensity: 0.6 },
+          });
+        },
+        feedGameSense: (ctx) => {
+          ghostRef.current.noteForgeGame(ctx);
+        },
+        markerHexesFor: (mode) => {
+          // Each seat's marker wears its ghostie's hue. On this
+          // device the hosted peer IS the local player's
+          // ghostie: in vs-ghost mode it seats both ends — your
+          // companion cheering at your end, your sparring
+          // partner across the board — so both markers wear
+          // its hue. Pass-and-play's far seat has no ghostie on
+          // this device, so its marker wears the side color.
+          const hex = ghostHueToHex(ghostSelfHueRef.current);
+          return {
+            near: hex,
+            far: mode === "vs-ghost" ? hex : CHECKERS_COLORS.teal,
+          };
+        },
+        sfxHuesFor: (mode) => ({
+          coral: ghostSelfHueRef.current,
+          teal:
+            mode === "vs-ghost" ? ghostSelfHueRef.current : 186,
+        }),
+      });
+    }
+    return gameRef.current;
+  }, []);
+
+  // Picking warms up at game start: the engine's scene-query
+  // addon loads lazily, long after the scene exists (the
+  // Slice A load-order discipline), and the picker is useless
+  // before there is a board to pick from.
+  const ensurePicker = useCallback(async (): Promise<void> => {
+    if (pickerRef.current || pickerLoadingRef.current) return;
+    pickerLoadingRef.current = true;
+    try {
+      const mod = await import("67js/addons/scene-query");
+      pickerRef.current = createForgePicker(mod);
+    } catch {
+      // Picking unavailable on this load: taps fall silent
+      // rather than pretending (the game still runs — the
+      // ghost's turns and the chrome are unaffected).
+    }
+    pickerLoadingRef.current = false;
+  }, []);
+
+  // A tap on the canvas while a game is live: unproject the
+  // tap through the view the frame loop actually rendered
+  // (its last eye), raycast the scene's parts with the
+  // engine's query, and hand the referee the node id (or null
+  // — a tap that hit nothing still means "deselect").
+  const handleCanvasTap = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const game = gameRef.current;
+      const handle = getForgeSceneHandle();
+      if (!game || !handle || !game.isActive) return;
+      const picker = pickerRef.current;
+      if (!picker) {
+        void ensurePicker();
+        return;
+      }
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      const eye = lastEyeRef.current ?? handle.scene.camera.eye;
+      const ray = rayFromCamera(
+        eye,
+        handle.scene.camera.target,
+        handle.scene.camera.fov ?? 42,
+        rect.width / rect.height,
+        ndcX,
+        ndcY
+      );
+      const id = picker.pick(
+        handle.scene.parts,
+        ray.origin,
+        ray.direction,
+        handle.scene.revision
+      );
+      game.tapNode(id);
+    },
+    [ensurePicker]
+  );
+
+  const startGame = useCallback(
+    (mode: "vs-ghost" | "pass-and-play") => {
+      void ensurePicker();
+      ensureGame().start(mode);
+    },
+    [ensureGame, ensurePicker]
+  );
+
+  // The referee and picker die with the layer.
+  useEffect(() => {
+    return () => {
+      gameRef.current?.dispose();
+      pickerRef.current?.dispose();
+    };
   }, []);
 
   useEffect(() => {
@@ -372,19 +556,53 @@ export default function ForgeLayer({
         // tearing-down scene.
         registerForgeScene({ scene, renderer, refreshCamera });
 
+        // Slice D: while a checkers game is live, the orbit
+        // SETTLES onto the authored view and holds — a board
+        // being played on does not drift under the players'
+        // fingers (and picking reads the eye that was actually
+        // rendered, kept in lastEyeRef). Leaving the game
+        // rebases the orbit from the settled angle, so the
+        // breathe resumes without a snap.
+        let displayAngle: number | null = null;
+        let wasGameActive = false;
+        let lastFrameAt = performance.now();
         const frame = () => {
           if (disposed || !renderer) return;
           raf = requestAnimationFrame(frame);
           if (document.hidden) return;
-          const t = (performance.now() - orbit.started) / 1000;
-          const a = orbit.baseAngle + t * ORBIT_SPEED;
+          const nowMs = performance.now();
+          const dt = Math.min(0.1, (nowMs - lastFrameAt) / 1000);
+          lastFrameAt = nowMs;
+          const t = (nowMs - orbit.started) / 1000;
+          if (displayAngle === null) {
+            displayAngle = orbit.baseAngle + t * ORBIT_SPEED;
+          }
+          if (gameActiveRef.current) {
+            let desired = orbit.baseAngle;
+            while (desired - displayAngle > Math.PI) desired -= 2 * Math.PI;
+            while (displayAngle - desired > Math.PI) desired += 2 * Math.PI;
+            displayAngle +=
+              (desired - displayAngle) * Math.min(1, dt * 3);
+            if (Math.abs(desired - displayAngle) < 0.0005) {
+              displayAngle = desired;
+            }
+          } else {
+            if (wasGameActive) {
+              orbit.baseAngle = displayAngle - t * ORBIT_SPEED;
+            }
+            displayAngle = orbit.baseAngle + t * ORBIT_SPEED;
+          }
+          wasGameActive = gameActiveRef.current;
+          const a = displayAngle;
+          const eye: [number, number, number] = [
+            orbit.target[0] + orbit.radius * Math.cos(a),
+            orbit.eyeY,
+            orbit.target[2] + orbit.radius * Math.sin(a),
+          ];
+          lastEyeRef.current = eye;
           renderer.render({
             ...scene.camera,
-            eye: [
-              orbit.target[0] + orbit.radius * Math.cos(a),
-              orbit.eyeY,
-              orbit.target[2] + orbit.radius * Math.sin(a),
-            ],
+            eye,
             environment: scene.environment,
             effects: scene.effects,
             exposure: scene.effects.exposure,
@@ -435,6 +653,7 @@ export default function ForgeLayer({
     >
       <canvas
         ref={canvasRef}
+        onPointerDown={handleCanvasTap}
         style={{
           position: "absolute",
           inset: 0,
@@ -444,6 +663,89 @@ export default function ForgeLayer({
           touchAction: "none",
         }}
       />
+      {/* Slice D: the game's own chrome — edge-docked at the
+          bottom-left, belonging to this fabric alone: start
+          controls when no game is seated, the turn banner and
+          End while one is live. The canvas center stays clear,
+          per the chrome doctrine. */}
+      <div
+        style={{
+          position: "absolute",
+          left: 16,
+          bottom: 16,
+          zIndex: 2,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: 8,
+        }}
+      >
+        {gameSnap?.active ? (
+          <>
+            <div
+              style={{
+                color: "#e8ecf4",
+                background: "rgba(11, 16, 32, 0.82)",
+                border: "1px solid rgba(232, 236, 244, 0.18)",
+                borderRadius: 10,
+                padding: "8px 12px",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              {gameSnap.banner}
+            </div>
+            <button
+              type="button"
+              onClick={() => gameRef.current?.end()}
+              style={{
+                color: "#e8ecf4",
+                background: "rgba(11, 16, 32, 0.82)",
+                border: "1px solid rgba(232, 236, 244, 0.18)",
+                borderRadius: 10,
+                padding: "8px 12px",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              End game
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => startGame("vs-ghost")}
+              style={{
+                color: "#e8ecf4",
+                background: "rgba(11, 16, 32, 0.82)",
+                border: "1px solid rgba(232, 236, 244, 0.18)",
+                borderRadius: 10,
+                padding: "8px 12px",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              Checkers — play your ghostie
+            </button>
+            <button
+              type="button"
+              onClick={() => startGame("pass-and-play")}
+              style={{
+                color: "#e8ecf4",
+                background: "rgba(11, 16, 32, 0.82)",
+                border: "1px solid rgba(232, 236, 244, 0.18)",
+                borderRadius: 10,
+                padding: "8px 12px",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              Checkers — two players, one screen
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

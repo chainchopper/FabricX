@@ -391,6 +391,118 @@ function isStaleRefusal(err: unknown): boolean {
   return /revision/i.test(msg);
 }
 
+/** A stale-revision refusal, distinguished for the retry loops. */
+class ForgeStaleError extends Error {}
+
+/**
+ * One apply + renderer sync against the live scene (the shared
+ * core of every Forge performance): apply with the revision
+ * read at apply time, then sync the renderer by the topology
+ * rule (replaceParts when the part set changed, updateParts
+ * otherwise) and render one frame in the layer's view shape.
+ * Throws ForgeStaleError on a stale refusal, and a plain Error
+ * with the engine's own words on any other failure — including
+ * a landed apply whose sync refused (the message says the act
+ * landed; callers report it as failed, never as performed).
+ */
+function applyOpsOnce(handle: ForgeSceneHandle, ops: unknown[]): number {
+  const { scene, renderer } = handle;
+  const topologyBefore = scene.topologyRevision;
+  try {
+    scene.apply(ops, { expectedRevision: scene.revision });
+  } catch (err) {
+    if (isStaleRefusal(err)) {
+      throw new ForgeStaleError(
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+  try {
+    if (scene.topologyRevision !== topologyBefore) {
+      renderer.replaceParts(scene.parts);
+    } else {
+      renderer.updateParts(scene.parts);
+    }
+    renderer.render({
+      ...scene.camera,
+      environment: scene.environment,
+      effects: scene.effects,
+      exposure: scene.effects?.exposure ?? 1,
+    });
+  } catch (err) {
+    throw new Error(
+      `the act landed (scene revision ${scene.revision}) but the renderer refused the sync: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  return scene.revision;
+}
+
+/**
+ * Re-sync the renderer after a NON-op scene change — a
+ * checkpoint restore (the checkers game's End) replaces the
+ * scene's contents wholesale, so the part set is re-handed
+ * entire (replaceParts) and one frame renders. The restore
+ * itself is the engine's session API, called by the owner;
+ * this is only its renderer shadow.
+ */
+export function syncForgeScene(handle: ForgeSceneHandle): void {
+  const { scene, renderer } = handle;
+  renderer.replaceParts(scene.parts);
+  renderer.render({
+    ...scene.camera,
+    environment: scene.environment,
+    effects: scene.effects,
+    exposure: scene.effects?.exposure ?? 1,
+  });
+}
+
+/**
+ * Perform raw agent-scene ops through the SAME path a forge
+ * decision travels (Slice D): the revision contract (read at
+ * apply time, one retry on a stale refusal, then the ops drop
+ * — never a loop, never a force), the topology sync rule, one
+ * render. The checkers game executes every move this way: its
+ * ops are absolute (game-owned ids, board positions), so a
+ * stale retry re-applies the same ops against the fresh
+ * revision instead of re-translating.
+ */
+export function performForgeOps(
+  ops: unknown[],
+  handle: ForgeSceneHandle | null = getForgeSceneHandle(),
+  label = "scene ops"
+): ForgePerformOutcome {
+  if (!handle) return { kind: "no-scene" };
+  if (!Array.isArray(ops) || ops.length === 0) {
+    return { kind: "refused", reason: "there are no ops to perform" };
+  }
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const revision = applyOpsOnce(handle, ops);
+      return {
+        kind: "performed",
+        label,
+        revision,
+        attempts: attempt as 1 | 2,
+      };
+    } catch (err) {
+      if (err instanceof ForgeStaleError) {
+        if (attempt === 2) {
+          return { kind: "stale-dropped", reason: err.message };
+        }
+        continue;
+      }
+      return {
+        kind: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+  return { kind: "stale-dropped", reason: "the scene kept moving" };
+}
+
 /**
  * Perform one validated forge decision against the live scene.
  * The handle is read from the seam at perform time (a caller may
@@ -419,7 +531,7 @@ export function performForgeDecision(
     return { kind: "refused", reason: "the decision carries no forge_spec" };
   }
   if (!handle) return { kind: "no-scene" };
-  const { scene, renderer } = handle;
+  const { scene } = handle;
 
   let translated = forgeOpsForDecision(decision, scene);
   if ("refusal" in translated) {
@@ -428,16 +540,12 @@ export function performForgeDecision(
   let ops = translated.ops;
 
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const topologyBefore = scene.topologyRevision;
     try {
-      scene.apply(ops, { expectedRevision: scene.revision });
+      applyOpsOnce(handle, ops);
     } catch (err) {
-      if (isStaleRefusal(err)) {
+      if (err instanceof ForgeStaleError) {
         if (attempt === 2) {
-          return {
-            kind: "stale-dropped",
-            reason: err instanceof Error ? err.message : String(err),
-          };
+          return { kind: "stale-dropped", reason: err.message };
         }
         // The scene moved under the act: re-translate against
         // the fresh scene and retry ONCE — the loop's second
@@ -452,30 +560,6 @@ export function performForgeDecision(
       return {
         kind: "failed",
         reason: err instanceof Error ? err.message : String(err),
-      };
-    }
-    // The apply landed. Sync the renderer in the engine's own
-    // two modes (see the header): replaceParts when the act
-    // changed the part set, updateParts for in-place changes —
-    // then one render in the layer's own view shape.
-    try {
-      if (scene.topologyRevision !== topologyBefore) {
-        renderer.replaceParts(scene.parts);
-      } else {
-        renderer.updateParts(scene.parts);
-      }
-      renderer.render({
-        ...scene.camera,
-        environment: scene.environment,
-        effects: scene.effects,
-        exposure: scene.effects?.exposure ?? 1,
-      });
-    } catch (err) {
-      return {
-        kind: "failed",
-        reason: `the act landed (scene revision ${scene.revision}) but the renderer refused the sync: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
       };
     }
     if (decision.intent === "forge-camera") {
