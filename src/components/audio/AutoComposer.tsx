@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Tone from "tone";
 import { useExperience } from "../../contexts/ExperienceContext";
+import { usePreferences } from "../../../app/context/PreferencesContext";
 import { subscribeGhostMusicPhrases } from "../../ghost/ghostMusicStore";
 import { phraseToEvents } from "./phraseEvents";
 
@@ -29,12 +30,19 @@ import { phraseToEvents } from "./phraseEvents";
  * layer, no phrases are authored, nothing arrives here, and
  * the music does not play. The toggle asks the GHOST to play;
  * there is no fallback sequencer pretending otherwise.
+ *
+ * Slice J (audibles): `audioEnabled` is the MASTER switch.
+ * `musicEnabled` keeps its own meaning — the ghost's standing
+ * request to play — but when Audio is off this renderer stops
+ * scheduling entirely and the synth goes away (see below). A
+ * phrase already scheduled keeps no voice past the flip.
  */
 export default function AutoComposer() {
   if (Platform.OS !== "web") return null;
 
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
+  const { audioEnabled } = usePreferences();
 
   // Only run for default-fluid when enabled
   const isDefaultFluid = activeExperience?.id === "default-fluid";
@@ -44,9 +52,38 @@ export default function AutoComposer() {
   const vol = Number(experienceConfig.common?.audioVolume ?? 0.7);
 
   const synthRef = useRef<Tone.PolySynth<Tone.Synth> | null>(null);
+  // Slice J: a live mirror of the master switch for the
+  // phrase callback below — a phrase published in the same
+  // tick as the flip must not schedule after the release.
+  const audioEnabledRef = useRef(audioEnabled);
+  audioEnabledRef.current = audioEnabled;
+
+  // Slice J: Audio off DISPOSES the synth the moment the
+  // switch flips. A plain releaseAll is not enough here, and
+  // the J browser drive proved it (RMS 0.1364 after the flip):
+  // triggerAttackRelease schedules each note's attack in the
+  // future, and a release issued now cannot cancel an attack
+  // that has not happened yet — the note re-opens its envelope
+  // at its start time and sounds until its own release. The
+  // piano (useToneSynth) can release because its notes are
+  // held, not pre-scheduled; this renderer's notes are all
+  // scheduled up front. Disposing stops the voices outright,
+  // scheduled attacks included. Flip Audio back on and the
+  // scheduling effect below re-runs and ensureSynth builds a
+  // fresh synth — nothing is lost but the silenced notes.
+  useEffect(() => {
+    if (audioEnabled) return;
+    if (!synthRef.current) return;
+    try {
+      synthRef.current.dispose();
+    } catch {
+      // ignore synth dispose failures
+    }
+    synthRef.current = null;
+  }, [audioEnabled]);
 
   useEffect(() => {
-    if (!isDefaultFluid || !enabled) {
+    if (!isDefaultFluid || !enabled || !audioEnabled) {
       return () => {};
     }
 
@@ -76,6 +113,10 @@ export default function AutoComposer() {
       void (async () => {
         const synth = await ensureSynth();
         if (!synth || disposed) return;
+        // Slice J: the flip may have landed while ensureSynth
+        // awaited — a phrase that arrived before the flip must
+        // not schedule a single note after it.
+        if (!audioEnabledRef.current) return;
         const startAt = Tone.now() + 0.06;
         for (const ev of phraseToEvents(phrase)) {
           try {
@@ -97,7 +138,7 @@ export default function AutoComposer() {
       unsubscribe();
       // Keep synth alive for fast resume; Tone dest remains configured
     };
-  }, [isDefaultFluid, enabled, vol]);
+  }, [isDefaultFluid, enabled, vol, audioEnabled]);
 
   return null;
 }

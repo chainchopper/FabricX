@@ -1,14 +1,24 @@
 import React, { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { useExperience } from "../../contexts/ExperienceContext";
+import { usePreferences } from "../../../app/context/PreferencesContext";
+import { getSharedAudioContext } from "../../audio/sharedAudio";
 
 type Preset = "ambience" | "A4" | "C5";
+
+// Slice J (audibles): the drone's target gain, levelled into
+// the verb-cue band (0.025–0.03) so it sits under the piano
+// and beside the ghost (MASTER_GAIN 0.024 in useGhostSfx) —
+// not 15x above it, as the old 0.35 target was. The rAF loop
+// clamps to this same value; the drone can never exceed it.
+const DRONE_TARGET_GAIN = 0.03;
 
 export default function Ambience() {
   if (Platform.OS !== "web") return null;
 
   const { state } = useExperience();
   const { activeExperience, experienceConfig } = state;
+  const { audioEnabled } = usePreferences();
 
   const isDefaultFluid = activeExperience?.id === "default-fluid";
   const s = (experienceConfig.specific as Record<string, unknown>) || {};
@@ -24,10 +34,15 @@ export default function Ambience() {
 
   const ensureCtx = () => {
     if (!ctxRef.current) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const AC: typeof AudioContext | undefined = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!AC) return null;
-      ctxRef.current = new AC();
+      // Slice J: schedule onto the ONE shared context (Tone's —
+      // see src/audio/sharedAudio, the Hotfix 1.8 pattern), so
+      // the root gesture unlock covers the drone too. The
+      // private `new AudioContext()` this file used to build is
+      // gone: on iOS a context resumed outside a gesture stays
+      // suspended, and the root unlock listener resumes only
+      // Tone's context — the drone likely never sounded on
+      // Terrell's iPhone at all.
+      ctxRef.current = getSharedAudioContext();
     }
     return ctxRef.current;
   };
@@ -78,14 +93,18 @@ export default function Ambience() {
     const loop = () => {
       if (!gainRef.current) return;
       const current = gainRef.current.gain.value;
-      const target = enabled ? 0.35 : 0.0;
+      // Slice J: Audio off ramps the gain to 0 exactly the way
+      // ambienceEnabled off does — the master switch means
+      // silence. The target is the leveled drone gain, never
+      // the old 0.35.
+      const target = enabled && audioEnabled ? DRONE_TARGET_GAIN : 0.0;
       const next = current + (target - current) * 0.04;
-      gainRef.current.gain.value = Math.max(0, Math.min(0.72, next));
+      gainRef.current.gain.value = Math.max(0, Math.min(DRONE_TARGET_GAIN, next));
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
 
-    if (enabled) {
+    if (enabled && audioEnabled) {
       void ctx.resume().catch(() => {});
     }
 
@@ -104,7 +123,7 @@ export default function Ambience() {
       lfoGainRef.current = null;
       oscRef.current = null;
     };
-  }, [isDefaultFluid, enabled, chosenName]);
+  }, [isDefaultFluid, enabled, chosenName, audioEnabled]);
 
   // Keep AudioContext alive across unmounts for user-gesture unlock persistence
   useEffect(() => {
