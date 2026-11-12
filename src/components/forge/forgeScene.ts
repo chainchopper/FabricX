@@ -81,6 +81,18 @@ export const FORGE_PALETTE = {
  * environment with one warm point light. Original to this
  * fabric — the same five shapes the Slice A bundling proof
  * renders through Metro and headless Chrome.
+ *
+ * Slice G (composition): the arrangement is authored, not
+ * incidental. The floor is wide (30 units) so its near and
+ * side edges fall out of frame and its far edge reads as a
+ * horizon, not a slab edge cutting the mid-frame. The sphere
+ * is smaller and pulled back so it no longer eats the cube —
+ * every shape reads from the authored camera (pinned by
+ * forge-composition-check's raycast visibility: each shape
+ * ≥ 80% visible). The ring stands on the floor (its outer
+ * radius is 1.08 units at unit scale — the torus generator's
+ * fixed major radius 1.0 plus tube 0.08 — so at scale 0.5 it
+ * rests at y 0.54), held by the ground, never a halo.
  */
 export function forgeStarterRecipe() {
   return {
@@ -100,11 +112,11 @@ export function forgeStarterRecipe() {
       { id: "grape", color: hexToLinear(FORGE_PALETTE.grape), metallic: 0.2, roughness: 0.4 },
     ],
     nodes: [
-      { id: "floor-node", geometry: "unit-box", material: "floor", translation: [0, -0.05, 0], scale: [9, 0.1, 9] },
+      { id: "floor-node", geometry: "unit-box", material: "floor", translation: [0, -0.05, 0], scale: [30, 0.1, 30] },
       { id: "cube-node", geometry: "unit-box", material: "coral", translation: [-1.4, 0.5, 0.2] },
-      { id: "ball-node", geometry: "ball", material: "teal", translation: [0.8, 0.6, 0.6], scale: [1.2, 1.2, 1.2] },
+      { id: "ball-node", geometry: "ball", material: "teal", translation: [1.2, 0.85, 0.9], scale: [0.85, 0.85, 0.85] },
       { id: "post-node", geometry: "post", material: "brass", translation: [2.1, 0.7, -0.9], scale: [0.8, 1.4, 0.8] },
-      { id: "ring-node", geometry: "ring", material: "grape", translation: [-0.2, 1.7, -1.4] },
+      { id: "ring-node", geometry: "ring", material: "grape", translation: [-3.2, 0.54, -2.8], scale: [0.5, 0.5, 0.5] },
     ],
     camera: { eye: [4.2, 3.0, 5.6], target: [0, 0.7, 0], fov: 42 },
     environment: {

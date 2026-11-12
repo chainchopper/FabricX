@@ -189,9 +189,11 @@ export const FABRIC_INFO: Record<string, FabricInfo> = {
     modes: [
       "The starter scene — a floor and five shapes in studio light, standing as the fabric opens",
       "Breathing — the camera drifts in a slow orbit while the room is quiet; the scene is present, never a frozen frame",
+      "Checkers — play your ghostie, or two players on one screen, on a board that is scene data",
+      "Photos — add a photo as a print or as blocks; it stands in the scene where it can be seen",
     ],
     rules: [
-      "Its own canvas, its own room — nothing of the fluid's surface applies here, and the fluid does not run underneath",
+      "Its own canvas, its own world — nothing of the fluid's surface applies here, and the fluid does not run underneath",
       "The scene is data: every shape, material and light in it is named in the recipe that draws it",
       "The Forge needs WebGL2 — where a browser doesn't have it, the fabric says so on a labeled screen instead of opening blank",
     ],

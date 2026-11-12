@@ -188,9 +188,15 @@ export class CheckersGame {
     } catch {
       this.checkpoint = null;
     }
+    // Slice G: the floor stays — the board seats ON the
+    // ground (the starter floor-node is the board's ground),
+    // and only the free scene's other nodes clear. End's
+    // checkpoint restore brings the whole free scene back.
     let clearNodeIds: string[] = [];
     try {
-      clearNodeIds = (scene.exportRecipe().nodes ?? []).map((n) => n.id);
+      clearNodeIds = (scene.exportRecipe().nodes ?? [])
+        .map((n) => n.id)
+        .filter((id) => id !== "floor-node");
     } catch {
       clearNodeIds = [];
     }
@@ -209,6 +215,15 @@ export class CheckersGame {
       });
       return false;
     }
+    // The setup ops seated the game camera; the layer's
+    // breathe orbit re-derives from it, so the settle holds
+    // the game view (Slice G).
+    try {
+      handle.refreshCamera();
+    } catch {
+      // The orbit re-sync is courtesy, never the start's
+      // success condition — the board is seated.
+    }
     this.active = true;
     if (!this.assertCensus()) return true; // halted, with the reason showing
     this.feedSense();
@@ -222,7 +237,18 @@ export class CheckersGame {
     this.clearTimers();
     this.selection = null;
     const handle = this.deps.getHandle();
-    if (handle) this.restoreCheckpoint(handle);
+    if (handle) {
+      this.restoreCheckpoint(handle);
+      // The checkpoint restored the free camera; the orbit
+      // re-derives from it (the layer's settle-rebase keeps
+      // the angle continuous, so the breathe resumes from the
+      // game view without a snap — Slice G).
+      try {
+        handle.refreshCamera();
+      } catch {
+        // Courtesy only; the scene is restored regardless.
+      }
+    }
     this.active = false;
     this.mode = null;
     this.gameSeq += 1;
@@ -782,11 +808,13 @@ export class CheckersGame {
     if (!handle) return;
     const [x, y, z] = checkersMarkerWorld(end);
     const mat = checkersMarkerMat(end);
-    // Dip + dim together: the marker sinks and its own
-    // material darkens (its hue, halved) — then both restore.
+    // Dip + dim together — but the dip is the DIM only now
+    // (Slice G): a marker rests on the floor, and a vertical
+    // sink would bury the ball in it. Its hue halves; its
+    // seat does not move. Then both restore.
     performForgeOps(
       [
-        ...this.markerOps(end, [x, y - 0.16, z]),
+        ...this.markerOps(end, [x, y, z]),
         {
           type: "set-material",
           id: mat,

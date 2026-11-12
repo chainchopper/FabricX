@@ -132,8 +132,16 @@ export function __resetForgePhotoRegistryForTests(): void {
 
 /* ---- shared layout ------------------------------------------------ */
 
-/** Where creations stand: facing the authored camera, on the floor. */
-export const FORGE_PHOTO_ANCHOR_Z = -2.0;
+/**
+ * Where creations stand: facing the authored camera, on the
+ * floor — FORWARD of the starter cluster (Slice G). The old
+ * −2.0 put a new photo behind the starter shapes, half-hidden
+ * by the ball and the post on arrival; +2.2 stands it in
+ * front of the cluster (whose nearest extent is the ball's
+ * front at z ≈ 1.33), on a clear sightline from the authored
+ * camera — the thing the user just added arrives visible.
+ */
+export const FORGE_PHOTO_ANCHOR_Z = 2.2;
 /** Anchor slots alternate left / right of the scene's center. */
 export const FORGE_PHOTO_ANCHOR_X: readonly number[] = [-1.85, 1.85];
 

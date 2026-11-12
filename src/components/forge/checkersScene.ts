@@ -36,12 +36,55 @@ import { checkersPiecesOf } from "./checkersEngine";
 export const CHECKERS_SQUARE_TOP_Y = 0.1;
 /** Piece cylinder: center height and crown center height. */
 export const CHECKERS_PIECE_Y = 0.2;
-export const CHECKERS_CROWN_Y = 0.37;
+export const CHECKERS_CROWN_Y = 0.38;
 /** Highlight disc center height (sits proud of the square). */
 export const CHECKERS_HIGHLIGHT_Y = 0.125;
-/** Marker rest height and distance beyond each board end. */
+/**
+ * Marker rest height and distance beyond each board end.
+ * Slice G: a marker is a ball of scale 0.55 on the engine's
+ * unit sphere (radius 1.0 in geometry space), so its world
+ * radius is 0.55 and y 0.55 IS its rest height — the audit's
+ * "hovering" read was wrong about the height. The real defect
+ * was the missing ground: the game cleared the floor, so the
+ * marker hung over the void. The game now keeps floor-node
+ * (checkersGame), so the marker rests on it. z ±4.9 sits past
+ * the board's border frame, on that floor.
+ */
 export const CHECKERS_MARKER_Y = 0.55;
 export const CHECKERS_MARKER_Z = 4.9;
+
+/**
+ * The game camera (Slice G): the authored view while a game
+ * is live. The free scene's eye [4.2, 3.0, 5.6] crops the
+ * board's near rows (the board runs off-frame at the bottom
+ * and the right); this eye is raised and pulled back so the
+ * full 8×8, the border frame and both markers fit with
+ * margin — worst |NDC| 0.889 at the proof aspect (the pin is
+ * forge-composition-check C2). Applied as a set-camera op in
+ * the setup ops (the checkpoint taken before seating restores
+ * the free camera on End — the engine's checkpoint owns the
+ * camera, proven in Slice G's probe); the layer's orbit
+ * re-derives from it via refreshCamera.
+ */
+export const FORGE_GAME_CAMERA = {
+  eye: [7.0, 6.5, 10.5] as [number, number, number],
+  target: [0, 0.2, 0] as [number, number, number],
+  fov: 42,
+} as const;
+
+/**
+ * The board's border frame (Slice G): four warm dark-wood
+ * bars around the 8×8, flush with the squares' top (y 0.1),
+ * so the board reads as a framed object on the ground instead
+ * of 64 slabs ending in the void. The long bars run the
+ * board's full width plus the frame (8.6); the short bars butt
+ * between them (8.0) so no two faces are coplanar at a corner.
+ */
+export const CHECKERS_BORDER_HALF = 4.15;
+export const CHECKERS_BORDER_WIDTH = 0.3;
+export const checkersBorderId = (side: "n" | "s" | "e" | "w"): string =>
+  `checkers-border-${side}`;
+export const CHECKERS_BORDER_MAT = "checkers-mat-border";
 
 /** World [x, z] of a board square's center. */
 export function checkersSquareXZ(
@@ -136,6 +179,8 @@ export const checkersMarkerId = (end: "near" | "far"): string =>
   `checkers-marker-${end}`;
 export const CHECKERS_SQUARE_LIGHT_MAT = "checkers-mat-sq-light";
 export const CHECKERS_SQUARE_DARK_MAT = "checkers-mat-sq-dark";
+/** A king's crown wears brass, not its side's color — the crown must read as a crown at the game camera. */
+export const CHECKERS_CROWN_MAT = "checkers-mat-crown";
 export const checkersPieceMat = (pieceId: string): string =>
   `checkers-mat-pc-${pieceId}`;
 export const checkersMarkerMat = (end: "near" | "far"): string =>
@@ -187,6 +232,8 @@ export function checkersSetupOps(
     { id: CHECKERS_SQUARE_LIGHT_MAT, color: CHECKERS_COLORS.squareLight, metallic: 0, roughness: 0.9 },
     { id: CHECKERS_SQUARE_DARK_MAT, color: CHECKERS_COLORS.squareDark, metallic: 0, roughness: 0.9 },
     { id: CHECKERS_HIGHLIGHT_MAT, color: CHECKERS_COLORS.highlight, metallic: 0.4, roughness: 0.35 },
+    { id: CHECKERS_BORDER_MAT, color: "#3a2f26", metallic: 0, roughness: 0.85 },
+    { id: CHECKERS_CROWN_MAT, color: "#d9932c", metallic: 0.8, roughness: 0.3 },
     { id: checkersMarkerMat("near"), color: opts.nearMarkerHex, metallic: 0.15, roughness: 0.4 },
     { id: checkersMarkerMat("far"), color: opts.farMarkerHex, metallic: 0.15, roughness: 0.4 },
   ];
@@ -229,6 +276,24 @@ export function checkersSetupOps(
       });
     }
   }
+  // The border frame (Slice G): two long bars across the
+  // board's width, two short bars butting between them —
+  // flush with the squares' top, so the board is framed.
+  const b = CHECKERS_BORDER_HALF;
+  const w = CHECKERS_BORDER_WIDTH;
+  const borderLen = 2 * b + w;
+  const borderShort = 2 * b - w;
+  for (const [id, translation, scale] of [
+    [checkersBorderId("n"), [0, CHECKERS_SQUARE_TOP_Y / 2, b], [borderLen, CHECKERS_SQUARE_TOP_Y, w]],
+    [checkersBorderId("s"), [0, CHECKERS_SQUARE_TOP_Y / 2, -b], [borderLen, CHECKERS_SQUARE_TOP_Y, w]],
+    [checkersBorderId("e"), [b, CHECKERS_SQUARE_TOP_Y / 2, 0], [w, CHECKERS_SQUARE_TOP_Y, borderShort]],
+    [checkersBorderId("w"), [-b, CHECKERS_SQUARE_TOP_Y / 2, 0], [w, CHECKERS_SQUARE_TOP_Y, borderShort]],
+  ] as const) {
+    ops.push({
+      type: "add-node",
+      node: { id, geometry: "unit-box", material: CHECKERS_BORDER_MAT, translation, scale },
+    });
+  }
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const piece = state.cells[r * 8 + c];
@@ -249,9 +314,9 @@ export function checkersSetupOps(
           node: {
             id: checkersCrownId(piece.id),
             geometry: "post",
-            material: checkersPieceMat(piece.id),
+            material: CHECKERS_CROWN_MAT,
             translation: checkersCrownWorld(r, c),
-            scale: [0.46, 0.14, 0.46],
+            scale: [0.62, 0.16, 0.62],
           },
         });
       }
@@ -269,6 +334,16 @@ export function checkersSetupOps(
       },
     });
   }
+  // The game camera (Slice G): seating the board also seats
+  // the view — the free scene's authored camera stays the
+  // starter's; the checkpoint taken before these ops restores
+  // it on End.
+  ops.push({
+    type: "set-camera",
+    eye: [...FORGE_GAME_CAMERA.eye],
+    target: [...FORGE_GAME_CAMERA.target],
+    fov: FORGE_GAME_CAMERA.fov,
+  });
   return ops;
 }
 
@@ -303,9 +378,10 @@ function nearTranslation(
 /**
  * The referee's proof: every engine piece stands on the scene
  * at its square (crown iff king), every square stands at its
- * authored place, both markers are seated, and no extra
- * checkers-* node exists. Anything else is a named problem —
- * the controller halts on a failed census rather than patch
+ * authored place, the border frame stands at its authored
+ * place, both markers are seated, and no extra checkers-*
+ * node exists. Anything else is a named problem — the
+ * controller halts on a failed census rather than patch
  * around it. Marker POSITIONS are not asserted (reactions move
  * them); their presence is.
  */
@@ -331,6 +407,27 @@ export function checkersCensus(
       if (!nearTranslation(node.translation, [x, CHECKERS_SQUARE_TOP_Y / 2, z])) {
         problems.push(`square ${id} is not at its authored place`);
       }
+    }
+  }
+  // The border frame (Slice G): four bars at their authored places.
+  const b = CHECKERS_BORDER_HALF;
+  const w = CHECKERS_BORDER_WIDTH;
+  const borderLen = 2 * b + w;
+  const borderShort = 2 * b - w;
+  for (const [id, translation, scale] of [
+    [checkersBorderId("n"), [0, CHECKERS_SQUARE_TOP_Y / 2, b], [borderLen, CHECKERS_SQUARE_TOP_Y, w]],
+    [checkersBorderId("s"), [0, CHECKERS_SQUARE_TOP_Y / 2, -b], [borderLen, CHECKERS_SQUARE_TOP_Y, w]],
+    [checkersBorderId("e"), [b, CHECKERS_SQUARE_TOP_Y / 2, 0], [w, CHECKERS_SQUARE_TOP_Y, borderShort]],
+    [checkersBorderId("w"), [-b, CHECKERS_SQUARE_TOP_Y / 2, 0], [w, CHECKERS_SQUARE_TOP_Y, borderShort]],
+  ] as const) {
+    expected.add(id);
+    const node = byId.get(id);
+    if (!node) {
+      problems.push(`border ${id} is missing from the scene`);
+    } else if (
+      !nearTranslation(node.translation, translation as [number, number, number])
+    ) {
+      problems.push(`border ${id} is not at its authored place`);
     }
   }
   for (let r = 0; r < 8; r++) {
