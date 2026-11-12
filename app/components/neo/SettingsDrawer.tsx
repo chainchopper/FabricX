@@ -116,7 +116,7 @@ export default function SettingsDrawer() {
                 }}
               >
                 <Text style={{ color: audioEnabled ? "#34d399" : "#e5e7eb", fontWeight: "700" }}>
-                  Audio Cues: {audioEnabled ? "On" : "Off"}
+                  Audio: {audioEnabled ? "On" : "Off"}
                 </Text>
               </Pressable>
             </View>
