@@ -57,6 +57,10 @@ import { publishGhostMusicPhrase } from "../../ghost/ghostMusicStore";
 import { performForgeDecision } from "../forge/forgePerformer";
 import { fetchFirstMusicPackSeed } from "../../ghost/midiPhrase";
 import { vibrate } from "../../sensory/vibration";
+import {
+  createStrokeThrottle,
+  strokePulseDuration,
+} from "../../sensory/feltStroke";
 import { resolveGhostLayerEnabled } from "../../ghost/ghostShared";
 import { useGhostSharedSettings } from "../../ghost/ghostSharedPref";
 import {
@@ -306,6 +310,10 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
   // render path): a participant's sound fires when a stroke STARTS,
   // not per splat — drawing is continuous, voices are events.
   const peerStrokeRef = useRef<Map<string, number>>(new Map());
+  // Felt Strokes: per-peer throttle for the received-stroke pulse
+  // (see the remote-interaction render path). One throttle for the
+  // component's life — a peer's clock is not reset by re-renders.
+  const feltStrokeRef = useRef(createStrokeThrottle());
 
   // ---- Ghost (Slice 2) -------------------------------------------------
   // The ghost is a local agent peer with its own peer id
@@ -2191,6 +2199,30 @@ export default function LegacyFluid({ onReady }: LegacyFluidProps = {}) {
         return;
       }
       engine.splatAt(i.position.x, i.position.y, i.force.x, i.force.y, splatColor, i.radiusScale ?? 1);
+      // Felt Strokes: a remote human's plain stroke is FELT on this
+      // device, not just seen — the thesis event the haptics audit
+      // found missing. Pressure already rides the wire; the buckets
+      // are the only intensity dial the web actuator has (timing,
+      // not amplitude). The per-peer 140 ms throttle turns a storm
+      // of points into a rhythm, not a buzzsaw. Sub-threshold
+      // pressure never reaches the gate (no pulse, and no
+      // suppression notice for a touch that wouldn't have buzzed).
+      // Verbs, shakes and ghost splats never enter here — verbs
+      // keep their signatures below, shake kept its vibrate(60)
+      // above, and a ghost's feeling stays verb-only this slice.
+      // The gate is untouched: vibrate() is the ONE gate, so the
+      // Settings switch still rules this. (A "tilt" lean rides
+      // this path too: it renders as a plain splat and the
+      // audit's exclusion list names only verb / shake / ghost.)
+      if (!isGhost && !i.verb && i.kind !== "shake") {
+        const strokeMs = strokePulseDuration(i.pressure);
+        if (
+          strokeMs > 0 &&
+          feltStrokeRef.current.shouldFire(i.userId)
+        ) {
+          vibrate(strokeMs);
+        }
+      }
       // Slice 24: a remote human's heart wears THEIR Signature
       // Heart motif when their announce says they've equipped it
       // — the ring is drawn here, on the receiving canvas, keyed
