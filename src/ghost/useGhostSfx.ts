@@ -54,7 +54,12 @@
  * dropped, except hearts; when several ghosts act at once, the limiter
  * naturally keeps the first (callers pass nearest/most-recent first)
  * and drops the rest. The purr is exempt from the cue limiter because
- * it is one continuous, quiet loop, not a sequence of cues.
+ * it is one continuous, quiet loop, not a sequence of cues. Slice K:
+ * `playSequence` admits a reaction as ONE limiter decision and
+ * sounds its voices staggered 500 ms apart — the one caller that
+ * speaks in pairs (the checkers referee) no longer has its second
+ * voice swallowed by the same-tick rule, and no other caller can
+ * ride the sequence past the limiter.
  *
  * Powered by Nirvana
  */
@@ -64,6 +69,10 @@ import { usePreferences } from "../../app/context/PreferencesContext";
 import { getSharedAudioContext } from "../audio/sharedAudio";
 import type { GhostSoundSpec } from "./GhostBrain";
 import { ghostEnvCurve, renderGhostSound } from "./ghostSound";
+import {
+  limiterAdmits,
+  SFX_PRIORITY,
+} from "./sfxLimiter";
 import {
   articulateGhostUtterance,
   ghostFamilyForCue,
@@ -183,19 +192,24 @@ function noiseBufferFor(ctx: AudioContext): AudioBuffer {
   }
   return buf;
 }
-const MIN_CUE_GAP_MS = 1_500;
-const PRIORITY: Record<GhostSfxKind, number> = {
-  mirror: 1,
-  thinking: 1,
-  sniff: 2,
-  play: 2,
-  sleep: 2,
-  wake: 2,
-  composed: 2,
-  startle: 3,
-  heart: 3,
-  heartbeat: 3,
-};
+/**
+ * One voice of a reaction sequence: a cue kind pitched from a
+ * hue, with the caller's play options (Slice K).
+ */
+export interface GhostSfxCue {
+  kind: GhostSfxKind;
+  hue: number;
+  opts?: GhostSfxPlayOptions;
+}
+
+/**
+ * The stagger between the voices of a sequence: past the 400 ms
+ * priority-interrupt window, and past the longest single cue
+ * (a cheer spans at most ~400 ms), so each voice sounds in its
+ * own window and never talks over the one before it. A duet
+ * lands in ~1 s; a three-voice reaction in ~1.5 s.
+ */
+export const GHOST_SFX_SEQUENCE_STAGGER_MS = 500;
 
 function getAudioContextCtor(): (new () => AudioContext) | null {
   if (typeof window === "undefined") return null;
@@ -282,29 +296,32 @@ export function useGhostSfx() {
     return ctxRef.current;
   }, []);
 
-  const play = useCallback(
-    (kind: GhostSfxKind, hue: number, opts?: GhostSfxPlayOptions) => {
-      if (!audioEnabled) return;
+  /**
+   * Renders ONE cue through the shared context. The caller has
+   * already been admitted — `play` for a single cue, or
+   * `playSequence` for a member of an admitted sequence — so
+   * this performs NO limiter check of its own. It DOES honor
+   * the preference and the distance gate, so every path through
+   * the voice respects them, and it advances the limiter state
+   * only for cues that actually sound (a distance-dropped or
+   * context-less cue never burns the slot or a variation).
+   * Returns true when the cue sounded.
+   */
+  const soundCue = useCallback(
+    (kind: GhostSfxKind, hue: number, opts?: GhostSfxPlayOptions): boolean => {
+      if (!audioEnabled) return false;
       if (
         opts?.distance !== undefined &&
         opts.distance > 0.65 &&
         kind !== "heart"
       ) {
-        return; // acting far from view — stay silent
-      }
-      const now = performance.now();
-      const gap = now - lastCueAtRef.current;
-      const priority = PRIORITY[kind];
-      if (
-        gap < MIN_CUE_GAP_MS &&
-        !(priority > lastPriorityRef.current && gap > 400)
-      ) {
-        return; // rate-limited; also dedupes brain + render-path triggers
+        return false; // acting far from view — stay silent
       }
       const ctx = ensureCtx();
-      if (!ctx) return;
+      if (!ctx) return false;
+      const now = performance.now();
       lastCueAtRef.current = now;
-      lastPriorityRef.current = priority;
+      lastPriorityRef.current = SFX_PRIORITY[kind] ?? 1;
 
       // Slice 47: articulate THIS utterance — the family from
       // the cue kind, the parameters from the caller's context,
@@ -434,8 +451,116 @@ export function useGhostSfx() {
         osc.start(t0);
         osc.stop(t0 + dur + 0.02);
       });
+      return true;
     },
     [audioEnabled, ensureCtx]
+  );
+
+  /**
+   * One cue, through the limiter. The law lives in sfxLimiter
+   * (one cue per 1.5 s; a higher-priority cue may interrupt
+   * after 400 ms); this is the single-cue application of it.
+   */
+  const play = useCallback(
+    (kind: GhostSfxKind, hue: number, opts?: GhostSfxPlayOptions) => {
+      if (!audioEnabled) return;
+      const now = performance.now();
+      const gap = now - lastCueAtRef.current;
+      if (
+        !limiterAdmits(gap, SFX_PRIORITY[kind] ?? 1, lastPriorityRef.current)
+      ) {
+        return; // rate-limited; also dedupes brain + render-path triggers
+      }
+      soundCue(kind, hue, opts);
+    },
+    [audioEnabled, soundCue]
+  );
+
+  // Timers holding the not-yet-sounded members of admitted
+  // sequences. Cancelled on unmount and when Audio goes off,
+  // so a sequence never outlives the voice that admitted it.
+  const sequenceTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  const cancelSequences = useCallback(() => {
+    for (const t of sequenceTimersRef.current) clearTimeout(t);
+    sequenceTimersRef.current.clear();
+  }, []);
+
+  /**
+   * Slice K — a reaction admitted as ONE unit, sounded as a
+   * duet (or trio): the first voice now, each later voice one
+   * stagger later, each in its own window.
+   *
+   * Why the voice owns this, instead of the caller staggering
+   * its own calls: a caller staggering `play()` calls still
+   * answers to the limiter at every member's fire time, and
+   * the law cannot pass the members that matter — a `heart`
+   * after a `startle` is the same rank (no interrupt), and a
+   * `thinking` after either is a lower rank (never interrupts),
+   * so the third voice would need the full 1.5 s and the
+   * reaction would stretch into a queue. Worse, any other cue
+   * in between (a brain murmur from the peer) could reset the
+   * clock and swallow a member. Admitting the sequence once
+   * makes the reaction atomic: it either sounds whole or not
+   * at all, on the same law as a single cue.
+   *
+   * The limiter is NOT gutted: admission is one limiter check
+   * at call time, on the first cue's priority. Every cue
+   * OUTSIDE the sequence still answers to the limiter at its
+   * own call time — a third cue in the same tick as the
+   * sequence's first cue sees a ~0 ms gap and drops, exactly
+   * as before. And each member advances the limiter state as
+   * it sounds, so the sequence holds the floor for its span
+   * the way one cue holds it for its own.
+   *
+   * Returns a cancel: the caller (the checkers referee) runs
+   * it when the game ends, so a pending voice never sounds
+   * over a restored scene.
+   */
+  const playSequence = useCallback(
+    (
+      cues: GhostSfxCue[],
+      staggerMs: number = GHOST_SFX_SEQUENCE_STAGGER_MS
+    ): (() => void) => {
+      if (cues.length === 0) return () => {};
+      if (!audioEnabled) return () => {};
+      const now = performance.now();
+      const gap = now - lastCueAtRef.current;
+      if (
+        !limiterAdmits(
+          gap,
+          SFX_PRIORITY[cues[0].kind] ?? 1,
+          lastPriorityRef.current
+        )
+      ) {
+        return () => {}; // the whole reaction is rate-limited, as one cue would be
+      }
+      soundCue(cues[0].kind, cues[0].hue, cues[0].opts);
+      const pending = new Set<ReturnType<typeof setTimeout>>();
+      const cancel = () => {
+        for (const t of pending) {
+          clearTimeout(t);
+          sequenceTimersRef.current.delete(t);
+        }
+        pending.clear();
+      };
+      cues.slice(1).forEach((cue, i) => {
+        const t = setTimeout(
+          () => {
+            pending.delete(t);
+            sequenceTimersRef.current.delete(t);
+            // soundCue re-checks the preference at fire time:
+            // Audio going off mid-sequence silences the rest,
+            // the way it stops a purr mid-loop.
+            soundCue(cue.kind, cue.hue, cue.opts);
+          },
+          staggerMs * (i + 1)
+        );
+        pending.add(t);
+        sequenceTimersRef.current.add(t);
+      });
+      return cancel;
+    },
+    [audioEnabled, soundCue]
   );
 
   /**
@@ -578,23 +703,28 @@ export function useGhostSfx() {
     [audioEnabled, ensureCtx, stopPurr]
   );
 
-  // The preference wins mid-purr too; and never leak a voice on unmount.
+  // The preference wins mid-purr and mid-sequence too; and never
+  // leak a voice on unmount.
   useEffect(() => {
-    if (!audioEnabled) stopPurr(true);
-  }, [audioEnabled, stopPurr]);
+    if (!audioEnabled) {
+      stopPurr(true);
+      cancelSequences();
+    }
+  }, [audioEnabled, stopPurr, cancelSequences]);
 
   useEffect(
     () => () => {
       stopPurr(true);
+      cancelSequences();
       if (ctxRef.current) {
         void ctxRef.current.close().catch(() => undefined);
         ctxRef.current = null;
       }
     },
-    [stopPurr]
+    [stopPurr, cancelSequences]
   );
 
-  return { play, startPurr, stopPurr, playPeer };
+  return { play, playSequence, startPurr, stopPurr, playPeer };
 }
 
 export type GhostSfxApi = ReturnType<typeof useGhostSfx>;

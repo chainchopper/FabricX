@@ -48,7 +48,7 @@
  * exactly — summons the ghost made before the game included.
  */
 import type { GhostDecision } from "../../ghost/GhostBrain";
-import type { GhostSfxKind } from "../../ghost/useGhostSfx";
+import type { GhostSfxCue } from "../../ghost/useGhostSfx";
 import {
   applyCheckersMove,
   checkersLegalMoves,
@@ -116,8 +116,23 @@ export interface CheckersGameDeps {
   getHandle: () => ForgeSceneHandle | null;
   onSnapshot: (snap: CheckersGameSnapshot) => void;
   onEvent: (event: CheckersGameEvent) => void;
-  /** The shared ghost voice: a reaction cue pitched from a hue. */
-  playSfx: (kind: GhostSfxKind, hue: number) => void;
+  /**
+   * The shared ghost voice, as ONE reaction: the referee hands the
+   * whole reaction over (mover's cheer, victim's startle, and —
+   * when the move earns them — the crowning heart and the
+   * last-piece worried note), and the voice admits it once and
+   * sounds its voices staggered, each in its own moment.
+   *
+   * Slice K: this REPLACES the old `playSfx` dep, which fired
+   * every cue in the same synchronous tick — and the voice's
+   * limiter dropped all but the first, so the victim's startle
+   * never sounded on a capture or a win, the crowning heart
+   * never sounded on a crowning capture, and the last-piece
+   * note never sounded, ever. The return is a cancel: the
+   * referee runs it when the game ends, so a pending voice
+   * never sounds over a restored scene.
+   */
+  playSequence: (cues: GhostSfxCue[]) => () => void;
   /** The referee's sense feed to the hosted peer (null ends it). */
   feedGameSense: (ctx: unknown) => void;
   /** Marker colors per mode — each seat's ghostie hue or side color. */
@@ -158,6 +173,8 @@ export class CheckersGame {
   };
   private sfxHues: Record<CheckersSide, number> = { coral: 210, teal: 186 };
   private timers = new Set<ReturnType<typeof setTimeout>>();
+  /** Cancels for reactions still sounding (Slice K). */
+  private sfxCancels = new Set<() => void>();
   private gameSeq = 0;
 
   constructor(deps: CheckersGameDeps) {
@@ -715,6 +732,19 @@ export class CheckersGame {
    * dims; a side down to its last piece hears a worried note.
    * Sounds ride the shared ghost voice, pitched from the
    * reacting seat's hue.
+   *
+   * Slice K: the reaction is composed as ONE sequence and
+   * handed to the voice whole. The old code fired each cue
+   * with its own `playSfx` call in the same synchronous tick,
+   * and the voice's limiter dropped every cue after the
+   * first — the victim's startle never sounded, the crowning
+   * heart never sounded on a crowning capture, and the
+   * last-piece note never sounded, ever. The voice admits
+   * the sequence once and staggers its voices 500 ms apart,
+   * so the loser finally gets heard — in order, each in its
+   * own moment: the mover's cheer, the victim's startle,
+   * then the crowning heart and the worried note when the
+   * move earns them.
    */
   private react(
     move: CheckersMove,
@@ -725,31 +755,44 @@ export class CheckersGame {
     const victim = otherCheckersSide(mover);
     const moverEnd = checkersEndForSide(mover);
     const victimEnd = checkersEndForSide(victim);
+    const cues: GhostSfxCue[] = [];
     if (next.winner) {
       const winnerEnd = checkersEndForSide(next.winner);
       const loserEnd = checkersEndForSide(otherCheckersSide(next.winner));
       this.riseSpin(winnerEnd);
       this.dip(loserEnd);
-      this.deps.playSfx("play", this.sfxHues[next.winner]);
-      this.deps.playSfx("startle", this.sfxHues[otherCheckersSide(next.winner)]);
-      return;
-    }
-    if (move.captures.length > 0) {
-      this.hop(moverEnd);
-      this.dip(victimEnd);
-      this.deps.playSfx("play", this.sfxHues[mover]);
-      this.deps.playSfx("startle", this.sfxHues[victim]);
-    }
-    if (move.kinging) {
-      this.riseSpin(moverEnd);
-      this.deps.playSfx("heart", this.sfxHues[mover]);
-    }
-    for (const side of ["coral", "teal"] as CheckersSide[]) {
-      const before = checkersPiecesOf(prev, side).length;
-      const after = checkersPiecesOf(next, side).length;
-      if (before > 1 && after === 1) {
-        this.deps.playSfx("thinking", this.sfxHues[side]);
+      cues.push(
+        { kind: "play", hue: this.sfxHues[next.winner] },
+        { kind: "startle", hue: this.sfxHues[otherCheckersSide(next.winner)] }
+      );
+    } else {
+      if (move.captures.length > 0) {
+        this.hop(moverEnd);
+        this.dip(victimEnd);
+        cues.push(
+          { kind: "play", hue: this.sfxHues[mover] },
+          { kind: "startle", hue: this.sfxHues[victim] }
+        );
       }
+      if (move.kinging) {
+        this.riseSpin(moverEnd);
+        cues.push({ kind: "heart", hue: this.sfxHues[mover] });
+      }
+      for (const side of ["coral", "teal"] as CheckersSide[]) {
+        const before = checkersPiecesOf(prev, side).length;
+        const after = checkersPiecesOf(next, side).length;
+        if (before > 1 && after === 1) {
+          cues.push({ kind: "thinking", hue: this.sfxHues[side] });
+        }
+      }
+    }
+    if (cues.length > 0) {
+      const cancel = this.deps.playSequence(cues);
+      // The cancel dies with the game: End/dispose clears it
+      // (clearTimers), so a pending voice never sounds over a
+      // restored scene. A completed sequence's cancel is a
+      // no-op; the set is cleared with the timers regardless.
+      this.sfxCancels.add(cancel);
     }
   }
 
@@ -766,6 +809,11 @@ export class CheckersGame {
   private clearTimers(): void {
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
+    // Slice K: a reaction still sounding dies with the game —
+    // End/dispose must not leave a pending startle or heart to
+    // sound over the restored free scene.
+    for (const cancel of this.sfxCancels) cancel();
+    this.sfxCancels.clear();
   }
 
   private markerOps(

@@ -614,12 +614,20 @@ export default function ForgeLayer({
           // eslint-disable-next-line no-console
           console.info("[Forge checkers]", event.type, event);
         },
-        playSfx: (kind, hue) => {
-          // The markers' feelings sound through the shared
-          // ghost voice, pitched from the reacting seat's hue.
-          sfxRef.current.play(kind, hue, {
-            articulation: { intensity: 0.6 },
-          });
+        playSequence: (cues) => {
+          // Slice K: the markers' feelings sound through the
+          // shared ghost voice as ONE reaction — the voice
+          // admits it once and staggers its voices, so the
+          // victim's startle is heard instead of swallowed.
+          // Every member carries the same articulation the old
+          // single cues did (intensity 0.6): the sound's
+          // character is unchanged, only the timing is.
+          return sfxRef.current.playSequence(
+            cues.map((c) => ({
+              ...c,
+              opts: { articulation: { intensity: 0.6 } },
+            }))
+          );
         },
         feedGameSense: (ctx) => {
           ghostRef.current.noteForgeGame(ctx);

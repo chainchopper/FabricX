@@ -40,7 +40,9 @@
 //      the performer's part updates.
 //   G4 a driven pass-and-play game: capture + crowning land,
 //      scene == engine asserted after EVERY move, reaction
-//      sounds fire (capture: play + startle; crowning: heart),
+//      sounds fire as ONE sequence each (capture: play +
+//      startle; crowning: heart after the pair, before any
+//      thinking — Slice K, the duet),
 //      the mover's marker is mid-hop when read back.
 //   G5 the ghost's turn travels the decision path: a REAL peer
 //      deliberates with the game sense aboard, the distilled
@@ -147,12 +149,20 @@ function makeRenderer() {
 }
 
 function makeGame(extraDeps = {}) {
-  const log = { snapshots: [], events: [], sfx: [], senses: [] };
+  const log = { snapshots: [], events: [], sfx: [], seqs: [], senses: [] };
   const game = new fp.CheckersGame({
     getHandle: () => fp.getForgeSceneHandle(),
     onSnapshot: (s) => log.snapshots.push(s),
     onEvent: (e) => log.events.push(e),
-    playSfx: (kind, hue) => log.sfx.push({ kind, hue }),
+    // Slice K: the referee hands the whole reaction over as
+    // one sequence (the old playSfx dep fired each cue in the
+    // same tick and the voice dropped all but the first).
+    // The stub logs the composed sequences and returns the
+    // cancel the game stores; the cancel is a no-op here.
+    playSequence: (cues) => {
+      log.seqs.push(cues.map((c) => ({ kind: c.kind, hue: c.hue })));
+      return () => {};
+    },
     feedGameSense: (ctx) => log.senses.push(ctx),
     markerHexesFor: () => ({ near: "#3b82f6", far: "#f59e0b" }),
     sfxHuesFor: () => ({ coral: 210, teal: 186 }),
@@ -588,15 +598,25 @@ check(
     `halted=${game.snapshot().halted}`
   );
   check(
-    "G4 reactions sounded through the voice path: a capture earns play + startle",
-    log.sfx.some((s) => s.kind === "play") &&
-      log.sfx.some((s) => s.kind === "startle"),
-    JSON.stringify(log.sfx.slice(0, 6))
+    "G4 reactions sounded through the voice path: a capture earns play + startle, as ONE sequence in order",
+    log.seqs.some(
+      (s) =>
+        s.length >= 2 && s[0].kind === "play" && s[1].kind === "startle"
+    ),
+    JSON.stringify(log.seqs.slice(0, 6))
   );
   check(
-    "G4 a crowning earns the heart cue",
-    log.sfx.some((s) => s.kind === "heart"),
-    JSON.stringify(log.sfx.map((s) => s.kind))
+    "G4 a crowning earns the heart cue, after the pair and before any thinking (never swallowed mid-tick)",
+    log.seqs.some((s) => {
+      const heartAt = s.findIndex((c) => c.kind === "heart");
+      return (
+        heartAt === 2 &&
+        s[0].kind === "play" &&
+        s[1].kind === "startle" &&
+        s.slice(heartAt + 1).every((c) => c.kind === "thinking")
+      );
+    }),
+    JSON.stringify(log.seqs.map((s) => s.map((c) => c.kind).join("+")))
   );
   check(
     "G4 the mover's marker hops on a capture (game ops, read back from the scene)",
