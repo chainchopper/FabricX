@@ -103,6 +103,21 @@
  * checkers game owns the scene. Web-only, like the Forge
  * itself: the picker is the platform file input, and on the
  * labeled fallback panel no photo is claimed.
+ *
+ * Slice H (the dock: motion + hierarchy — the visuals audit's
+ * finding 4): the dock no longer pops. Its two branches (menu vs
+ * game) crossfade through ChromeMount, the house mount pattern
+ * (enter motion.base, exit motion.fast, 8px rise), the
+ * conditional Clear-photos pill and the photo note fade the same
+ * way, and every pill is a ForgeDockPill in the token visual
+ * language (forgeDockChrome): one primary (play your ghostie —
+ * the accent, semibold, separated by an xs step), the rest
+ * secondary, Clear photos in danger. Pressed is the pointer's
+ * :active — these are momentary actions, so no pill fakes a
+ * toggled state; the active mode is the branch. All dock type
+ * is on the token scale and every dock color is a token color.
+ * The lime question is NOT settled here: no lime appears in
+ * the dock, and the decision stays its own slice.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
@@ -153,6 +168,12 @@ import {
   subscribeSessionState,
   type SessionPublicState,
 } from "../../session/sessionStore";
+import { ChromeMount } from "../ui/ChromeMount";
+import { spacing } from "../../theme/tokens";
+import {
+  ForgeDockPill,
+  ForgeDockStyles,
+} from "./forgeDockChrome";
 
 /** Idle life: the camera's slow orbit, radians per second. */
 const ORBIT_SPEED = 0.05;
@@ -909,150 +930,100 @@ export default function ForgeLayer({
           bottom-left, belonging to this fabric alone: start
           controls when no game is seated, the turn banner and
           End while one is live. The canvas center stays clear,
-          per the chrome doctrine. */}
+          per the chrome doctrine.
+          Slice H: the dock's motion + hierarchy. The two
+          branches are both mounted and crossfade through
+          ChromeMount (the house mount pattern) instead of
+          swapping instantly — each branch is absolutely
+          anchored to the same corner, so the fade overlaps
+          instead of pushing the layout. The conditional
+          Clear-photos pill and the photo note fade the same
+          way. Every pill is a ForgeDockPill (forgeDockChrome):
+          one primary (play your ghostie), the rest secondary,
+          Clear photos in danger. */}
       <div
         style={{
           position: "absolute",
-          left: 16,
-          bottom: 16,
+          left: spacing.lg,
+          bottom: spacing.lg,
           zIndex: 2,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-start",
-          gap: 8,
         }}
       >
-        {gameSnap?.active ? (
-          <>
-            <div
-              style={{
-                color: "#e8ecf4",
-                background: "rgba(11, 16, 32, 0.82)",
-                border: "1px solid rgba(232, 236, 244, 0.18)",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontSize: 14,
-                fontWeight: 600,
-              }}
-            >
-              {gameSnap.banner}
-            </div>
-            <button
-              type="button"
-              onClick={() => gameRef.current?.end()}
-              style={{
-                color: "#e8ecf4",
-                background: "rgba(11, 16, 32, 0.82)",
-                border: "1px solid rgba(232, 236, 244, 0.18)",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              End game
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => startGame("vs-ghost")}
-              style={{
-                color: "#e8ecf4",
-                background: "rgba(11, 16, 32, 0.82)",
-                border: "1px solid rgba(232, 236, 244, 0.18)",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              Checkers — play your ghostie
-            </button>
-            <button
-              type="button"
-              onClick={() => startGame("pass-and-play")}
-              style={{
-                color: "#e8ecf4",
-                background: "rgba(11, 16, 32, 0.82)",
-                border: "1px solid rgba(232, 236, 244, 0.18)",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              Checkers — two players, one screen
-            </button>
-            {/* Slice E: the photo controls — same dock, this
-                fabric's own chrome. They live only in the
-                no-game branch: while a game is seated it owns
-                the scene, and no photo lands on its board. */}
-            <button
-              type="button"
-              onClick={() => pickPhoto("print")}
-              style={{
-                color: "#e8ecf4",
-                background: "rgba(11, 16, 32, 0.82)",
-                border: "1px solid rgba(232, 236, 244, 0.18)",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              Add a photo — as a print
-            </button>
-            <button
-              type="button"
-              onClick={() => pickPhoto("mosaic")}
-              style={{
-                color: "#e8ecf4",
-                background: "rgba(11, 16, 32, 0.82)",
-                border: "1px solid rgba(232, 236, 244, 0.18)",
-                borderRadius: 10,
-                padding: "8px 12px",
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              Add a photo — as blocks
-            </button>
-            {photoSnap.prints + photoSnap.mosaics > 0 ? (
-              <button
-                type="button"
-                onClick={clearPhotos}
-                style={{
-                  color: "#e8ecf4",
-                  background: "rgba(11, 16, 32, 0.82)",
-                  border: "1px solid rgba(232, 236, 244, 0.18)",
-                  borderRadius: 10,
-                  padding: "8px 12px",
-                  fontSize: 14,
-                  cursor: "pointer",
-                }}
-              >
-                Clear photos ({photoSnap.prints + photoSnap.mosaics})
-              </button>
-            ) : null}
-            {photoSnap.note ? (
-              <div
-                style={{
-                  color: "#9aa5b8",
-                  background: "rgba(11, 16, 32, 0.82)",
-                  border: "1px solid rgba(232, 236, 244, 0.12)",
-                  borderRadius: 10,
-                  padding: "6px 10px",
-                  fontSize: 12.5,
-                  maxWidth: 300,
-                }}
-              >
-                {photoSnap.note}
-              </div>
-            ) : null}
-          </>
-        )}
+        <ChromeMount
+          visible={gameSnap?.active === true}
+          style={{
+            position: "absolute",
+            left: 0,
+            bottom: 0,
+            width: "max-content",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: spacing.sm,
+          }}
+        >
+          <div className="forge-dock-banner">{gameSnap?.banner ?? ""}</div>
+          <ForgeDockPill
+            variant="secondary"
+            onClick={() => gameRef.current?.end()}
+          >
+            End game
+          </ForgeDockPill>
+        </ChromeMount>
+        <ChromeMount
+          visible={gameSnap?.active !== true}
+          style={{
+            position: "absolute",
+            left: 0,
+            bottom: 0,
+            width: "max-content",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: spacing.sm,
+          }}
+        >
+          <ForgeDockPill
+            variant="primary"
+            onClick={() => startGame("vs-ghost")}
+            style={{ marginBottom: spacing.xs }}
+          >
+            Checkers — play your ghostie
+          </ForgeDockPill>
+          <ForgeDockPill
+            variant="secondary"
+            onClick={() => startGame("pass-and-play")}
+          >
+            Checkers — two players, one screen
+          </ForgeDockPill>
+          {/* Slice E: the photo controls — same dock, this
+              fabric's own chrome. They live only in the
+              no-game branch: while a game is seated it owns
+              the scene, and no photo lands on its board. */}
+          <ForgeDockPill
+            variant="secondary"
+            onClick={() => pickPhoto("print")}
+          >
+            Add a photo — as a print
+          </ForgeDockPill>
+          <ForgeDockPill
+            variant="secondary"
+            onClick={() => pickPhoto("mosaic")}
+          >
+            Add a photo — as blocks
+          </ForgeDockPill>
+          <ChromeMount
+            visible={photoSnap.prints + photoSnap.mosaics > 0}
+          >
+            <ForgeDockPill variant="danger" onClick={clearPhotos}>
+              Clear photos ({photoSnap.prints + photoSnap.mosaics})
+            </ForgeDockPill>
+          </ChromeMount>
+          <ChromeMount visible={Boolean(photoSnap.note)}>
+            <div className="forge-dock-note">{photoSnap.note}</div>
+          </ChromeMount>
+        </ChromeMount>
+        <ForgeDockStyles />
       </div>
     </div>
   );

@@ -185,7 +185,12 @@ check(
     layerSrc.includes("Checkers — play your ghostie") &&
     layerSrc.includes("Checkers — two players, one screen") &&
     layerSrc.includes("End game") &&
-    layerSrc.includes("gameSnap.banner"),
+    // Slice H: the banner renders the snapshot's banner text —
+    // plain access on the old ternary-narrowed branch, optional
+    // access now that the ChromeMount branches carry no narrowing.
+    // Either form passes; a missing banner still fails.
+    (layerSrc.includes("gameSnap.banner") ||
+      layerSrc.includes("gameSnap?.banner")),
   "the game belongs to the Forge fabric's own layer"
 );
 check(
