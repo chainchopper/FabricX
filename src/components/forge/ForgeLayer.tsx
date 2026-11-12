@@ -389,6 +389,20 @@ export default function ForgeLayer({
           const build = buildForgeMosaicOps(handle.scene, { image });
           outcome = performForgeOps(build.ops, handle, "photo mosaic");
         }
+        if (outcome.kind === "performed") {
+          // Slice L: the arrival sounds — the hosted ghost
+          // greets the new standing thing in its scene (the
+          // greeting family's little chirps of notice), through
+          // the shared voice, pitched from its hue, at the
+          // articulation the game wiring uses. Only a performed
+          // arrival sounds; a refused one stays as silent as it
+          // is invisible. The cue answers to the voice's
+          // limiter like any other, and to audioEnabled inside
+          // play() — Slice J's master switch covers it.
+          sfxRef.current.play("sniff", ghostSelfHueRef.current, {
+            articulation: { intensity: 0.6 },
+          });
+        }
         setPhotoSnap((prev) => ({
           ...prev,
           note:
