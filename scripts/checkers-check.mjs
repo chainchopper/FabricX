@@ -423,11 +423,12 @@ check(
   const nodes = recipeNodes(scene);
   const ids = nodes.map((n) => n.id);
   check(
-    "G2 a game seats on the real scene: 90 parts (64 squares + 24 pieces + 2 markers), ids unique, starter cleared",
+    "G2 a game seats on the real scene: 95 parts (64 squares + 24 pieces + 2 markers + 4 border bars + the kept floor), ids unique, starter cleared except the floor (Slice G: the board seats ON the ground)",
     started === true &&
-      scene.parts.length === 90 &&
+      scene.parts.length === 95 &&
       new Set(ids).size === ids.length &&
-      !ids.some((id) => starterIds.includes(id)),
+      ids.includes("floor-node") &&
+      !ids.some((id) => id !== "floor-node" && starterIds.includes(id)),
     `parts=${scene.parts.length} nodes=${ids.length}`
   );
   check(
