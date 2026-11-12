@@ -643,6 +643,28 @@ const MUSIC_MIN_INTERVAL_MS = 2_000;
 const FORGE_BUDGET_COST = 4;
 const FORGE_MIN_INTERVAL_MS = 12_000;
 /**
+ * Slice L: the cue kind each forge act speaks in, emitted by
+ * performForge through the shared ghost voice (the onSfx seam —
+ * no new audio path). The kind's family is the act's sound
+ * shape: a summon rises in (wake), a banish sinks away (sleep),
+ * a move travels across pitch (play), a recolor is one soft
+ * blip (mirror), a reshape bends like its shape does (startle —
+ * the voice's one sweeping family), a relight swells warm
+ * (heart), and a camera move is the quietest act the ghost
+ * takes, a murmur (thinking). GHOST_INTENT_FAMILIES carries
+ * these same families for these same intents; the
+ * forge-sounds check pins the agreement.
+ */
+const FORGE_ACT_CUES: Record<string, GhostSfxKind> = {
+  "forge-summon": "wake",
+  "forge-banish": "sleep",
+  "forge-move": "play",
+  "forge-recolor": "mirror",
+  "forge-reshape": "startle",
+  "forge-relight": "heart",
+  "forge-camera": "thinking",
+};
+/**
  * The chorale's phrase grid (Slice 70): a phrase is
  * GHOST_MUSIC_PHRASE_STEPS eighth-note steps — 8 beats — and
  * in an ensemble performance every ghostie's phrases START
@@ -3939,6 +3961,18 @@ export class GhostPeer {
     this.journal(label, now);
     this.markDeliberationDirty();
     this.options.onPerformance?.(label);
+    // Slice L: the act sounds. The cue rides the same onSfx
+    // seam as every brain cue — the host's shared ghost voice,
+    // pitched from this ghost's hue, shaped by this decision's
+    // intensity, answering to the voice's limiter like any cue.
+    // It fires when the peer COMMITS the act (gates passed,
+    // budget charged), alongside the hand to the sink; the
+    // performer's outcome does not return here (the Slice C
+    // seam), so a performer drop after a stale-revision retry
+    // sounds an act the room may not see land — the honest
+    // edge of this seam, recorded in the slice record.
+    const actCue = FORGE_ACT_CUES[decision.intent];
+    if (actCue) this.emitSfx(actCue, { intensity: decision.intensity });
     this.options.onForgeDecision?.(decision);
   }
 

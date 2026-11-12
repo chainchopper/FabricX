@@ -585,14 +585,23 @@ export const GHOST_INTENT_FAMILIES: Record<string, GhostVoiceFamily | null> = {
   // phrase itself, sounded by the layer's music renderer —
   // there is no family cue behind it either.
   "play-music": null,
-  // Slice B: a forge decision's act is the scene change itself
-  // — a shape appearing, a light moving — performed on the
-  // Forge canvas, not voiced; there is no family cue behind it.
-  "forge-summon": null,
-  "forge-banish": null,
-  "forge-move": null,
-  "forge-recolor": null,
-  "forge-reshape": null,
-  "forge-relight": null,
-  "forge-camera": null,
+  // Slice B held these null ("the act is the scene change
+  // itself"); Slice L voices them: the scene change is the
+  // ghost's body moving, and a body that moves in silence reads
+  // as a silent movie (the audibles audit's verdict). Each act
+  // speaks in the family whose shape matches the act — a summon
+  // rises in, a banish sinks away, a move travels across pitch,
+  // a recolor blips, a reshape bends, a relight swells warm, a
+  // camera move murmurs at thinking's volume. The families here
+  // are GHOST_CUE_FAMILIES of the cue kinds performForge emits
+  // (FORGE_ACT_CUES in GhostPeer); forge-sounds-check pins the
+  // two maps agreeing, so the voice never describes an act in
+  // one family and sounds it in another.
+  "forge-summon": "waking",
+  "forge-banish": "sleepy",
+  "forge-move": "play",
+  "forge-recolor": "echo",
+  "forge-reshape": "surprised",
+  "forge-relight": "cheer",
+  "forge-camera": "thinking",
 };

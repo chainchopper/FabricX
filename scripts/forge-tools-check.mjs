@@ -717,9 +717,19 @@ check(
     fluidSrc.includes("performForgeDecision(decision)")
 );
 check(
-  "T8 the voice map is honest about the forge intents: no family cue behind a scene act",
-  read("src/ghost/ghostVoice.ts").includes('"forge-summon": null') &&
-    read("src/ghost/ghostVoice.ts").includes('"forge-camera": null')
+  // Slice L amended this pin: Slice B held the forge intents
+  // silent (null) because the peer emitted no cue for a scene
+  // act; Slice L voices every act, so the honest map is the
+  // assigned families — pinned here, and measured for real in
+  // forge-sounds-check.
+  "T8 the voice map is honest about the forge intents: every act carries its Slice L family",
+  read("src/ghost/ghostVoice.ts").includes('"forge-summon": "waking"') &&
+    read("src/ghost/ghostVoice.ts").includes('"forge-banish": "sleepy"') &&
+    read("src/ghost/ghostVoice.ts").includes('"forge-move": "play"') &&
+    read("src/ghost/ghostVoice.ts").includes('"forge-recolor": "echo"') &&
+    read("src/ghost/ghostVoice.ts").includes('"forge-reshape": "surprised"') &&
+    read("src/ghost/ghostVoice.ts").includes('"forge-relight": "cheer"') &&
+    read("src/ghost/ghostVoice.ts").includes('"forge-camera": "thinking"')
 );
 
 console.log(`\nforge-tools-check: ${pass} passed, ${fail} failed`);
