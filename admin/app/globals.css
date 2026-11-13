@@ -1,0 +1,31 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0c0f12; color: #e8ecef; }
+a { color: #7cc4ff; }
+button { background: #1d6fb8; color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; cursor: pointer; font-size: 14px; }
+button.secondary { background: #2a3138; }
+button.danger { background: #a33327; }
+button:disabled { opacity: 0.5; cursor: default; }
+input, select, textarea { background: #141a1f; color: #e8ecef; border: 1px solid #333d45; border-radius: 6px; padding: 7px 9px; font-size: 14px; width: 100%; }
+label { display: block; font-size: 12px; color: #9fb0bc; margin: 10px 0 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid #232b31; vertical-align: top; }
+th { color: #9fb0bc; font-weight: 600; }
+.shell { max-width: 1180px; margin: 0 auto; padding: 18px 20px 60px; }
+.topbar { display: flex; align-items: center; gap: 18px; padding: 12px 0 16px; border-bottom: 1px solid #232b31; margin-bottom: 18px; }
+.topbar .brand { font-weight: 700; font-size: 17px; }
+.topbar nav { display: flex; gap: 14px; }
+.topbar .spacer { flex: 1; }
+.banner { border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14.5px; }
+.banner.ok { background: #12351f; border: 1px solid #1f6b3a; }
+.banner.bad { background: #4a1710; border: 1px solid #a33327; }
+.banner.none { background: #1a2126; border: 1px solid #333d45; }
+.card { background: #11161a; border: 1px solid #232b31; border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid #333d45; }
+.pill.ok { border-color: #1f6b3a; color: #7bd99a; }
+.pill.bad { border-color: #a33327; color: #ff9c8a; }
+.pill.warn { border-color: #a37f27; color: #ffd97b; }
+.muted { color: #9fb0bc; font-size: 12.5px; }
+.err { color: #ff9c8a; font-size: 13.5px; margin-top: 10px; white-space: pre-wrap; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
