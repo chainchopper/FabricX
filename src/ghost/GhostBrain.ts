@@ -3611,6 +3611,64 @@ export function decideUtteranceOutcome(
   return { kind: "decision", decision: floor.decision, ruleId: floor.ruleId };
 }
 
+export type GhostUtteranceTierAttempt = "cloud" | "device";
+
+/**
+ * The utterance tier plan (Slice 33 fix, Nov 12): which REAL
+ * model tiers a comprehension deliberation must attempt, in
+ * order, before the decision-table floor may answer.
+ *
+ * Why this exists: the original Slice 33 routing keyed the
+ * attempt purely off the ambient tier preference, whose default
+ * is "on-device" — and the on-device MODEL only answers when it
+ * has been downloaded and warmed. On a fresh device that meant
+ * every utterance silently fell to the floor (the cue-map
+ * reading + candidate table in this module): comprehension in
+ * name, a lookup in fact. Terrell's verdict, Nov 12: "understands
+ * is quite important to be missing… NO MOCK FUNCTIONALITY."
+ *
+ * The plan is the law the router (useGhostPeer) follows:
+ *   - A configured cloud (the user's own key, or Fanalogy's
+ *     build-time locked-in cloud) is a real model: an utterance
+ *     deliberation attempts it even when the ambient preference
+ *     is the on-device tier. Ambient deliberations keep the
+ *     preference exactly as before — this plan governs
+ *     utterances only, because a spoken remark is a deliberate
+ *     act that deserves the best available comprehension.
+ *   - The on-device model, when actually ready, is attempted
+ *     first under the on-device preference (the choice is
+ *     honored when it can be satisfied) and second under the
+ *     cloud preference (a downloaded brain is a real fallback).
+ *   - When NO real model can be attempted, raiseBrainAsk is
+ *     true: the router raises the standing brain-wanted signal
+ *     (the one-time download consent / resume) instead of
+ *     letting the floor answer in silence. The floor remains
+ *     the last resort — after a real attempt, or while no model
+ *     exists yet — and the brain line says when it answered.
+ */
+export interface GhostUtteranceTierPlan {
+  /** Real-model attempts, in the order the router must try them. */
+  attempts: GhostUtteranceTierAttempt[];
+  /** True when no real model can be attempted: raise the ask. */
+  raiseBrainAsk: boolean;
+}
+
+export function planUtteranceTiers(input: {
+  tierPref: "on-device" | "spark-cloud";
+  cloudConfigPresent: boolean;
+  deviceReady: boolean;
+}): GhostUtteranceTierPlan {
+  const attempts: GhostUtteranceTierAttempt[] = [];
+  if (input.tierPref === "spark-cloud") {
+    if (input.cloudConfigPresent) attempts.push("cloud");
+    if (input.deviceReady) attempts.push("device");
+  } else {
+    if (input.deviceReady) attempts.push("device");
+    if (input.cloudConfigPresent) attempts.push("cloud");
+  }
+  return { attempts, raiseBrainAsk: attempts.length === 0 };
+}
+
 /**
  * The utterance note for the model tiers (Slice 33): what was
  * said, by whom, how sure the hearing is, and the comprehension

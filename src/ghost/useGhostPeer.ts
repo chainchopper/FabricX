@@ -99,6 +99,7 @@ import {
   decideOnDevice,
   decideUtteranceOutcome,
   parseGhostPersonality,
+  planUtteranceTiers,
   STAMINA_TIRED_BELOW,
   UTTERANCE_CONFIDENCE_FLOOR,
   type GhostDecision,
@@ -477,11 +478,31 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
             });
             return;
           }
+          // Model-first (Slice 33 fix, Nov 12): the attempts come
+          // from planUtteranceTiers, NOT from the ambient tier
+          // preference alone. The original routing consulted a
+          // real model only when the preference already named it
+          // AND that tier happened to be ready — on a default
+          // install (preference "on-device", model not yet
+          // downloaded) every utterance silently fell to the
+          // table floor: comprehension in name, a lookup in
+          // fact. Now a configured cloud is attempted even under
+          // the on-device preference, a ready device model is
+          // attempted under either preference, and when NO real
+          // model can be attempted the brain-wanted signal is
+          // raised (the download consent / resume) in every
+          // branch — the floor never answers in silence, and its
+          // brain line below says it answered.
           const tier = await getGhostBrainTier();
-          if (tier === "spark-cloud") {
-            const config = await loadLLMConfig();
-            if (config) {
-              const service = getLLMService(config);
+          const uttConfig = await loadLLMConfig();
+          const plan = planUtteranceTiers({
+            tierPref: tier,
+            cloudConfigPresent: !!uttConfig,
+            deviceReady: isOnDeviceBrainReady(),
+          });
+          for (const attempt of plan.attempts) {
+            if (attempt === "cloud" && uttConfig) {
+              const service = getLLMService(uttConfig);
               const decision = await consultSparkBrain(
                 scenario,
                 (messages, opts) =>
@@ -491,40 +512,51 @@ export function useGhostPeer(options: UseGhostPeerOptions) {
                 stamina
               );
               if (decision) {
-                applyGated(decision, "spark", "Spark", heardSuffix);
+                applyGated(
+                  decision,
+                  "spark",
+                  tier === "spark-cloud" ? "Spark" : "Cloud model",
+                  heardSuffix
+                );
                 return;
               }
               // No usable reply — including an honest UNCERTAIN:
-              // the floor reads the words itself, below.
-            }
-            // No cloud resolved: the floor decides, exactly as
-            // the ambient path's keyless case does.
-          } else if (isOnDeviceBrainReady()) {
-            const deviceDecision = await consultDeviceBrain(
-              scenario,
-              (messages, opts) =>
-                onDeviceChat(messages, opts).then((t) => t ?? ""),
-              8_000,
-              personality,
-              stamina
-            );
-            if (deviceDecision) {
-              applyGated(
-                deviceDecision,
-                "device",
-                "On-device model",
-                heardSuffix
+              // the next attempt, then the floor, below.
+            } else if (attempt === "device") {
+              const deviceDecision = await consultDeviceBrain(
+                scenario,
+                (messages, opts) =>
+                  onDeviceChat(messages, opts).then((t) => t ?? ""),
+                8_000,
+                personality,
+                stamina
               );
-              return;
+              if (deviceDecision) {
+                applyGated(
+                  deviceDecision,
+                  "device",
+                  "On-device model",
+                  heardSuffix
+                );
+                return;
+              }
+              // No usable reply: fall through to the floor.
             }
-            // No usable reply: fall through to the floor.
-          } else {
-            noteBrainWanted();
           }
+          if (plan.raiseBrainAsk) noteBrainWanted();
           const outcome = decideUtteranceOutcome(scenario);
           if (outcome.kind === "decision") {
             const { decision, suffix } = withBiases(outcome.decision);
-            applyGated(decision, "table", "Understands", suffix + heardSuffix);
+            const floorSuffix =
+              plan.attempts.length === 0
+                ? " · no model connected — the table answered"
+                : " · the model passed — the table answered";
+            applyGated(
+              decision,
+              "table",
+              "Understands",
+              suffix + heardSuffix + floorSuffix
+            );
           } else {
             peer.expressPuzzlement();
             publishBrain({
