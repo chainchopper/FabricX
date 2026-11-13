@@ -58,6 +58,7 @@ const GP = await import(process.argv[3] ?? "/tmp/GP33.mjs");
 const {
   decideOnDevice,
   decideUtteranceOutcome,
+  planUtteranceTiers,
   utteranceDecisionFor,
   parseUtteranceReading,
   sanitizeUtteranceContext,
@@ -664,6 +665,58 @@ const captureSrc = readFileSync(
 check(
   "voiceCapture surfaces the recognizer's final confidence",
   captureSrc.includes("finalConfidence")
+);
+
+/* ---------------- L. the model-first plan (Nov 12 fix) ----------------
+ * The original routing keyed the model attempt off the ambient
+ * tier preference alone: default "on-device" + model not yet
+ * downloaded = the table floor answered every utterance, silently.
+ * planUtteranceTiers is the law that replaces it. */
+console.log("== planUtteranceTiers (model-first) ==");
+const plan = (tierPref, cloudConfigPresent, deviceReady) =>
+  planUtteranceTiers({ tierPref, cloudConfigPresent, deviceReady });
+check(
+  "THE REGRESSION: default pref + cloud configured + no device model → cloud attempted",
+  JSON.stringify(plan("on-device", true, false).attempts) === '["cloud"]' &&
+    plan("on-device", true, false).raiseBrainAsk === false
+);
+check(
+  "default pref + device model ready → device first, cloud as backup",
+  JSON.stringify(plan("on-device", true, true).attempts) === '["device","cloud"]'
+);
+check(
+  "default pref + device ready, no cloud → device only",
+  JSON.stringify(plan("on-device", false, true).attempts) === '["device"]'
+);
+check(
+  "cloud pref + cloud configured → cloud first",
+  JSON.stringify(plan("spark-cloud", true, true).attempts) === '["cloud","device"]'
+);
+check(
+  "cloud pref + NO cloud configured + device ready → device attempted (no silent floor)",
+  JSON.stringify(plan("spark-cloud", false, true).attempts) === '["device"]' &&
+    plan("spark-cloud", false, true).raiseBrainAsk === false
+);
+check(
+  "nothing real available (default pref) → no attempts, brain ask raised",
+  plan("on-device", false, false).attempts.length === 0 &&
+    plan("on-device", false, false).raiseBrainAsk === true
+);
+check(
+  "nothing real available (cloud pref) → no attempts, brain ask raised",
+  plan("spark-cloud", false, false).attempts.length === 0 &&
+    plan("spark-cloud", false, false).raiseBrainAsk === true
+);
+check(
+  "useGhostPeer follows the plan (not the raw tier preference)",
+  hookSrc.includes("planUtteranceTiers({") &&
+    hookSrc.includes("for (const attempt of plan.attempts)") &&
+    hookSrc.includes("if (plan.raiseBrainAsk) noteBrainWanted();")
+);
+check(
+  "the floor's brain line admits the table answered",
+  hookSrc.includes("no model connected — the table answered") &&
+    hookSrc.includes("the model passed — the table answered")
 );
 
 console.log(`\nunderstands-check: ${pass} passed, ${fail} failed`);
