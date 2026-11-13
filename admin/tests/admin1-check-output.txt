@@ -1,0 +1,50 @@
+== A. auth gate (§2.4) ==
+  PASS unauthenticated admin API refused (401)
+  PASS unauthenticated admin mutation refused (401)
+  PASS public config is public by design (200)
+  PASS wrong password refused (401)
+  PASS password + TOTP login succeeds
+  PASS session cookie is HttpOnly
+== B. public config (§2.3) ==
+  PASS config payload carries an HMAC signature
+  PASS signature verifies against CONFIG_SIGNING_SECRET
+  PASS starter config is version 1
+  PASS starter routes carry labels + gateway route IDs
+  PASS voice input is NOT a route in the payload (platform service)
+  PASS starter payload has no provider URLs / model IDs / keys
+== C. endpoints + probe classification (§4.3) ==
+  PASS endpoint created; key never returned
+  PASS good endpoint probes ok (real inference shape)
+  PASS wrong key classifies as auth
+  PASS connection refused classifies as down
+  PASS blocked-style 403 classifies as blocked_or_quota (not auth, not down)
+== D. alert fires + real notifications (§4.4) ==
+  PASS blocked_or_quota opened an alert immediately (single failure)
+  PASS alert was notified (notified_at set)
+  PASS webhook channel REALLY delivered to the local listener
+  PASS email channel REALLY delivered to the local SMTP sink
+== E. per-route shapes are real (§4.3/§4.5) ==
+  PASS chat assignment with passing chat probe succeeds
+  PASS segmentation assignment refused: endpoint lacks the capability
+  PASS chat-shaped body fails the SEGMENTATION probe — assignment not made
+  PASS see_segmentation remains unassigned after the failed swap
+== F. swap takes effect in the next published config (§4.5) ==
+  PASS composer assigned to Stub A
+  PASS published config reflects the assignment (opaque rev present)
+  PASS swap records the prior endpoint for one-click rollback
+  PASS next published config reflects the swap (rev changed, version bumped)
+  PASS published payload STILL leaks no provider URL / model ID / key
+  PASS audit log carries endpoint.create + route.assign + config.publish
+== G. cron probe endpoint (§4.3) ==
+  PASS cron endpoint refuses without the secret
+  PASS cron endpoint probes with the secret
+
+admin1-check: 33 passed, 0 failed
+
+Run context: local Postgres (embedded-postgres instance, port 54329, db
+fabric_admin) + production build of the admin app on port 3100, stub
+providers / webhook listener / SMTP sink run by the check script itself.
+Note: section B asserts the starter config is version 1, so the suite is
+written for a fresh migrate+seed; re-running against a database whose
+config has already been published past v1 will fail that one assertion
+by design (it is a starter-state proof, not a stateful-suite bug).
