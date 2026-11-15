@@ -4,7 +4,11 @@
 //   node tests/admin1-check.mjs
 //
 // Required env: DATABASE_URL, CONFIG_SIGNING_SECRET, CRON_SECRET,
-//   ADMIN_TEST_USERNAME, ADMIN_TEST_PASSWORD, ADMIN_TEST_TOTP_SECRET
+//   ADMIN_TEST_USERNAME, ADMIN_TEST_PASSWORD
+// ADMIN_TEST_TOTP_SECRET is required ONLY when the admin was pre-seeded
+// via scripts/create-admin.mjs: on a fresh DB (migrated + seeded, no
+// create-admin) section 0 bootstraps the first admin through the real
+// first-run setup route and captures the TOTP secret it returns.
 // The app process itself must be started with:
 //   ALERT_WEBHOOK_URL=http://127.0.0.1:8791/hook
 //   SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_FROM=admin@test.local
@@ -15,6 +19,7 @@
 import { createHmac, createHash } from "node:crypto";
 import http from "node:http";
 import net from "node:net";
+import pg from "pg";
 
 const BASE = process.env.ADMIN_BASE_URL ?? "http://127.0.0.1:3100";
 const USERNAME = process.env.ADMIN_TEST_USERNAME ?? "terrell";
@@ -22,8 +27,8 @@ const PASSWORD = process.env.ADMIN_TEST_PASSWORD;
 const TOTP_SECRET = process.env.ADMIN_TEST_TOTP_SECRET;
 const SIGNING_SECRET = process.env.CONFIG_SIGNING_SECRET;
 const CRON = process.env.CRON_SECRET;
-if (!PASSWORD || !TOTP_SECRET || !SIGNING_SECRET || !CRON) {
-  console.error("missing test env (ADMIN_TEST_PASSWORD / ADMIN_TEST_TOTP_SECRET / CONFIG_SIGNING_SECRET / CRON_SECRET)");
+if (!PASSWORD || !SIGNING_SECRET || !CRON || !process.env.DATABASE_URL) {
+  console.error("missing test env (ADMIN_TEST_PASSWORD / CONFIG_SIGNING_SECRET / CRON_SECRET / DATABASE_URL)");
   process.exit(2);
 }
 
@@ -143,6 +148,78 @@ async function req(method, path, body, extraHeaders = {}) {
   return { status: r.status, text, json, headers: r.headers };
 }
 
+// ================================================================ 0. first-run
+// Browser bootstrap (app/api/auth/setup): exercised against whatever
+// state admin_users is in. Fresh DB -> the full creation flow runs and
+// the returned TOTP secret becomes the one sections A-G use. Pre-seeded
+// DB (create-admin already ran) -> the closed-door assertions run and
+// ADMIN_TEST_TOTP_SECRET stays in effect.
+console.log("== 0. first-run setup (browser bootstrap) ==");
+let EFFECTIVE_TOTP = TOTP_SECRET;
+{
+  const pgClient = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await pgClient.connect();
+  const userCount = Number(
+    (await pgClient.query(`SELECT COUNT(*)::text AS n FROM admin_users`)).rows[0].n
+  );
+  await pgClient.end();
+
+  const probeGet = await req("GET", "/api/auth/setup");
+  check(
+    "setup GET returns only { setupAvailable }",
+    probeGet.status === 200 &&
+      typeof probeGet.json?.setupAvailable === "boolean" &&
+      Object.keys(probeGet.json ?? {}).length === 1,
+    `got ${probeGet.status} ${probeGet.text.slice(0, 120)}`
+  );
+
+  if (userCount === 0) {
+    check("setup GET is true on an empty users table", probeGet.json?.setupAvailable === true);
+    const weak = await req("POST", "/api/auth/setup", { username: USERNAME, password: "short" });
+    check("setup POST refuses a password under 12 chars (400)", weak.status === 400, `got ${weak.status}`);
+    const created = await req("POST", "/api/auth/setup", { username: USERNAME, password: PASSWORD });
+    check(
+      "setup POST creates the first admin; TOTP secret + otpauth URI returned once",
+      created.status === 200 &&
+        typeof created.json?.totpSecret === "string" &&
+        created.json.totpSecret.length >= 16 &&
+        typeof created.json?.otpauthUri === "string" &&
+        created.json.otpauthUri.includes(created.json.totpSecret) &&
+        Array.isArray(created.json?.recoveryCodes) &&
+        created.json.recoveryCodes.length === 10,
+      `got ${created.status} ${created.text.slice(0, 160)}`
+    );
+    if (typeof created.json?.totpSecret === "string") EFFECTIVE_TOTP = created.json.totpSecret;
+    const afterGet = await req("GET", "/api/auth/setup");
+    check("setup GET is false once an admin exists", afterGet.json?.setupAvailable === false);
+    const second = await req("POST", "/api/auth/setup", {
+      username: "second-admin",
+      password: "another-long-password",
+    });
+    check("second setup POST is a permanent 404", second.status === 404, `got ${second.status}`);
+    const wrong = await req("POST", "/api/auth/login", {
+      username: USERNAME, password: "wrong-password", totp: "000000",
+    });
+    check("first-run admin: wrong password still refused (401)", wrong.status === 401, `got ${wrong.status}`);
+    const login = await req("POST", "/api/auth/login", {
+      username: USERNAME, password: PASSWORD, totp: totp(EFFECTIVE_TOTP),
+    });
+    check(
+      "first-run admin completes the real login (password + TOTP from the returned secret)",
+      login.status === 200 && login.json?.ok === true,
+      `got ${login.status} ${login.text.slice(0, 120)}`
+    );
+    cookie = ""; // section A starts unauthenticated, exactly as before
+  } else {
+    check("setup GET is false when an admin already exists", probeGet.json?.setupAvailable === false);
+    const latePost = await req("POST", "/api/auth/setup", {
+      username: "latecomer",
+      password: "another-long-password",
+    });
+    check("setup POST is 404 when an admin already exists", latePost.status === 404, `got ${latePost.status}`);
+  }
+}
+
 // ================================================================ A. auth
 console.log("== A. auth gate (§2.4) ==");
 {
@@ -154,7 +231,7 @@ console.log("== A. auth gate (§2.4) ==");
   check("public config is public by design (200)", c.status === 200, `got ${c.status}`);
   const bad = await req("POST", "/api/auth/login", { username: USERNAME, password: "wrong-password", totp: "000000" });
   check("wrong password refused (401)", bad.status === 401, `got ${bad.status}`);
-  const good = await req("POST", "/api/auth/login", { username: USERNAME, password: PASSWORD, totp: totp(TOTP_SECRET) });
+  const good = await req("POST", "/api/auth/login", { username: USERNAME, password: PASSWORD, totp: totp(EFFECTIVE_TOTP) });
   check("password + TOTP login succeeds", good.status === 200 && good.json?.ok === true, `got ${good.status} ${good.text.slice(0, 120)}`);
   check("session cookie is HttpOnly", (good.headers.get("set-cookie") ?? "").includes("HttpOnly"));
 }

@@ -16,7 +16,9 @@ the app reads config with a last-good cache and build-time fallback
   user/sessions, audit log).
 - Single-operator auth: argon2id password + TOTP (RFC 6238), recovery
   codes, server-side sessions (HttpOnly cookie, 12h), sign-in rate
-  limiting, audit-logged logins (spec §2.4).
+  limiting, audit-logged logins (spec §2.4). The first admin is created
+  either in the browser (first-run setup, below) or from the CLI
+  (`npm run create-admin`) — both paths create the account identically.
 - Endpoints CRUD incl. `private` endpoints. API keys are write-only:
   entered in the portal, stored server-side, never returned by any API.
   A key may instead be a reference (`env:NAME`) resolved from host env.
@@ -68,10 +70,39 @@ export CONFIG_SIGNING_SECRET=... TOTP_ENC_KEY=... CRON_SECRET=...
 npm ci
 npm run migrate          # applies db/migrations/*.sql in order
 npm run seed             # route registry + starter config v1 (changes nothing)
-ADMIN_USERNAME=terrell ADMIN_PASSWORD=... npm run create-admin
-#   ^ prints the TOTP secret + otpauth URL + 10 recovery codes ONCE
 
 npm run build && npm start   # or: npm run dev
+# Then create the first admin — either way shown under "First-run setup".
+```
+
+## First-run setup
+
+While the `admin_users` table is **empty**, the portal can create its
+first admin from the browser — no shell access needed on a fresh
+deploy:
+
+- `GET /api/auth/setup` returns `{ "setupAvailable": true }` (the flag
+  only, nothing else), and `/login` shows a **"Create the first admin"**
+  form instead of the sign-in form.
+- `POST /api/auth/setup` with `{ username, password }` (password ≥ 12
+  characters) creates the admin exactly as `npm run create-admin` does
+  — argon2id hash, TOTP secret encrypted at rest, 10 hashed recovery
+  codes — and responds **once** with the plaintext TOTP secret, the
+  otpauth URI, and the recovery codes, so the operator can enroll an
+  authenticator. Save them then: the secret is never retrievable again
+  (no endpoint returns it; it is never logged). Sign-in afterwards
+  still requires password + authenticator code, as always.
+- The moment any admin exists, the setup route closes permanently:
+  `GET` reports `setupAvailable: false` and `POST` returns **404**.
+  Setup POSTs are throttled per client IP, and `ADMIN_READ_ONLY=1`
+  blocks them like every other mutation.
+
+The CLI path stays available for seeding or resetting the operator
+before first sign-in:
+
+```sh
+ADMIN_USERNAME=terrell ADMIN_PASSWORD=... npm run create-admin
+#   ^ prints the TOTP secret + otpauth URL + 10 recovery codes ONCE
 ```
 
 ## Deploy
@@ -100,8 +131,12 @@ ALERT_WEBHOOK_URL=http://127.0.0.1:8791/hook \
 SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_FROM=admin@test.local \
 ALERT_EMAIL_TO=ops@test.local PORT=3100 npm run start
 
-# Terminal 2:
+# Terminal 2: run against a freshly migrated + seeded DB with NO
+# create-admin — section 0 bootstraps the first admin through the
+# first-run setup route and the rest of the check uses it.
 ADMIN_TEST_USERNAME=... ADMIN_TEST_PASSWORD=... \
-ADMIN_TEST_TOTP_SECRET=... CONFIG_SIGNING_SECRET=... CRON_SECRET=... \
-npm run check     # tests/admin1-check.mjs — 33 assertions
+CONFIG_SIGNING_SECRET=... CRON_SECRET=... DATABASE_URL=... \
+npm run check     # tests/admin1-check.mjs — 41 assertions
+# (Pre-seeded DBs still work: section 0 then asserts the closed door,
+#  and ADMIN_TEST_TOTP_SECRET=... supplies the seeded admin's secret.)
 ```

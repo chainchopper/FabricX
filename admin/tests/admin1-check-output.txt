@@ -1,3 +1,12 @@
+== 0. first-run setup (browser bootstrap) ==
+  PASS setup GET returns only { setupAvailable }
+  PASS setup GET is true on an empty users table
+  PASS setup POST refuses a password under 12 chars (400)
+  PASS setup POST creates the first admin; TOTP secret + otpauth URI returned once
+  PASS setup GET is false once an admin exists
+  PASS second setup POST is a permanent 404
+  PASS first-run admin: wrong password still refused (401)
+  PASS first-run admin completes the real login (password + TOTP from the returned secret)
 == A. auth gate (§2.4) ==
   PASS unauthenticated admin API refused (401)
   PASS unauthenticated admin mutation refused (401)
@@ -39,12 +48,4 @@
   PASS cron endpoint refuses without the secret
   PASS cron endpoint probes with the secret
 
-admin1-check: 33 passed, 0 failed
-
-Run context: local Postgres (embedded-postgres instance, port 54329, db
-fabric_admin) + production build of the admin app on port 3100, stub
-providers / webhook listener / SMTP sink run by the check script itself.
-Note: section B asserts the starter config is version 1, so the suite is
-written for a fresh migrate+seed; re-running against a database whose
-config has already been published past v1 will fail that one assertion
-by design (it is a starter-state proof, not a stateful-suite bug).
+admin1-check: 41 passed, 0 failed
